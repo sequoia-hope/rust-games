@@ -500,7 +500,11 @@ impl Course {
         };
         while s < self.length - 4.0 {
             let p = self.sample(s);
-            let edge = if p.pipe > 0.5 { PIPE_COPING + 4.0 } else { p.hw };
+            let edge = if p.pipe > 0.5 {
+                PIPE_COPING + 4.0
+            } else {
+                p.hw
+            };
             // The forest on the banks.
             for side in [-1.0f32, 1.0] {
                 for _ in 0..3 {
@@ -832,7 +836,10 @@ mod tests {
         let g = c.ground_su(300.0, 0.0);
         assert!(g.normal.y > 0.85);
         let f = c.frame(300.0);
-        assert!(g.normal.dot(f.dir) > 0.05, "the slope falls along the course");
+        assert!(
+            g.normal.dot(f.dir) > 0.05,
+            "the slope falls along the course"
+        );
     }
 
     #[test]

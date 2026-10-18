@@ -350,7 +350,12 @@ mod tests {
         for id in CourseId::ALL {
             let s = run(id, Mode::Race);
             let p = s.player();
-            assert!(p.finish.is_some(), "{id:?}: stuck at s {} of {}", p.rider.s, s.course.finish_s);
+            assert!(
+                p.finish.is_some(),
+                "{id:?}: stuck at s {} of {}",
+                p.rider.s,
+                s.course.finish_s
+            );
             let t = p.finish.unwrap();
             assert!(t > 20.0 && t < 240.0, "{id:?}: {t} s");
         }
@@ -399,10 +404,22 @@ mod tests {
                 && r.s.is_finite()
                 && r.u.is_finite());
             assert!(!bad, "{at}: rider {i} went non-finite: {r:?}");
-            assert!(r.vel.length() < 120.0, "{at}: rider {i} at {} m/s", r.vel.length());
+            assert!(
+                r.vel.length() < 120.0,
+                "{at}: rider {i} at {} m/s",
+                r.vel.length()
+            );
             let ground = c.height(r.s, r.u);
-            assert!(r.pos.y > ground - 1.5, "{at}: rider {i} {} m under the snow", ground - r.pos.y);
-            assert!(r.u.abs() < c.half_width(r.s) + 400.0, "{at}: rider {i} flew off sideways, u {}", r.u);
+            assert!(
+                r.pos.y > ground - 1.5,
+                "{at}: rider {i} {} m under the snow",
+                ground - r.pos.y
+            );
+            assert!(
+                r.u.abs() < c.half_width(r.s) + 400.0,
+                "{at}: rider {i} flew off sideways, u {}",
+                r.u
+            );
         }
     }
 
@@ -417,7 +434,11 @@ mod tests {
                 let character = (ci + mi) % CHARACTERS.len();
                 let mut s = Session::new(id, mode, character, false);
                 s.entrants[0].rider.assist = if mi % 2 == 0 { 0.6 } else { 0.0 };
-                let mut m = Masher(0x9E37_79B9 ^ (ci as u32 * 31 + mi as u32), Input::default(), 0);
+                let mut m = Masher(
+                    0x9E37_79B9 ^ (ci as u32 * 31 + mi as u32),
+                    Input::default(),
+                    0,
+                );
                 for t in 0..120 * 120 {
                     s.step(m.next());
                     if t % 4 == 0 {

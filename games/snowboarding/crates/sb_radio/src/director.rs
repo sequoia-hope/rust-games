@@ -222,7 +222,10 @@ impl Director {
     /// How long a bit takes to say, before its clips are in: about
     /// fourteen characters a second, and a breath between lines.
     pub fn estimate(lines: &[(crate::Who, &str)]) -> f32 {
-        lines.iter().map(|(_, t)| 0.5 + t.len() as f32 / 14.0).sum::<f32>()
+        lines
+            .iter()
+            .map(|(_, t)| 0.5 + t.len() as f32 / 14.0)
+            .sum::<f32>()
     }
 
     /// Something happened.
@@ -262,7 +265,11 @@ impl Director {
     /// The topic and whether to say anything at all, for a cue.
     fn topic_for(&mut self, c: Cue) -> Option<&'static str> {
         Some(match c {
-            Cue::Start { course, character, again } => {
+            Cue::Start {
+                course,
+                character,
+                again,
+            } => {
                 if again && self.rand() < 0.5 {
                     "restart"
                 } else if self.rand() < 0.35 {
@@ -306,7 +313,9 @@ impl Director {
             Cue::Behind => "behind",
             Cue::RivalDone => "rival",
             Cue::Finish { mode, won } => match mode {
-                Mode::Race if won && self.trees + self.crashes == 0 && self.rand() < 0.6 => "win-clean",
+                Mode::Race if won && self.trees + self.crashes == 0 && self.rand() < 0.6 => {
+                    "win-clean"
+                }
                 Mode::Race if won => "win",
                 Mode::Race if self.trees > 0 && self.rand() < 0.75 => "lose-trees",
                 Mode::Race => "lose",
@@ -372,7 +381,8 @@ impl Director {
                     let t = self.topic_for(c);
                     if let Some(t) = t {
                         let s = self.say(t, w, cut_in);
-                        self.next_chatter = self.next_chatter.max(self.busy_until + self.between(IDLE));
+                        self.next_chatter =
+                            self.next_chatter.max(self.busy_until + self.between(IDLE));
                         return s;
                     }
                 }
@@ -383,7 +393,11 @@ impl Director {
         if !self.talking() && self.waiting.is_none() && self.clock >= self.next_chatter {
             match scene {
                 Scene::Menu => {
-                    let t = if !self.greeted || self.rand() < 0.3 { "ident" } else { "menu" };
+                    let t = if !self.greeted || self.rand() < 0.3 {
+                        "ident"
+                    } else {
+                        "menu"
+                    };
                     self.greeted = true;
                     let s = self.say(t, 0, false);
                     self.next_chatter = self.busy_until + self.between(MENU);
@@ -437,7 +451,10 @@ mod tests {
         run(&mut d, 3.0, Scene::Menu, &mut said);
         assert_eq!(said, vec!["ident"]);
         run(&mut d, 120.0, Scene::Menu, &mut said);
-        assert!((3..=7).contains(&said.len()), "two minutes of menu: {said:?}");
+        assert!(
+            (3..=7).contains(&said.len()),
+            "two minutes of menu: {said:?}"
+        );
         assert!(said.iter().all(|t| *t == "ident" || *t == "menu"));
     }
 
@@ -460,7 +477,10 @@ mod tests {
                 won: true,
             });
             run(&mut d, 0.1, Scene::Riding, &mut said);
-            assert!(["win", "win-clean"].contains(said.last().unwrap()), "seed {seed}: {said:?}");
+            assert!(
+                ["win", "win-clean"].contains(said.last().unwrap()),
+                "seed {seed}: {said:?}"
+            );
         }
     }
 
@@ -473,11 +493,21 @@ mod tests {
         run(&mut d, 0.1, Scene::Riding, &mut said);
         assert_eq!(said, vec!["crash"]);
         // A small thing during the crash line: dropped, not said late.
-        d.cue(Cue::Trick { points: 900, spin_deg: 360 });
+        d.cue(Cue::Trick {
+            points: 900,
+            spin_deg: 360,
+        });
         run(&mut d, 6.0, Scene::Riding, &mut said);
-        assert_eq!(said, vec!["crash"], "the trick went stale while they talked");
+        assert_eq!(
+            said,
+            vec!["crash"],
+            "the trick went stale while they talked"
+        );
         // After a gap, it is said.
-        d.cue(Cue::Trick { points: 900, spin_deg: 360 });
+        d.cue(Cue::Trick {
+            points: 900,
+            spin_deg: 360,
+        });
         run(&mut d, 0.2, Scene::Riding, &mut said);
         assert_eq!(said, vec!["crash", "trick"]);
     }
@@ -510,7 +540,11 @@ mod tests {
             }
         }
         assert!(said.iter().all(|t| *t == "idle"));
-        assert!((8..=20).contains(&said.len()), "five quiet minutes: {} bits", said.len());
+        assert!(
+            (8..=20).contains(&said.len()),
+            "five quiet minutes: {} bits",
+            said.len()
+        );
         let n = topic("idle").len();
         for w in bits.windows(n) {
             let mut seen = w.to_vec();
@@ -534,8 +568,14 @@ mod tests {
             d.cue(*c);
             run(&mut d, 10.0, Scene::Riding, &mut Vec::new());
         }
-        d.cue(Cue::Finish { mode: Mode::Race, won });
-        (0..30).find_map(|_| d.update(DT, Scene::Riding)).expect("the result is called").topic
+        d.cue(Cue::Finish {
+            mode: Mode::Race,
+            won,
+        });
+        (0..30)
+            .find_map(|_| d.update(DT, Scene::Riding))
+            .expect("the result is called")
+            .topic
     }
 
     #[test]
@@ -577,7 +617,9 @@ mod tests {
                 for (_, t) in *b {
                     let t = t.to_lowercase();
                     assert!(
-                        !["tree", "pine", "trunk", "timber"].iter().any(|w| t.contains(w)),
+                        !["tree", "pine", "trunk", "timber"]
+                            .iter()
+                            .any(|w| t.contains(w)),
                         "{k} is said whether or not a tree was hit: {t}"
                     );
                 }
@@ -589,9 +631,16 @@ mod tests {
     fn every_cue_has_something_to_say() {
         let cues = [
             start(),
-            Cue::Start { course: CourseId::Pipe, character: 3, again: true },
+            Cue::Start {
+                course: CourseId::Pipe,
+                character: 3,
+                again: true,
+            },
             Cue::Go,
-            Cue::Trick { points: 3000, spin_deg: 1080 },
+            Cue::Trick {
+                points: 3000,
+                spin_deg: 1080,
+            },
             Cue::Crash { tree: true },
             Cue::Crash { tree: false },
             Cue::Air,
@@ -599,9 +648,18 @@ mod tests {
             Cue::Lead,
             Cue::Behind,
             Cue::RivalDone,
-            Cue::Finish { mode: Mode::Race, won: false },
-            Cue::Finish { mode: Mode::TimeAttack, won: false },
-            Cue::Finish { mode: Mode::TrickAttack, won: false },
+            Cue::Finish {
+                mode: Mode::Race,
+                won: false,
+            },
+            Cue::Finish {
+                mode: Mode::TimeAttack,
+                won: false,
+            },
+            Cue::Finish {
+                mode: Mode::TrickAttack,
+                won: false,
+            },
         ];
         for c in cues {
             let mut d = Director::new(11);

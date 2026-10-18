@@ -41,10 +41,17 @@ fn mb() -> f64 {
 /// derives from time then differs from run to run, as it does for a player.
 fn frames(app: &mut App, n: usize) {
     for _ in 0..n {
-        let x = app.world().resource::<Jitter>().0.wrapping_mul(1_103_515_245).wrapping_add(12345);
+        let x = app
+            .world()
+            .resource::<Jitter>()
+            .0
+            .wrapping_mul(1_103_515_245)
+            .wrapping_add(12345);
         app.world_mut().resource_mut::<Jitter>().0 = x;
         let dt = 1.0 / 60.0 * (0.6 + 0.8 * ((x >> 8) % 1000) as f64 / 1000.0);
-        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(dt)));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            dt,
+        )));
         app.update();
     }
 }
@@ -54,7 +61,10 @@ struct Jitter(u32);
 
 /// Glyph atlases: one set per font and size, never freed.
 fn atlases(app: &App) -> usize {
-    app.world().resource::<bevy::text::FontAtlasSet>().iter().count()
+    app.world()
+        .resource::<bevy::text::FontAtlasSet>()
+        .iter()
+        .count()
 }
 
 /// To a screen, and a while on it: a run through its countdown and GO!.
@@ -68,7 +78,8 @@ fn runs_leave_nothing_behind() {
     let mut app = sb_game::headless(Options::from_query("course=timber"));
     app.insert_resource(Jitter(7));
     // A window, so the UI lays out and its text is set in glyphs.
-    app.world_mut().spawn((Window::default(), bevy::window::PrimaryWindow));
+    app.world_mut()
+        .spawn((Window::default(), bevy::window::PrimaryWindow));
     app.finish();
     app.cleanup();
     frames(&mut app, 10);
@@ -93,5 +104,9 @@ fn runs_leave_nothing_behind() {
         atlases_after <= atlases_before + 2,
         "text drawn at ever new sizes: {atlases_before} glyph atlases -> {atlases_after}"
     );
-    assert!(after - before < 2.0, "20 runs kept {:.1} MB", after - before);
+    assert!(
+        after - before < 2.0,
+        "20 runs kept {:.1} MB",
+        after - before
+    );
 }

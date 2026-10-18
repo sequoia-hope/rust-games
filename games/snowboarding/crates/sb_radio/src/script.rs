@@ -40,31 +40,64 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         "ident",
         &[
             &[
-                (D, "Good afternoon, everybody, and welcome to live coverage of the Ten-Eighty Mountain Series! I'm Dani Reyes!"),
-                (W, "And I'm Wren Halvorsen. Fast snow, a hungry field, and Dani has already had two coffees."),
+                (
+                    D,
+                    "Good afternoon, everybody, and welcome to live coverage of the Ten-Eighty Mountain Series! I'm Dani Reyes!",
+                ),
+                (
+                    W,
+                    "And I'm Wren Halvorsen. Fast snow, a hungry field, and Dani has already had two coffees.",
+                ),
                 (D, "Three!"),
             ],
             &[
-                (W, "Welcome back to the Ten-Eighty Mountain Series! Wren Halvorsen, alongside Dani Reyes."),
-                (D, "Wren, it is a gorgeous day up here, and we have got a stacked field!"),
+                (
+                    W,
+                    "Welcome back to the Ten-Eighty Mountain Series! Wren Halvorsen, alongside Dani Reyes.",
+                ),
+                (
+                    D,
+                    "Wren, it is a gorgeous day up here, and we have got a stacked field!",
+                ),
                 (W, "We have four riders, Dani."),
                 (D, "Stacked!"),
             ],
             &[
-                (D, "You are watching the Ten-Eighty Mountain Series, live from the mountain! Four courses! Four riders! One booth!"),
-                (W, "One booth, with a heater that smells like toast. We have told the network."),
+                (
+                    D,
+                    "You are watching the Ten-Eighty Mountain Series, live from the mountain! Four courses! Four riders! One booth!",
+                ),
+                (
+                    W,
+                    "One booth, with a heater that smells like toast. We have told the network.",
+                ),
             ],
             &[
-                (W, "If you're just joining us, welcome! The riders are up top, choosing their courses right now."),
-                (D, "And the crowd at the finish is loud, folks! I can hear the cowbells from the booth!"),
+                (
+                    W,
+                    "If you're just joining us, welcome! The riders are up top, choosing their courses right now.",
+                ),
+                (
+                    D,
+                    "And the crowd at the finish is loud, folks! I can hear the cowbells from the booth!",
+                ),
             ],
             &[
-                (D, "Live from the summit, this is the Ten-Eighty Mountain Series! I'm Dani Reyes, and beside me, the sharpest analyst in the sport!"),
+                (
+                    D,
+                    "Live from the summit, this is the Ten-Eighty Mountain Series! I'm Dani Reyes, and beside me, the sharpest analyst in the sport!",
+                ),
                 (W, "Accurate."),
             ],
             &[
-                (W, "Wren Halvorsen and Dani Reyes, back in the booth together!"),
-                (D, "Fifteen years, folks! We used to race each other. Now we argue on television!"),
+                (
+                    W,
+                    "Wren Halvorsen and Dani Reyes, back in the booth together!",
+                ),
+                (
+                    D,
+                    "Fifteen years, folks! We used to race each other. Now we argue on television!",
+                ),
                 (W, "On live television. Which is so much worse."),
             ],
         ],
@@ -74,11 +107,20 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         "menu",
         &[
             &[
-                (D, "While we wait on the next rider, Wren, give the folks at home one thing to watch for!"),
-                (W, "The landings. Anyone can spin. Not everyone can stop spinning."),
+                (
+                    D,
+                    "While we wait on the next rider, Wren, give the folks at home one thing to watch for!",
+                ),
+                (
+                    W,
+                    "The landings. Anyone can spin. Not everyone can stop spinning.",
+                ),
             ],
             &[
-                (W, "A quick stat for the viewers. Dani broke her left collarbone five times in her career."),
+                (
+                    W,
+                    "A quick stat for the viewers. Dani broke her left collarbone five times in her career.",
+                ),
                 (D, "And I came back every single time!"),
                 (W, "Very slowly."),
             ],
@@ -88,29 +130,47 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
             ],
             &[
                 (W, "I keep a spreadsheet of every trick landed this season."),
-                (D, "Folks, it is color coded! The network wants it on screen, and she will not let them!"),
+                (
+                    D,
+                    "Folks, it is color coded! The network wants it on screen, and she will not let them!",
+                ),
             ],
             &[
-                (W, "The truck is telling us we have a moment before the next run."),
+                (
+                    W,
+                    "The truck is telling us we have a moment before the next run.",
+                ),
                 (D, "Which means Wren is going to talk about wax!"),
                 (W, "Wax matters, Dani!"),
             ],
             &[
-                (D, "Let's take you up to the start area! The riders are stretching, they're studying the course, they're getting focused!"),
+                (
+                    D,
+                    "Let's take you up to the start area! The riders are stretching, they're studying the course, they're getting focused!",
+                ),
                 (W, "They're looking at their phones, Dani."),
             ],
             &[
-                (W, "For the viewers at home: first one to the bottom wins. It's not complicated."),
+                (
+                    W,
+                    "For the viewers at home: first one to the bottom wins. It's not complicated.",
+                ),
                 (D, "It's beautifully simple! That's why we love it!"),
             ],
             &[
-                (D, "Now, we did have a moose wander past the finish area earlier."),
+                (
+                    D,
+                    "Now, we did have a moose wander past the finish area earlier.",
+                ),
                 (W, "Course security has asked him to leave."),
                 (D, "His name is Gerald!"),
                 (W, "We don't know that."),
             ],
             &[
-                (W, "Conditions across the mountain! Sunshine on Crystal Ridge, golden light in the trees on Timber Run, a whiteout in Avalanche Bowl, and sunset in the pipe!"),
+                (
+                    W,
+                    "Conditions across the mountain! Sunshine on Crystal Ridge, golden light in the trees on Timber Run, a whiteout in Avalanche Bowl, and sunset in the pipe!",
+                ),
                 (D, "Something for everybody today!"),
             ],
             &[
@@ -120,11 +180,20 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
                 (W, "It's the only pick."),
             ],
             &[
-                (D, "Big shout out to the queer ski club, out in force at the bottom of the course today!"),
-                (W, "They brought a banner. It is very sparkly. The cameras love it."),
+                (
+                    D,
+                    "Big shout out to the queer ski club, out in force at the bottom of the course today!",
+                ),
+                (
+                    W,
+                    "They brought a banner. It is very sparkly. The cameras love it.",
+                ),
             ],
             &[
-                (D, "The nachos at the lodge tonight, folks! I'm just saying! I'm just putting it out there!"),
+                (
+                    D,
+                    "The nachos at the lodge tonight, folks! I'm just saying! I'm just putting it out there!",
+                ),
                 (W, "Dani will have eaten all of them by four."),
             ],
         ],
@@ -134,11 +203,17 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         "crystal",
         &[
             &[
-                (D, "We are live at Crystal Ridge! Wide open groomers and big, friendly kickers!"),
+                (
+                    D,
+                    "We are live at Crystal Ridge! Wide open groomers and big, friendly kickers!",
+                ),
                 (W, "Friendly is a strong word. They're polite."),
             ],
             &[
-                (W, "Crystal Ridge today! The sun is out, the snow is fast, and there are no excuses on this one."),
+                (
+                    W,
+                    "Crystal Ridge today! The sun is out, the snow is fast, and there are no excuses on this one.",
+                ),
                 (D, "None! Let's go!"),
             ],
             &[
@@ -151,11 +226,20 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         "timber",
         &[
             &[
-                (W, "Timber Run! Tight trees, and you have to pick your line early."),
-                (D, "And folks, the trees do not move! I have checked! Personally! With my face!"),
+                (
+                    W,
+                    "Timber Run! Tight trees, and you have to pick your line early.",
+                ),
+                (
+                    D,
+                    "And folks, the trees do not move! I have checked! Personally! With my face!",
+                ),
             ],
             &[
-                (D, "Timber Run, golden hour in the pines! Gorgeous pictures from up top!"),
+                (
+                    D,
+                    "Timber Run, golden hour in the pines! Gorgeous pictures from up top!",
+                ),
                 (W, "Very pretty. The trunks are very hard."),
             ],
             &[
@@ -170,7 +254,10 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         &[
             &[
                 (D, "Avalanche Bowl! The steepest course on this mountain!"),
-                (W, "Steep, fast, and huge air. In this visibility, you ride the flags."),
+                (
+                    W,
+                    "Steep, fast, and huge air. In this visibility, you ride the flags.",
+                ),
             ],
             &[
                 (W, "Avalanche Bowl! This is the expert course."),
@@ -178,7 +265,10 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
                 (W, "Our camera crew is very, very brave."),
             ],
             &[
-                (D, "Avalanche Bowl, in a whiteout! The cameras can barely see!"),
+                (
+                    D,
+                    "Avalanche Bowl, in a whiteout! The cameras can barely see!",
+                ),
                 (W, "Neither can the rider. Follow the flags!"),
             ],
         ],
@@ -191,12 +281,18 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
                 (W, "Mostly on the landings."),
             ],
             &[
-                (W, "The halfpipe! Wall to wall: height, rotation, and a clean landing."),
+                (
+                    W,
+                    "The halfpipe! Wall to wall: height, rotation, and a clean landing.",
+                ),
                 (D, "On both feet, folks! Very important! Both of them!"),
             ],
             &[
                 (D, "Sunset in the pipe! Let's see some spins!"),
-                (W, "Clean spins. Rotation without a landing is just falling with ambition."),
+                (
+                    W,
+                    "Clean spins. Rotation without a landing is just falling with ambition.",
+                ),
             ],
         ],
     ),
@@ -206,7 +302,10 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         &[
             &[
                 (D, "In the gate, it's Kai! The all-rounder!"),
-                (W, "Good at everything, great at nothing. A very consistent career."),
+                (
+                    W,
+                    "Good at everything, great at nothing. A very consistent career.",
+                ),
             ],
             &[
                 (W, "Kai at the top! Steady hands, steady board."),
@@ -218,8 +317,14 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         "mika",
         &[
             &[
-                (W, "Mika's in the start gate! A technical rider, and very clean."),
-                (D, "Mika's the only athlete on tour who actually reads Wren's spreadsheet!"),
+                (
+                    W,
+                    "Mika's in the start gate! A technical rider, and very clean.",
+                ),
+                (
+                    D,
+                    "Mika's the only athlete on tour who actually reads Wren's spreadsheet!",
+                ),
                 (W, "My favorite."),
             ],
             &[(D, "Here's Mika! Nobody on tour lands cleaner!")],
@@ -233,7 +338,10 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
                 (W, "Rob turns maybe twice a run. Both by accident."),
             ],
             &[
-                (W, "Rob at the top! A pure speed rider. Tuck, point, and hope."),
+                (
+                    W,
+                    "Rob at the top! A pure speed rider. Tuck, point, and hope.",
+                ),
                 (D, "Hope is a strategy for Rob!"),
             ],
         ],
@@ -278,10 +386,22 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
     (
         "big",
         &[
-            &[(D, "Oh my goodness! Did you see that?"), (W, "I saw it! I'm still processing it!")],
-            &[(W, "That is a big one! Write that down!"), (D, "That is going straight on the highlight reel!")],
-            &[(D, "Absolutely massive! The crowd is on its feet!"), (W, "So is Dani.")],
-            &[(W, "Okay. That was genuinely impressive."), (D, "She said genuinely! Folks, that never happens!")],
+            &[
+                (D, "Oh my goodness! Did you see that?"),
+                (W, "I saw it! I'm still processing it!"),
+            ],
+            &[
+                (W, "That is a big one! Write that down!"),
+                (D, "That is going straight on the highlight reel!"),
+            ],
+            &[
+                (D, "Absolutely massive! The crowd is on its feet!"),
+                (W, "So is Dani."),
+            ],
+            &[
+                (W, "Okay. That was genuinely impressive."),
+                (D, "She said genuinely! Folks, that never happens!"),
+            ],
             &[(D, "Huge! Absolutely huge!")],
             &[(W, "Textbook! Somebody put that in the training video!")],
         ],
@@ -303,7 +423,10 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
             &[(D, "Ooh, that's going to leave a mark!")],
             &[(W, "Down they go! Up you get, keep it moving!")],
             &[(D, "Wipeout! That is snow in places snow should never be!")],
-            &[(W, "That one got away. Happens to the best of them."), (D, "Happened to me constantly!")],
+            &[
+                (W, "That one got away. Happens to the best of them."),
+                (D, "Happened to me constantly!"),
+            ],
             &[(D, "Shake it off! Back up and going!")],
         ],
     ),
@@ -312,8 +435,14 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         &[
             &[(D, "Timber!"), (W, "The tree is fine, by the way.")],
             &[(W, "Found a tree!"), (D, "The trees always win, folks!")],
-            &[(D, "Oh no, right into the pines!"), (W, "The pines were here first.")],
-            &[(W, "That's a tree. The tree did not move."), (D, "They never do!")],
+            &[
+                (D, "Oh no, right into the pines!"),
+                (W, "The pines were here first."),
+            ],
+            &[
+                (W, "That's a tree. The tree did not move."),
+                (D, "They never do!"),
+            ],
         ],
     ),
     (
@@ -337,7 +466,10 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
     (
         "fast",
         &[
-            &[(D, "Look at the speed!"), (W, "Full tuck! Very aerodynamic, very brave!")],
+            &[
+                (D, "Look at the speed!"),
+                (W, "Full tuck! Very aerodynamic, very brave!"),
+            ],
             &[(W, "That's very fast. Too fast. Perfect.")],
             &[(D, "Full tuck! The speed gun is going crazy!")],
         ],
@@ -354,22 +486,55 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
     (
         "idle",
         &[
-            &[(W, "Good lines so far!"), (D, "Lovely lines! I love a line!")],
-            &[(D, "Wren, what's for dinner tonight?"), (W, "We are on air."), (D, "So what's for dinner, on air?")],
-            &[(W, "Watch the knees. Soft knees soak up everything."), (D, "Soft knees, soft heart!")],
-            &[(D, "This is my favorite section of the course!"), (W, "You say that about every section.")],
-            &[(W, "There are free points on those kickers!"), (D, "Free points are the best points!")],
-            &[(D, "I am so proud of every athlete out here today!"), (W, "It's been four minutes."), (D, "Proud!")],
-            &[(W, "The longer you hold a grab, the more it scores."), (D, "Grab it like you mean it!")],
-            &[(D, "Wren, sum up this run in one word!"), (W, "Downhill."), (D, "Poetry, folks!")],
-            &[(W, "Viewers at home, do not try this in your driveway."), (D, "Unless your driveway is a mountain!")],
+            &[
+                (W, "Good lines so far!"),
+                (D, "Lovely lines! I love a line!"),
+            ],
+            &[
+                (D, "Wren, what's for dinner tonight?"),
+                (W, "We are on air."),
+                (D, "So what's for dinner, on air?"),
+            ],
+            &[
+                (W, "Watch the knees. Soft knees soak up everything."),
+                (D, "Soft knees, soft heart!"),
+            ],
+            &[
+                (D, "This is my favorite section of the course!"),
+                (W, "You say that about every section."),
+            ],
+            &[
+                (W, "There are free points on those kickers!"),
+                (D, "Free points are the best points!"),
+            ],
+            &[
+                (D, "I am so proud of every athlete out here today!"),
+                (W, "It's been four minutes."),
+                (D, "Proud!"),
+            ],
+            &[
+                (W, "The longer you hold a grab, the more it scores."),
+                (D, "Grab it like you mean it!"),
+            ],
+            &[
+                (D, "Wren, sum up this run in one word!"),
+                (W, "Downhill."),
+                (D, "Poetry, folks!"),
+            ],
+            &[
+                (W, "Viewers at home, do not try this in your driveway."),
+                (D, "Unless your driveway is a mountain!"),
+            ],
         ],
     ),
     // The rival finished first, the player is still riding.
     (
         "rival",
         &[
-            &[(W, "The rival is across the line! Keep pushing, all the way down!")],
+            &[(
+                W,
+                "The rival is across the line! Keep pushing, all the way down!",
+            )],
             &[(D, "The rival's in! Don't give up, finish it out!")],
         ],
     ),
@@ -377,9 +542,21 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
     (
         "win",
         &[
-            &[(D, "And that's the win! What a race!"), (W, "Well raced. Genuinely.")],
-            &[(W, "First over the line!"), (D, "I'm getting emotional, folks! I am actually getting emotional!")],
-            &[(D, "Victory! Somebody get this rider a podium and a plate of nachos!")],
+            &[
+                (D, "And that's the win! What a race!"),
+                (W, "Well raced. Genuinely."),
+            ],
+            &[
+                (W, "First over the line!"),
+                (
+                    D,
+                    "I'm getting emotional, folks! I am actually getting emotional!",
+                ),
+            ],
+            &[(
+                D,
+                "Victory! Somebody get this rider a podium and a plate of nachos!",
+            )],
             &[(W, "That is how you race!"), (D, "That is how you race!")],
         ],
     ),
@@ -387,8 +564,23 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
     (
         "win-clean",
         &[
-            &[(W, "First place, and not a single fall! That is a clean run!"), (D, "Clean as fresh snow, folks!")],
-            &[(D, "The win, and they never touched the snow! Wren, did you see that?"), (W, "Didn't put a foot wrong. That's going in the spreadsheet!")],
+            &[
+                (
+                    W,
+                    "First place, and not a single fall! That is a clean run!",
+                ),
+                (D, "Clean as fresh snow, folks!"),
+            ],
+            &[
+                (
+                    D,
+                    "The win, and they never touched the snow! Wren, did you see that?",
+                ),
+                (
+                    W,
+                    "Didn't put a foot wrong. That's going in the spreadsheet!",
+                ),
+            ],
         ],
     ),
     // A loss in a race...
@@ -396,10 +588,25 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         "lose",
         &[
             &[(W, "Second place today."), (D, "Run it back! Run it back!")],
-            &[(D, "Ooh, not quite!"), (W, "Not today. There's always another run.")],
-            &[(W, "Second across the line."), (D, "Rematch! We need a rematch!")],
-            &[(D, "Second place is the first loser! I'm kidding! I'm kidding, it's great!"), (W, "Dani.")],
-            &[(W, "The rival takes this one."), (D, "Heads up! That was a good fight!")],
+            &[
+                (D, "Ooh, not quite!"),
+                (W, "Not today. There's always another run."),
+            ],
+            &[
+                (W, "Second across the line."),
+                (D, "Rematch! We need a rematch!"),
+            ],
+            &[
+                (
+                    D,
+                    "Second place is the first loser! I'm kidding! I'm kidding, it's great!",
+                ),
+                (W, "Dani."),
+            ],
+            &[
+                (W, "The rival takes this one."),
+                (D, "Heads up! That was a good fight!"),
+            ],
         ],
     ),
     // ...after hitting a tree on the way down.
@@ -407,26 +614,50 @@ pub const TOPICS: &[(&str, &[Bit])] = &[
         "lose-trees",
         &[
             &[(D, "Ooh, just missed it!"), (W, "Next time, fewer trees.")],
-            &[(W, "Second place. And the trees had a say in that one."), (D, "The trees are undefeated this season, folks!")],
-            &[(D, "Not today! But hey, the tree's okay!"), (W, "The tree has a better record than most of the field.")],
+            &[
+                (W, "Second place. And the trees had a say in that one."),
+                (D, "The trees are undefeated this season, folks!"),
+            ],
+            &[
+                (D, "Not today! But hey, the tree's okay!"),
+                (W, "The tree has a better record than most of the field."),
+            ],
         ],
     ),
     // The end of a time attack...
     (
         "time",
         &[
-            &[(W, "Across the line! Check the clock!"), (D, "Is that a record? It feels like a record!")],
-            &[(D, "And that's the finish! What a run!"), (W, "The time is on the board.")],
-            &[(W, "Done! Now do it faster."), (D, "She means that lovingly, folks!")],
+            &[
+                (W, "Across the line! Check the clock!"),
+                (D, "Is that a record? It feels like a record!"),
+            ],
+            &[
+                (D, "And that's the finish! What a run!"),
+                (W, "The time is on the board."),
+            ],
+            &[
+                (W, "Done! Now do it faster."),
+                (D, "She means that lovingly, folks!"),
+            ],
         ],
     ),
     // ...and of a trick attack.
     (
         "score",
         &[
-            &[(D, "What a show! Look at that score!"), (W, "Points on the board!")],
-            &[(W, "And that's the trick attack! Let's see the total."), (D, "I'm dizzy just watching!")],
-            &[(D, "That's the session! Style for days!"), (W, "Style for one whole run. But good style.")],
+            &[
+                (D, "What a show! Look at that score!"),
+                (W, "Points on the board!"),
+            ],
+            &[
+                (W, "And that's the trick attack! Let's see the total."),
+                (D, "I'm dizzy just watching!"),
+            ],
+            &[
+                (D, "That's the session! Style for days!"),
+                (W, "Style for one whole run. But good style."),
+            ],
         ],
     ),
     (

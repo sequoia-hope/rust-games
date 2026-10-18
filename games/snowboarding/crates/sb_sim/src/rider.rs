@@ -129,7 +129,11 @@ impl Rider {
         let f = course.frame(s);
         Rider {
             stats,
-            pos: Vec3::new(f.center.x + f.right.x * u, g.height, f.center.z + f.right.z * u),
+            pos: Vec3::new(
+                f.center.x + f.right.x * u,
+                g.height,
+                f.center.z + f.right.z * u,
+            ),
             vel: Vec3::ZERO,
             yaw: f.theta,
             pitch: 0.0,
@@ -238,7 +242,11 @@ impl Rider {
         }
         let mu = 0.045 + 0.42 * self.skid;
         let decel = mu * G * n.y.max(0.0) + self.drag() * speed * speed;
-        vl = if vl > 0.0 { (vl - decel * dt).max(0.0) } else { vl * (1.0 - 3.0 * dt) };
+        vl = if vl > 0.0 {
+            (vl - decel * dt).max(0.0)
+        } else {
+            vl * (1.0 - 3.0 * dt)
+        };
         self.ground_step_tail(course, input, dt, vl, vs_new, vn, fwd, side);
     }
 
@@ -482,7 +490,11 @@ impl Rider {
             self.switch = !self.switch;
         }
         self.yaw = travel;
-        let keep = if landing == Landing::Clean { 0.97 } else { 0.72 };
+        let keep = if landing == Landing::Clean {
+            0.97
+        } else {
+            0.72
+        };
         self.vel = tangential * keep;
         self.crouch = (0.35 + into * 0.06).min(1.0);
         self.phase = Phase::Ground;
@@ -526,7 +538,11 @@ impl Rider {
     fn get_up(&mut self, course: &Course) {
         let hw = course.half_width(self.s);
         let u = self.u.clamp(-(hw - 3.0).max(0.0), (hw - 3.0).max(0.0));
-        let u = if course.pipe_weight(self.s) > 0.5 { 0.0 } else { u };
+        let u = if course.pipe_weight(self.s) > 0.5 {
+            0.0
+        } else {
+            u
+        };
         self.place(course, self.s, u, 4.0);
     }
 
@@ -541,7 +557,11 @@ impl Rider {
         let g = course.ground_su(s, u);
         self.s = s;
         self.u = u;
-        self.pos = Vec3::new(f.center.x + f.right.x * u, g.height, f.center.z + f.right.z * u);
+        self.pos = Vec3::new(
+            f.center.x + f.right.x * u,
+            g.height,
+            f.center.z + f.right.z * u,
+        );
         self.normal = g.normal;
         self.yaw = f.theta;
         self.switch = false;
@@ -644,7 +664,10 @@ mod tests {
             r.pos.y += 0.5;
             r.phase = Phase::Air;
             // About 70° of spin, then the stick let go.
-            let spin = Input { steer: 1.0, ..Input::default() };
+            let spin = Input {
+                steer: 1.0,
+                ..Input::default()
+            };
             for _ in 0..14 {
                 r.step(&c, spin, DT);
             }
@@ -656,7 +679,11 @@ mod tests {
             }
             outcomes.push(matches!(r.phase, Phase::Crashed(_)));
         }
-        assert_eq!(outcomes, vec![true, false], "crashes without the assist, lands with it");
+        assert_eq!(
+            outcomes,
+            vec![true, false],
+            "crashes without the assist, lands with it"
+        );
     }
 
     #[test]
@@ -679,6 +706,11 @@ mod tests {
                 break;
             }
         }
-        assert!(matches!(r.phase, Phase::Crashed(_)), "{:?} yaw {}", r.phase, r.yaw);
+        assert!(
+            matches!(r.phase, Phase::Crashed(_)),
+            "{:?} yaw {}",
+            r.phase,
+            r.yaw
+        );
     }
 }

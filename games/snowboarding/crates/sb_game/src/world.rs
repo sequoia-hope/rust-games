@@ -284,7 +284,11 @@ fn build(
         let yaw = course.frame(m.s).theta;
         commands.spawn((
             CourseEntity,
-            Mesh3d(if m.right_side { pole.clone() } else { pole_b.clone() }),
+            Mesh3d(if m.right_side {
+                pole.clone()
+            } else {
+                pole_b.clone()
+            }),
             MeshMaterial3d(shiny.clone()),
             NotShadowCaster,
             Transform::from_translation(m.pos).with_rotation(Quat::from_rotation_y(-yaw)),
@@ -309,7 +313,17 @@ fn build(
         }
         for side in [-1.0, 1.0] {
             let base = course.world(k.s - 0.5, k.u + side * (k.half_width + 1.6));
-            b.cone(base, 0.25, 0.0, 0.8, 8, rgb(1.0, 0.45, 0.05), rgb(1.0, 0.6, 0.2), 0.0, 1);
+            b.cone(
+                base,
+                0.25,
+                0.0,
+                0.8,
+                8,
+                rgb(1.0, 0.45, 0.05),
+                rgb(1.0, 0.6, 0.2),
+                0.0,
+                1,
+            );
         }
         let _ = f;
         commands.spawn((
@@ -330,7 +344,11 @@ fn build(
         }
         .min(16.0);
         let mesh = gate_mesh(hw, finish);
-        let ground = course.world(s, 0.0).y.min(course.world(s, -hw).y).min(course.world(s, hw).y);
+        let ground = course
+            .world(s, 0.0)
+            .y
+            .min(course.world(s, -hw).y)
+            .min(course.world(s, hw).y);
         commands.spawn((
             CourseEntity,
             Mesh3d(meshes.add(mesh)),
@@ -389,7 +407,11 @@ fn snow_chunk(course: &Course, look: &Look, rows: &[f32], cols: &[f32]) -> Mesh 
             let steep = ((0.62 - n.y) * 6.0 + n1 * 1.5 + if off > 60.0 { 0.3 } else { -1.0 })
                 .clamp(0.0, 1.0);
             let wind = fbm(p.x * 0.06, p.z * 0.06, 7, 2) * 0.5 + 0.5;
-            let mut cc = mix(snow, shade, wind * 0.35 + if off > 1.0 { 0.15 } else { 0.0 });
+            let mut cc = mix(
+                snow,
+                shade,
+                wind * 0.35 + if off > 1.0 { 0.15 } else { 0.0 },
+            );
             if steep > 0.0 && course.pipe_weight(s) < 0.5 {
                 cc = mix(cc, mix(rock, rock_dark, n1 * 0.5 + 0.5), steep);
             }
@@ -411,8 +433,14 @@ fn snow_chunk(course: &Course, look: &Look, rows: &[f32], cols: &[f32]) -> Mesh 
             idx.extend([a, b, d, a, d, cc]);
         }
     }
-    let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
-    m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos.iter().map(|p| <[f32; 3]>::from(*p)).collect::<Vec<_>>());
+    let mut m = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    m.insert_attribute(
+        Mesh::ATTRIBUTE_POSITION,
+        pos.iter().map(|p| <[f32; 3]>::from(*p)).collect::<Vec<_>>(),
+    );
     m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, nor);
     m.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
     m.insert_indices(Indices::U32(idx));
@@ -423,7 +451,11 @@ fn sky_mesh(look: &Look) -> Mesh {
     let mut b = MeshBuilder::default();
     let (top, hor, below) = (
         rgb(look.sky_top[0], look.sky_top[1], look.sky_top[2]),
-        rgb(look.sky_horizon[0], look.sky_horizon[1], look.sky_horizon[2]),
+        rgb(
+            look.sky_horizon[0],
+            look.sky_horizon[1],
+            look.sky_horizon[2],
+        ),
         rgb(look.sky_below[0], look.sky_below[1], look.sky_below[2]),
     );
     let sun = rgb(look.sun_color[0], look.sun_color[1], look.sun_color[2]);
@@ -522,14 +554,28 @@ fn tree_mesh(variant: u32) -> Mesh {
     let mut b = MeshBuilder::default();
     let trunk = rgb(0.32, 0.2, 0.12);
     b.cone(Vec3::ZERO, 0.32, 0.18, 2.2, 6, trunk, trunk, 0.0, 0);
-    let green = [rgb(0.06, 0.2, 0.12), rgb(0.08, 0.24, 0.13), rgb(0.05, 0.17, 0.14)][variant as usize % 3];
+    let green = [
+        rgb(0.06, 0.2, 0.12),
+        rgb(0.08, 0.24, 0.13),
+        rgb(0.05, 0.17, 0.14),
+    ][variant as usize % 3];
     let snow = rgb(0.92, 0.95, 1.0);
     let layers = 3 + variant % 2;
     let mut y = 1.3;
     let mut r = 2.3 - 0.2 * variant as f32;
     for l in 0..layers {
         let h = 3.3 - 0.35 * l as f32;
-        b.cone(Vec3::Y * y, r, 0.0, h, 9, green, mix(green, snow, 0.9), 0.25, variant * 31 + l);
+        b.cone(
+            Vec3::Y * y,
+            r,
+            0.0,
+            h,
+            9,
+            green,
+            mix(green, snow, 0.9),
+            0.25,
+            variant * 31 + l,
+        );
         y += h * 0.55;
         r *= 0.74;
     }
@@ -538,14 +584,28 @@ fn tree_mesh(variant: u32) -> Mesh {
 
 fn rock_mesh(variant: u32) -> Mesh {
     let mut b = MeshBuilder::default();
-    b.rock(Vec3::Y * 0.4, 1.0, variant * 101 + 3, rgb(0.36, 0.34, 0.35), rgb(0.93, 0.95, 1.0));
+    b.rock(
+        Vec3::Y * 0.4,
+        1.0,
+        variant * 101 + 3,
+        rgb(0.36, 0.34, 0.35),
+        rgb(0.93, 0.95, 1.0),
+    );
     b.build()
 }
 
 fn flag_mesh(color: [f32; 4]) -> Mesh {
     let mut b = MeshBuilder::default();
-    b.cuboid(Vec3::Y * 1.0, Vec3::new(0.035, 1.0, 0.035), rgb(0.95, 0.95, 0.95));
-    b.cuboid(Vec3::new(0.0, 1.68, 0.32), Vec3::new(0.01, 0.28, 0.32), color);
+    b.cuboid(
+        Vec3::Y * 1.0,
+        Vec3::new(0.035, 1.0, 0.035),
+        rgb(0.95, 0.95, 0.95),
+    );
+    b.cuboid(
+        Vec3::new(0.0, 1.68, 0.32),
+        Vec3::new(0.01, 0.28, 0.32),
+        color,
+    );
     b.build()
 }
 
@@ -556,7 +616,11 @@ fn gate_mesh(hw: f32, finish: bool) -> Mesh {
     let post = rgb(0.85, 0.85, 0.9);
     let h = 7.5;
     for side in [-1.0, 1.0] {
-        b.cuboid(Vec3::new(side * (hw + 0.6), h * 0.5, 0.0), Vec3::new(0.35, h * 0.5, 0.35), post);
+        b.cuboid(
+            Vec3::new(side * (hw + 0.6), h * 0.5, 0.0),
+            Vec3::new(0.35, h * 0.5, 0.35),
+            post,
+        );
     }
     let n = 24;
     let w = 2.0 * (hw + 0.6) / n as f32;
@@ -564,7 +628,11 @@ fn gate_mesh(hw: f32, finish: bool) -> Mesh {
         let x = -(hw + 0.6) + w * (i as f32 + 0.5);
         for row in 0..2 {
             let c = if finish {
-                if (i + row) % 2 == 0 { rgb(0.05, 0.05, 0.05) } else { rgb(0.97, 0.97, 0.97) }
+                if (i + row) % 2 == 0 {
+                    rgb(0.05, 0.05, 0.05)
+                } else {
+                    rgb(0.97, 0.97, 0.97)
+                }
             } else if i % 2 == 0 {
                 rgb(0.9, 0.12, 0.1)
             } else {

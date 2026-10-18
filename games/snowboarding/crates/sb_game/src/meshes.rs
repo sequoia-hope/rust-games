@@ -65,12 +65,42 @@ impl MeshBuilder {
     pub fn cuboid(&mut self, center: Vec3, h: Vec3, col: [f32; 4]) {
         let p = |x: f32, y: f32, z: f32| center + Vec3::new(x * h.x, y * h.y, z * h.z);
         let faces = [
-            [p(-1., -1., 1.), p(1., -1., 1.), p(1., 1., 1.), p(-1., 1., 1.)],
-            [p(1., -1., -1.), p(-1., -1., -1.), p(-1., 1., -1.), p(1., 1., -1.)],
-            [p(1., -1., 1.), p(1., -1., -1.), p(1., 1., -1.), p(1., 1., 1.)],
-            [p(-1., -1., -1.), p(-1., -1., 1.), p(-1., 1., 1.), p(-1., 1., -1.)],
-            [p(-1., 1., 1.), p(1., 1., 1.), p(1., 1., -1.), p(-1., 1., -1.)],
-            [p(-1., -1., -1.), p(1., -1., -1.), p(1., -1., 1.), p(-1., -1., 1.)],
+            [
+                p(-1., -1., 1.),
+                p(1., -1., 1.),
+                p(1., 1., 1.),
+                p(-1., 1., 1.),
+            ],
+            [
+                p(1., -1., -1.),
+                p(-1., -1., -1.),
+                p(-1., 1., -1.),
+                p(1., 1., -1.),
+            ],
+            [
+                p(1., -1., 1.),
+                p(1., -1., -1.),
+                p(1., 1., -1.),
+                p(1., 1., 1.),
+            ],
+            [
+                p(-1., -1., -1.),
+                p(-1., -1., 1.),
+                p(-1., 1., 1.),
+                p(-1., 1., -1.),
+            ],
+            [
+                p(-1., 1., 1.),
+                p(1., 1., 1.),
+                p(1., 1., -1.),
+                p(-1., 1., -1.),
+            ],
+            [
+                p(-1., -1., -1.),
+                p(1., -1., -1.),
+                p(1., -1., 1.),
+                p(-1., -1., 1.),
+            ],
         ];
         for [a, b, c, d] in faces {
             self.quad(a, b, c, d, col);
@@ -130,14 +160,31 @@ impl MeshBuilder {
             Vec3::new(-t, 0., 1.),
         ];
         for (i, p) in v.iter_mut().enumerate() {
-            let j = 0.75 + 0.5 * sb_sim::noise::unit(sb_sim::noise::hash(seed.wrapping_add(i as u32 * 77)));
+            let j = 0.75
+                + 0.5 * sb_sim::noise::unit(sb_sim::noise::hash(seed.wrapping_add(i as u32 * 77)));
             *p = p.normalize() * r * j * Vec3::new(1.0, 0.7, 1.0);
         }
         const F: [[usize; 3]; 20] = [
-            [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
-            [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-            [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
-            [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+            [0, 11, 5],
+            [0, 5, 1],
+            [0, 1, 7],
+            [0, 7, 10],
+            [0, 10, 11],
+            [1, 5, 9],
+            [5, 11, 4],
+            [11, 10, 2],
+            [10, 7, 6],
+            [7, 1, 8],
+            [3, 9, 4],
+            [3, 4, 2],
+            [3, 2, 6],
+            [3, 6, 8],
+            [3, 8, 9],
+            [4, 9, 5],
+            [2, 4, 11],
+            [6, 2, 10],
+            [8, 6, 7],
+            [9, 8, 1],
         ];
         for [a, b, c] in F {
             self.tri_snowy(center + v[a], center + v[b], center + v[c], side, up, 2.5);
@@ -145,7 +192,10 @@ impl MeshBuilder {
     }
 
     pub fn build(self) -> Mesh {
-        let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        let mut m = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::RENDER_WORLD,
+        );
         m.insert_attribute(Mesh::ATTRIBUTE_POSITION, self.pos);
         m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, self.nor);
         m.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.col);

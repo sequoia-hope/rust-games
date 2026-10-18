@@ -140,7 +140,14 @@ pub fn evaluate(air: &AirLog, landing: Landing) -> Option<Trick> {
         words.push(spin_deg.to_string());
     } else {
         if halves > 0 {
-            words.push(if air.spin > 0.0 { "Frontside" } else { "Backside" }.into());
+            words.push(
+                if air.spin > 0.0 {
+                    "Frontside"
+                } else {
+                    "Backside"
+                }
+                .into(),
+            );
             words.push(spin_deg.to_string());
         }
         if flips > 0 {
@@ -158,10 +165,16 @@ pub fn evaluate(air: &AirLog, landing: Landing) -> Option<Trick> {
     match air.grab {
         Some((g, _)) if words.is_empty() => {
             let n = g.name();
-            words.push(if n.ends_with("Grab") { n.into() } else { format!("{n} Grab") });
+            words.push(if n.ends_with("Grab") {
+                n.into()
+            } else {
+                format!("{n} Grab")
+            });
         }
         Some((g, _)) => words.push(g.name().replace(" Grab", "")),
-        None if words.is_empty() => words.push(if air.time > 1.6 { "Big Air" } else { "Air" }.into()),
+        None if words.is_empty() => {
+            words.push(if air.time > 1.6 { "Big Air" } else { "Air" }.into())
+        }
         None => {}
     }
     Some(Trick {
@@ -204,11 +217,19 @@ mod tests {
 
     #[test]
     fn bigger_is_worth_more() {
-        let p = |deg| evaluate(&air(deg, 0.0, None), Landing::Clean).unwrap().points;
+        let p = |deg| {
+            evaluate(&air(deg, 0.0, None), Landing::Clean)
+                .unwrap()
+                .points
+        };
         assert!(p(360.0) < p(720.0));
         assert!(p(720.0) < p(1080.0));
-        let clean = evaluate(&air(360.0, 0.0, None), Landing::Clean).unwrap().points;
-        let sloppy = evaluate(&air(360.0, 0.0, None), Landing::Sloppy).unwrap().points;
+        let clean = evaluate(&air(360.0, 0.0, None), Landing::Clean)
+            .unwrap()
+            .points;
+        let sloppy = evaluate(&air(360.0, 0.0, None), Landing::Sloppy)
+            .unwrap()
+            .points;
         assert!(sloppy < clean);
     }
 }

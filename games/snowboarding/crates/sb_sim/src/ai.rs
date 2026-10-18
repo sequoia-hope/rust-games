@@ -71,7 +71,11 @@ impl Brain {
             self.lane_timer = self.rng.range(2.0, 5.0);
             self.lane = self.rng.range(-5.0, 5.0);
         }
-        let look = if in_pipe { 5.0 + speed * 0.35 } else { 9.0 + speed * 0.7 };
+        let look = if in_pipe {
+            5.0 + speed * 0.35
+        } else {
+            9.0 + speed * 0.7
+        };
         let st = me.s + look;
         let hw = course.half_width(st);
         let mut target_u = course.racing_line(st) + self.lane;
@@ -157,7 +161,13 @@ impl Brain {
             let dir = if self.rng.chance(0.5) { 1.0 } else { -1.0 };
             let grab_stick = (t > 0.8).then(|| {
                 let pick = self.rng.next_u32() % 5;
-                [(0.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (-1.0, -1.0)][pick as usize]
+                [
+                    (0.0, 0.0),
+                    (-1.0, 0.0),
+                    (0.0, 1.0),
+                    (0.0, -1.0),
+                    (-1.0, -1.0),
+                ][pick as usize]
             });
             self.plan = Some(AirPlan {
                 spin: dir * halves as f32 * PI,

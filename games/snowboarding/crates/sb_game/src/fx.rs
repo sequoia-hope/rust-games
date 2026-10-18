@@ -31,7 +31,12 @@ pub fn plugin(app: &mut App) {
         })
         .add_systems(Startup, spawn_mesh)
         .add_systems(Update, ensure_snowfall.after(crate::world::ensure_world))
-        .add_systems(PostUpdate, (step, rebuild).chain().after(bevy::transform::TransformSystems::Propagate));
+        .add_systems(
+            PostUpdate,
+            (step, rebuild)
+                .chain()
+                .after(bevy::transform::TransformSystems::Propagate),
+        );
 }
 
 struct Particle {
@@ -60,7 +65,8 @@ impl Particles {
                 self.list.swap_remove(0);
             }
             let r = &mut self.rng;
-            let jitter = Vec3::new(r.range(-1.0, 1.0), r.range(0.2, 1.0), r.range(-1.0, 1.0)) * spread;
+            let jitter =
+                Vec3::new(r.range(-1.0, 1.0), r.range(0.2, 1.0), r.range(-1.0, 1.0)) * spread;
             let life = r.range(0.4, 1.1);
             self.list.push(Particle {
                 pos: pos + Vec3::new(r.range(-0.2, 0.2), r.range(0.0, 0.15), r.range(-0.2, 0.2)),
@@ -132,7 +138,11 @@ fn puff(images: &mut Assets<Image>) -> Handle<Image> {
         }
     }
     images.add(Image::new(
-        Extent3d { width: N, height: N, depth_or_array_layers: 1 },
+        Extent3d {
+            width: N,
+            height: N,
+            depth_or_array_layers: 1,
+        },
         TextureDimension::D2,
         data,
         TextureFormat::Rgba8UnormSrgb,
@@ -151,7 +161,10 @@ fn spawn_mesh(
 ) {
     let puff = puff(&mut images);
     commands.insert_resource(Puff(puff.clone()));
-    let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+    let mut m = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
     m.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32; 3]; 3]);
     m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0f32, 1.0, 0.0]; 3]);
     m.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![[1.0f32, 1.0, 1.0, 0.0]; 3]);
@@ -215,7 +228,11 @@ fn ensure_snowfall(
     let mut motion = Vec::with_capacity(n * 4);
     let mut idx = Vec::with_capacity(n * 6);
     for i in 0..n {
-        let p = [rng.range(0.0, 60.0), rng.range(0.0, 30.0), rng.range(0.0, 60.0)];
+        let p = [
+            rng.range(0.0, 60.0),
+            rng.range(0.0, 30.0),
+            rng.range(0.0, 60.0),
+        ];
         let k = i as f32;
         let m = [k, 1.4 + (k * 0.37).sin() * 0.4];
         let at = pos.len() as u32;
@@ -226,7 +243,10 @@ fn ensure_snowfall(
         }
         idx.extend([at, at + 1, at + 2, at, at + 2, at + 3]);
     }
-    let mut m = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    let mut m = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    );
     m.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
     m.insert_attribute(Mesh::ATTRIBUTE_UV_0, corner);
     m.insert_attribute(Mesh::ATTRIBUTE_UV_1, motion);
@@ -234,7 +254,9 @@ fn ensure_snowfall(
     commands.spawn((
         Snowfall,
         Mesh3d(meshes.add(m)),
-        MeshMaterial3d(materials.add(SnowfallMaterial { puff: puff.0.clone() })),
+        MeshMaterial3d(materials.add(SnowfallMaterial {
+            puff: puff.0.clone(),
+        })),
         Transform::default(),
         NoFrustumCulling,
         NotShadowCaster,

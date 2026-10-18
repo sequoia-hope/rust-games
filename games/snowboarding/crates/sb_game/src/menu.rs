@@ -9,11 +9,11 @@
 use crate::camera::{CamFocus, CamMode};
 use crate::hud::{PauseButton, despawn};
 use crate::input::Controls;
-use crate::ride::{Run, RideSet};
+use crate::radio::Radio;
+use crate::ride::{RideSet, Run};
 use crate::rider_view::{RiderPose, spawn_rider};
 use crate::ui::{self, Fonts, clock, full_screen, ordinal, text, thousands};
 use crate::world::Built;
-use crate::radio::Radio;
 use crate::{Screen, Setup};
 use bevy::prelude::*;
 use sb_sim::course::CourseId;
@@ -22,13 +22,19 @@ use sb_sim::race::{CHARACTERS, Mode, State};
 pub fn plugin(app: &mut App) {
     app.init_resource::<Focus>()
         .add_systems(OnEnter(Screen::Menu), (spawn_menu, spawn_showcase))
-        .add_systems(OnExit(Screen::Menu), (despawn::<Panel>, despawn::<Showcase>))
+        .add_systems(
+            OnExit(Screen::Menu),
+            (despawn::<Panel>, despawn::<Showcase>),
+        )
         .add_systems(OnExit(Screen::Ride), despawn::<Panel>)
         .add_systems(
             Update,
             (refresh_menu, showcase).run_if(in_state(Screen::Menu)),
         )
-        .add_systems(Update, ride_panels.after(RideSet).run_if(in_state(Screen::Ride)))
+        .add_systems(
+            Update,
+            ride_panels.after(RideSet).run_if(in_state(Screen::Ride)),
+        )
         .add_systems(Update, (navigate, highlight).chain().after(ride_panels));
 }
 
@@ -105,7 +111,10 @@ fn row_node() -> Node {
 }
 
 fn spawn_menu(mut commands: Commands, fonts: Res<Fonts>, mut focus: ResMut<Focus>) {
-    *focus = Focus { index: RIDE_ROW, count: RIDE_ROW + 1 };
+    *focus = Focus {
+        index: RIDE_ROW,
+        count: RIDE_ROW + 1,
+    };
     let f = &*fonts;
     commands
         .spawn((Panel::Title, full_screen(), GlobalZIndex(5)))
@@ -250,7 +259,11 @@ fn refresh_menu(setup: Res<Setup>, mut q: Query<(&Value, &mut Text)>) {
                 format!("{} · {}", c.name.to_uppercase(), c.style.to_uppercase())
             }
             Value::Info => {
-                let mode = if setup.course == CourseId::Pipe { Mode::TrickAttack } else { setup.mode };
+                let mode = if setup.course == CourseId::Pipe {
+                    Mode::TrickAttack
+                } else {
+                    setup.mode
+                };
                 let diff = ["", "EASY", "MEDIUM", "EXPERT"][setup.course.difficulty() as usize];
                 format!("{}\n{diff}  ·  {}", setup.course.blurb(), mode.blurb())
             }
@@ -279,7 +292,13 @@ fn spawn_showcase(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    spawn_rider(&mut commands, &mut meshes, &mut materials, setup.character, (Showcase, ShowcaseOf(setup.character)));
+    spawn_rider(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        setup.character,
+        (Showcase, ShowcaseOf(setup.character)),
+    );
 }
 
 #[derive(Component)]
@@ -299,10 +318,18 @@ fn showcase(
     for (e, of, mut pose) in &mut q {
         if of.0 != setup.character {
             commands.entity(e).despawn();
-            spawn_rider(&mut commands, &mut meshes, &mut materials, setup.character, (Showcase, ShowcaseOf(setup.character)));
+            spawn_rider(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                setup.character,
+                (Showcase, ShowcaseOf(setup.character)),
+            );
             continue;
         }
-        let Some(course) = &built.course else { continue };
+        let Some(course) = &built.course else {
+            continue;
+        };
         let s = course.start_s - 4.0;
         let g = course.ground_su(s, 0.0);
         let p = course.world(s, 0.0);
@@ -326,7 +353,14 @@ fn showcase(
     }
 }
 
-fn spawn_panel(commands: &mut Commands, f: &Fonts, kind: Panel, title: &str, lines: &[String], buttons: &[(&str, Action)]) {
+fn spawn_panel(
+    commands: &mut Commands,
+    f: &Fonts,
+    kind: Panel,
+    title: &str,
+    lines: &[String],
+    buttons: &[(&str, Action)],
+) {
     commands
         .spawn((
             kind,
@@ -423,7 +457,11 @@ fn ride_panels(
                 Panel::Pause,
                 "PAUSED",
                 &[],
-                &[("RESUME", Action::Resume), ("RESTART", Action::Restart), ("MENU", Action::Quit)],
+                &[
+                    ("RESUME", Action::Resume),
+                    ("RESTART", Action::Restart),
+                    ("MENU", Action::Quit),
+                ],
             );
         }
         Some(Panel::Results) => {
@@ -434,7 +472,11 @@ fn ride_panels(
             let title = match s.mode {
                 Mode::Race => {
                     let place = s.place(0);
-                    if place == 1 { "YOU WIN!".to_string() } else { format!("{} PLACE", ordinal(place)) }
+                    if place == 1 {
+                        "YOU WIN!".to_string()
+                    } else {
+                        format!("{} PLACE", ordinal(place))
+                    }
                 }
                 Mode::TimeAttack => "FINISHED".into(),
                 Mode::TrickAttack => "TRICK SCORE".into(),
@@ -453,10 +495,25 @@ fn ride_panels(
                 ));
             }
             if let Some(b) = &me.best {
-                lines.push(format!("BEST TRICK  {}  +{}", b.name.to_uppercase(), thousands(b.points)));
+                lines.push(format!(
+                    "BEST TRICK  {}  +{}",
+                    b.name.to_uppercase(),
+                    thousands(b.points)
+                ));
             }
-            lines.push(format!("TRICKS {}   ·   CRASHES {}", me.tricks.len(), me.crashes));
-            spawn_panel(&mut commands, f, Panel::Results, &title, &lines, &[("RIDE AGAIN", Action::Restart), ("MENU", Action::Quit)]);
+            lines.push(format!(
+                "TRICKS {}   ·   CRASHES {}",
+                me.tricks.len(),
+                me.crashes
+            ));
+            spawn_panel(
+                &mut commands,
+                f,
+                Panel::Results,
+                &title,
+                &lines,
+                &[("RIDE AGAIN", Action::Restart), ("MENU", Action::Quit)],
+            );
         }
         _ => {}
     }
@@ -533,7 +590,10 @@ fn navigate(
     match act {
         Action::Mode(d) => setup.mode = cycle(&MODES, setup.mode, d),
         Action::Course(d) => setup.course = cycle(&CourseId::ALL, setup.course, d),
-        Action::Rider(d) => setup.character = (setup.character as i32 + d).rem_euclid(CHARACTERS.len() as i32) as usize,
+        Action::Rider(d) => {
+            setup.character =
+                (setup.character as i32 + d).rem_euclid(CHARACTERS.len() as i32) as usize
+        }
         Action::Assist => {
             setup.assist = !setup.assist;
             setup.assist_chosen = true;
@@ -556,7 +616,11 @@ fn navigate(
 
 fn highlight(focus: Res<Focus>, mut rows: Query<(&Row, &mut BorderColor)>) {
     for (r, mut b) in &mut rows {
-        let c = if r.0 == focus.index { ui::ICE } else { Color::NONE };
+        let c = if r.0 == focus.index {
+            ui::ICE
+        } else {
+            Color::NONE
+        };
         *b = BorderColor::all(c);
     }
 }

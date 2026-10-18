@@ -32,7 +32,12 @@ pub struct Status {
     pub last_trick: String,
 }
 
-fn update(mut st: ResMut<Status>, screen: Res<bevy::state::state::State<Screen>>, setup: Res<Setup>, run: Option<Res<Run>>) {
+fn update(
+    mut st: ResMut<Status>,
+    screen: Res<bevy::state::state::State<Screen>>,
+    setup: Res<Setup>,
+    run: Option<Res<Run>>,
+) {
     st.frames += 1;
     st.screen = match screen.get() {
         Screen::Menu => "menu",
@@ -81,8 +86,10 @@ pub fn native_screenshot(app: &mut App, path: String, frames: u32) {
         commands
             .spawn(Screenshot::primary_window())
             .observe(save_to_disk(path.clone()))
-            .observe(|_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
-                exit.write(AppExit::Success);
-            });
+            .observe(
+                |_: On<ScreenshotCaptured>, mut exit: MessageWriter<AppExit>| {
+                    exit.write(AppExit::Success);
+                },
+            );
     });
 }

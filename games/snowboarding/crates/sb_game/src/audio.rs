@@ -45,7 +45,9 @@ pub enum Clip {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use web_audio::{gesture, ready, save_radio, saved_radio, status, voice_prepare, voice_start, voice_stop};
+pub use web_audio::{
+    gesture, ready, save_radio, saved_radio, status, voice_prepare, voice_start, voice_stop,
+};
 
 /// Whether sound can play yet (on the web, after the first gesture). The
 /// announcers wait for it, so the first thing they say is heard.
@@ -85,8 +87,9 @@ mod web_audio {
     use wasm_bindgen::{JsCast, JsValue};
     use wasm_bindgen_futures::{JsFuture, spawn_local};
     use web_sys::{
-        AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextState, AudioProcessingEvent, AudioWorkletNode,
-        AudioWorkletNodeOptions, BiquadFilterNode, BiquadFilterType, GainNode, OscillatorType, ScriptProcessorNode,
+        AudioBuffer, AudioBufferSourceNode, AudioContext, AudioContextState, AudioProcessingEvent,
+        AudioWorkletNode, AudioWorkletNodeOptions, BiquadFilterNode, BiquadFilterType, GainNode,
+        OscillatorType, ScriptProcessorNode,
     };
 
     /// The levels of the buses (the music's generator runs about -23 dBFS
@@ -182,7 +185,11 @@ mod web_audio {
             && let Ok(session) = js_sys::Reflect::get(&nav, &JsValue::from_str("audioSession"))
             && session.is_object()
         {
-            let _ = js_sys::Reflect::set(&session, &JsValue::from_str("type"), &JsValue::from_str("playback"));
+            let _ = js_sys::Reflect::set(
+                &session,
+                &JsValue::from_str("type"),
+                &JsValue::from_str("playback"),
+            );
         }
         let ctx = AudioContext::new()?;
         let master = ctx.create_gain()?;
@@ -265,7 +272,11 @@ mod web_audio {
     }
 
     pub fn ready() -> bool {
-        SFX.with(|s| s.borrow().as_ref().is_some_and(|s| s.ctx.state() == AudioContextState::Running))
+        SFX.with(|s| {
+            s.borrow()
+                .as_ref()
+                .is_some_and(|s| s.ctx.state() == AudioContextState::Running)
+        })
     }
 
     fn storage() -> Option<web_sys::Storage> {
@@ -291,7 +302,9 @@ mod web_audio {
 
     async fn fetch_bytes(url: &str) -> Result<js_sys::ArrayBuffer, JsValue> {
         let w = web_sys::window().ok_or("no window")?;
-        let resp: web_sys::Response = JsFuture::from(w.fetch_with_str(url)).await?.unchecked_into();
+        let resp: web_sys::Response = JsFuture::from(w.fetch_with_str(url))
+            .await?
+            .unchecked_into();
         if !resp.ok() {
             return Err(JsValue::from_str(&format!("{url}: HTTP {}", resp.status())));
         }
@@ -302,7 +315,11 @@ mod web_audio {
 
     /// `ctx.audioWorklet.addModule(worklet)`, the wasm fetched and
     /// compiled, and the node made and tuned to the station.
-    async fn load_music(ctx: AudioContext, out: GainNode, tap: web_sys::AnalyserNode) -> Result<AudioWorkletNode, JsValue> {
+    async fn load_music(
+        ctx: AudioContext,
+        out: GainNode,
+        tap: web_sys::AnalyserNode,
+    ) -> Result<AudioWorkletNode, JsValue> {
         // An insecure context or an old browser has no `audioWorklet`.
         let has = js_sys::Reflect::get(&ctx, &JsValue::from_str("audioWorklet"))?;
         if has.is_undefined() || has.is_null() {
@@ -343,7 +360,11 @@ mod web_audio {
     /// The fallback: the station player in this wasm, filling a
     /// ScriptProcessorNode's buffers on the main thread (about 5 % of a
     /// desktop core), tuned as `load_music` tunes the worklet.
-    fn script_music(ctx: &AudioContext, out: &GainNode, tap: &web_sys::AnalyserNode) -> Result<ScriptMusic, JsValue> {
+    fn script_music(
+        ctx: &AudioContext,
+        out: &GainNode,
+        tap: &web_sys::AnalyserNode,
+    ) -> Result<ScriptMusic, JsValue> {
         use sb_music::player::Player;
         use wasm_bindgen::closure::Closure;
         const BLOCK: usize = 128;
@@ -363,25 +384,29 @@ mod web_audio {
         // The worklet's `setTargetAtTime(e, t, 0.6)`, per block.
         let step = 1.0 - (-(BLOCK as f32) / rate / 0.6).exp();
         let (mut l, mut r) = (Vec::new(), Vec::new());
-        let fill = Closure::<dyn FnMut(AudioProcessingEvent)>::new(move |e: AudioProcessingEvent| {
-            let Ok(buf) = e.output_buffer() else { return };
-            let n = buf.length() as usize;
-            l.resize(n, 0.0);
-            r.resize(n, 0.0);
-            for (cl, cr) in l.chunks_mut(BLOCK).zip(r.chunks_mut(BLOCK)) {
-                at += (want.get() - at) * step;
-                player.set_params(0.0, day, sec, 1.0, at);
-                player.process(cl, cr);
-            }
-            let _ = buf.copy_to_channel(&l, 0);
-            let _ = buf.copy_to_channel(&r, 1);
-        });
+        let fill =
+            Closure::<dyn FnMut(AudioProcessingEvent)>::new(move |e: AudioProcessingEvent| {
+                let Ok(buf) = e.output_buffer() else { return };
+                let n = buf.length() as usize;
+                l.resize(n, 0.0);
+                r.resize(n, 0.0);
+                for (cl, cr) in l.chunks_mut(BLOCK).zip(r.chunks_mut(BLOCK)) {
+                    at += (want.get() - at) * step;
+                    player.set_params(0.0, day, sec, 1.0, at);
+                    player.process(cl, cr);
+                }
+                let _ = buf.copy_to_channel(&l, 0);
+                let _ = buf.copy_to_channel(&r, 1);
+            });
         node.set_onaudioprocess(Some(fill.as_ref().unchecked_ref()));
         // The node plays for the rest of the page's life, and so does this.
         fill.forget();
         node.connect_with_audio_node(out)?;
         node.connect_with_audio_node(tap)?;
-        Ok(ScriptMusic { _node: node, energy })
+        Ok(ScriptMusic {
+            _node: node,
+            energy,
+        })
     }
 
     impl Sfx {
@@ -402,7 +427,12 @@ mod web_audio {
                 return;
             }
             *self.radio.borrow_mut() = MusicState::Loading;
-            let (ctx, out, state, tap) = (self.ctx.clone(), self.duck.clone(), self.radio.clone(), self.tap.clone());
+            let (ctx, out, state, tap) = (
+                self.ctx.clone(),
+                self.duck.clone(),
+                self.radio.clone(),
+                self.tap.clone(),
+            );
             spawn_local(async move {
                 let r = load_music(ctx, out, tap).await;
                 *state.borrow_mut() = match r {
@@ -480,14 +510,18 @@ mod web_audio {
                         // decodeAudioData takes the buffer: a copy, so the
                         // cached bytes stay.
                         Ok(b) => match ctx.decode_audio_data(&b.slice(0)) {
-                            Ok(p) => JsFuture::from(p).await.ok().and_then(|b| b.dyn_into::<AudioBuffer>().ok()),
+                            Ok(p) => JsFuture::from(p)
+                                .await
+                                .ok()
+                                .and_then(|b| b.dyn_into::<AudioBuffer>().ok()),
                             Err(_) => None,
                         },
                         Err(_) => None,
                     };
                     let mut v = voices.borrow_mut();
                     if v.decoded.contains_key(&id) {
-                        v.decoded.insert(id, decoded.map_or(Decoded::Failed, Decoded::Ready));
+                        v.decoded
+                            .insert(id, decoded.map_or(Decoded::Failed, Decoded::Ready));
                     }
                 });
             }
@@ -496,7 +530,9 @@ mod web_audio {
         fn start(&self, id: &str, words: &str) -> Clip {
             let mut v = self.voices.borrow_mut();
             v.last = id.to_owned();
-            let Some(index) = &v.index else { return Clip::Loading };
+            let Some(index) = &v.index else {
+                return Clip::Loading;
+            };
             // A clip recorded from other words is not this line.
             if index.get(id).is_none_or(|t| t != words) {
                 return Clip::Missing;
@@ -511,7 +547,9 @@ mod web_audio {
                     return Clip::Loading;
                 }
             };
-            let Ok(src) = self.ctx.create_buffer_source() else { return Clip::Missing };
+            let Ok(src) = self.ctx.create_buffer_source() else {
+                return Clip::Missing;
+            };
             src.set_buffer(Some(&buf));
             if src.connect_with_audio_node(&self.voice).is_err() {
                 return Clip::Missing;
@@ -551,15 +589,25 @@ mod web_audio {
 
     /// `{"clips": {"<id>": {"text": ..}}}` → id → text.
     fn parse_index(bytes: &[u8]) -> HashMap<String, String> {
-        let Ok(text) = std::str::from_utf8(bytes) else { return HashMap::new() };
-        let Ok(v) = js_sys::JSON::parse(text) else { return HashMap::new() };
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            return HashMap::new();
+        };
+        let Ok(v) = js_sys::JSON::parse(text) else {
+            return HashMap::new();
+        };
         let mut out = HashMap::new();
-        let Ok(clips) = js_sys::Reflect::get(&v, &"clips".into()) else { return out };
-        let Some(clips) = clips.dyn_ref::<js_sys::Object>() else { return out };
+        let Ok(clips) = js_sys::Reflect::get(&v, &"clips".into()) else {
+            return out;
+        };
+        let Some(clips) = clips.dyn_ref::<js_sys::Object>() else {
+            return out;
+        };
         for entry in js_sys::Object::entries(clips).iter() {
             let pair: js_sys::Array = entry.unchecked_into();
             let id = pair.get(0).as_string();
-            let text = js_sys::Reflect::get(&pair.get(1), &"text".into()).ok().and_then(|t| t.as_string());
+            let text = js_sys::Reflect::get(&pair.get(1), &"text".into())
+                .ok()
+                .and_then(|t| t.as_string());
             if let (Some(id), Some(text)) = (id, text) {
                 out.insert(id, text);
             }
@@ -573,7 +621,10 @@ mod web_audio {
         let line: usize = it.next()?.parse().ok()?;
         let bit: usize = it.next()?.parse().ok()?;
         let topic = it.next()?;
-        sb_radio::topic(topic).get(bit.checked_sub(1)?)?.get(line.checked_sub(1)?).map(|(_, t)| *t)
+        sb_radio::topic(topic)
+            .get(bit.checked_sub(1)?)?
+            .get(line.checked_sub(1)?)
+            .map(|(_, t)| *t)
     }
 
     /// For tests: `{"music": "ready", "musicDb": -23.1, "clips": 198,
@@ -628,8 +679,14 @@ mod web_audio {
     }
 
     pub fn voice_start(clip: &str) -> Clip {
-        let Some(w) = words(clip) else { return Clip::Missing };
-        SFX.with(|s| s.borrow().as_ref().map_or(Clip::Missing, |s| s.start(clip, w)))
+        let Some(w) = words(clip) else {
+            return Clip::Missing;
+        };
+        SFX.with(|s| {
+            s.borrow()
+                .as_ref()
+                .map_or(Clip::Missing, |s| s.start(clip, w))
+        })
     }
 
     pub fn voice_stop() {
@@ -642,12 +699,18 @@ mod web_audio {
 
     impl Sfx {
         fn tone(&self, kind: OscillatorType, f0: f32, f1: f32, at: f64, len: f64, vol: f32) {
-            let Ok(o) = self.ctx.create_oscillator() else { return };
-            let Ok(g) = self.ctx.create_gain() else { return };
+            let Ok(o) = self.ctx.create_oscillator() else {
+                return;
+            };
+            let Ok(g) = self.ctx.create_gain() else {
+                return;
+            };
             o.set_type(kind);
             let t = self.ctx.current_time() + at;
             let _ = o.frequency().set_value_at_time(f0, t);
-            let _ = o.frequency().exponential_ramp_to_value_at_time(f1.max(1.0), t + len);
+            let _ = o
+                .frequency()
+                .exponential_ramp_to_value_at_time(f1.max(1.0), t + len);
             let _ = g.gain().set_value_at_time(0.0001, t);
             let _ = g.gain().exponential_ramp_to_value_at_time(vol, t + 0.008);
             let _ = g.gain().exponential_ramp_to_value_at_time(0.0001, t + len);
@@ -658,9 +721,15 @@ mod web_audio {
         }
 
         fn burst(&self, f: f32, len: f64, vol: f32) {
-            let Ok(src) = self.ctx.create_buffer_source() else { return };
-            let Ok(filter) = self.ctx.create_biquad_filter() else { return };
-            let Ok(g) = self.ctx.create_gain() else { return };
+            let Ok(src) = self.ctx.create_buffer_source() else {
+                return;
+            };
+            let Ok(filter) = self.ctx.create_biquad_filter() else {
+                return;
+            };
+            let Ok(g) = self.ctx.create_gain() else {
+                return;
+            };
             src.set_buffer(Some(&self.noise));
             filter.set_type(BiquadFilterType::Lowpass);
             filter.frequency().set_value(f);
@@ -705,7 +774,11 @@ mod web_audio {
             if setup.radio.voices() {
                 sfx.load_voices();
             }
-            let _ = sfx.music.gain().set_target_at_time(if setup.radio.music() { MUSIC_VOL } else { 0.0 }, now, 0.3);
+            let _ = sfx.music.gain().set_target_at_time(
+                if setup.radio.music() { MUSIC_VOL } else { 0.0 },
+                now,
+                0.3,
+            );
             let energy = match (screen.get(), run.as_deref()) {
                 (Screen::Menu, _) => 0.5,
                 (Screen::Ride, Some(r)) if r.paused => 0.35,
@@ -725,13 +798,24 @@ mod web_audio {
             let on_snow = r.phase != Phase::Air;
             set(&sfx.wind.gain.gain(), (speed / 30.0).powi(2).min(1.0) * 0.5);
             set(&sfx.wind.filter.frequency(), 250.0 + speed * 35.0);
-            let carve = if on_snow && !run.paused { (r.spray * 0.6 + 0.12) * (speed / 20.0).min(1.0) } else { 0.0 };
+            let carve = if on_snow && !run.paused {
+                (r.spray * 0.6 + 0.12) * (speed / 20.0).min(1.0)
+            } else {
+                0.0
+            };
             set(&sfx.carve.gain.gain(), carve * 0.45);
-            set(&sfx.carve.filter.frequency(), 1500.0 + r.skid * 1500.0 - r.lean.abs() * 500.0);
+            set(
+                &sfx.carve.filter.frequency(),
+                1500.0 + r.skid * 1500.0 - r.lean.abs() * 500.0,
+            );
             for ev in &feed.0 {
                 match ev {
-                    SessionEvent::Count(_) => sfx.tone(OscillatorType::Square, 660.0, 660.0, 0.0, 0.14, 0.12),
-                    SessionEvent::Go => sfx.tone(OscillatorType::Square, 990.0, 990.0, 0.0, 0.4, 0.14),
+                    SessionEvent::Count(_) => {
+                        sfx.tone(OscillatorType::Square, 660.0, 660.0, 0.0, 0.14, 0.12)
+                    }
+                    SessionEvent::Go => {
+                        sfx.tone(OscillatorType::Square, 990.0, 990.0, 0.0, 0.4, 0.14)
+                    }
                     SessionEvent::Rider(0, Event::Jump { .. }) => sfx.burst(900.0, 0.18, 0.25),
                     SessionEvent::Rider(0, Event::Land { landing, impact }) => {
                         let v = (impact / 12.0).clamp(0.15, 1.0);
@@ -742,9 +826,20 @@ mod web_audio {
                         }
                     }
                     SessionEvent::Rider(0, Event::Trick(t)) => {
-                        let notes: &[f32] = if t.points > 1500 { &[523.0, 659.0, 784.0, 1047.0] } else { &[659.0, 784.0, 988.0] };
+                        let notes: &[f32] = if t.points > 1500 {
+                            &[523.0, 659.0, 784.0, 1047.0]
+                        } else {
+                            &[659.0, 784.0, 988.0]
+                        };
                         for (i, f) in notes.iter().enumerate() {
-                            sfx.tone(OscillatorType::Triangle, *f, *f, i as f64 * 0.07, 0.22, 0.16);
+                            sfx.tone(
+                                OscillatorType::Triangle,
+                                *f,
+                                *f,
+                                i as f64 * 0.07,
+                                0.22,
+                                0.16,
+                            );
                         }
                     }
                     SessionEvent::Rider(0, Event::Crash { .. }) => {
@@ -753,7 +848,14 @@ mod web_audio {
                     }
                     SessionEvent::Finish { who: 0, .. } => {
                         for (i, f) in [523.0, 659.0, 784.0, 1047.0, 1319.0].iter().enumerate() {
-                            sfx.tone(OscillatorType::Triangle, *f, *f, i as f64 * 0.09, 0.35, 0.16);
+                            sfx.tone(
+                                OscillatorType::Triangle,
+                                *f,
+                                *f,
+                                i as f64 * 0.09,
+                                0.35,
+                                0.16,
+                            );
                         }
                     }
                     _ => {}

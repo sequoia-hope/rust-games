@@ -25,7 +25,11 @@ fn main() {
                 }
             }
             let db = |x: f64| 20.0 * x.log10();
-            println!("energy {energy}: hour {k}: rms {:.1} dBFS, peak {:.1} dBFS", db((sum / n as f64).sqrt()), db(peak as f64));
+            println!(
+                "energy {energy}: hour {k}: rms {:.1} dBFS, peak {:.1} dBFS",
+                db((sum / n as f64).sqrt()),
+                db(peak as f64)
+            );
         }
     }
 }

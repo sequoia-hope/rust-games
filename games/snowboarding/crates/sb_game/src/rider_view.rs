@@ -87,14 +87,42 @@ pub struct Bone(Part, f32);
 /// A rider's colours: jacket, pants, helmet, board, board stripe.
 pub fn palette(character: usize) -> [[f32; 3]; 5] {
     match character % 4 {
-        0 => [[0.86, 0.12, 0.1], [0.1, 0.1, 0.13], [0.96, 0.96, 0.96], [0.08, 0.45, 0.95], [1.0, 1.0, 1.0]],
-        1 => [[0.08, 0.68, 0.64], [0.92, 0.92, 0.95], [0.14, 0.14, 0.18], [0.98, 0.75, 0.08], [0.1, 0.1, 0.1]],
-        2 => [[0.99, 0.78, 0.06], [0.1, 0.16, 0.38], [0.08, 0.08, 0.08], [0.92, 0.16, 0.3], [1.0, 0.9, 0.2]],
-        _ => [[0.55, 0.24, 0.86], [0.34, 0.34, 0.38], [0.98, 0.5, 0.08], [0.12, 0.12, 0.12], [0.6, 1.0, 0.2]],
+        0 => [
+            [0.86, 0.12, 0.1],
+            [0.1, 0.1, 0.13],
+            [0.96, 0.96, 0.96],
+            [0.08, 0.45, 0.95],
+            [1.0, 1.0, 1.0],
+        ],
+        1 => [
+            [0.08, 0.68, 0.64],
+            [0.92, 0.92, 0.95],
+            [0.14, 0.14, 0.18],
+            [0.98, 0.75, 0.08],
+            [0.1, 0.1, 0.1],
+        ],
+        2 => [
+            [0.99, 0.78, 0.06],
+            [0.1, 0.16, 0.38],
+            [0.08, 0.08, 0.08],
+            [0.92, 0.16, 0.3],
+            [1.0, 0.9, 0.2],
+        ],
+        _ => [
+            [0.55, 0.24, 0.86],
+            [0.34, 0.34, 0.38],
+            [0.98, 0.5, 0.08],
+            [0.12, 0.12, 0.12],
+            [0.6, 1.0, 0.2],
+        ],
     }
 }
 
-fn mat(materials: &mut Assets<StandardMaterial>, c: [f32; 3], rough: f32) -> Handle<StandardMaterial> {
+fn mat(
+    materials: &mut Assets<StandardMaterial>,
+    c: [f32; 3],
+    rough: f32,
+) -> Handle<StandardMaterial> {
     materials.add(StandardMaterial {
         base_color: Color::srgb(c[0], c[1], c[2]),
         perceptual_roughness: rough,
@@ -132,7 +160,11 @@ pub fn spawn_rider(
     let mut b = MeshBuilder::default();
     let top = rgb(board[0], board[1], board[2]);
     let st = rgb(stripe[0], stripe[1], stripe[2]);
-    b.cuboid(Vec3::new(0.0, 0.025, 0.0), Vec3::new(0.135, 0.012, 0.62), top);
+    b.cuboid(
+        Vec3::new(0.0, 0.025, 0.0),
+        Vec3::new(0.135, 0.012, 0.62),
+        top,
+    );
     b.cuboid(Vec3::new(0.0, 0.039, 0.0), Vec3::new(0.06, 0.003, 0.5), st);
     for end in [-1.0f32, 1.0] {
         let z0 = end * 0.62;
@@ -148,7 +180,11 @@ pub fn spawn_rider(
         }
     }
     for z in [-0.25f32, 0.25] {
-        b.cuboid(Vec3::new(0.0, 0.07, z), Vec3::new(0.12, 0.03, 0.07), rgb(0.1, 0.1, 0.1));
+        b.cuboid(
+            Vec3::new(0.0, 0.07, z),
+            Vec3::new(0.12, 0.03, 0.07),
+            rgb(0.1, 0.1, 0.1),
+        );
     }
     let board_mesh = meshes.add(b.build());
 
@@ -180,15 +216,26 @@ pub fn spawn_rider(
         ))
         .id();
     commands.entity(root).with_children(|c| {
-        c.spawn((Mesh3d(board_mesh), MeshMaterial3d(white.clone()), Transform::default()));
+        c.spawn((
+            Mesh3d(board_mesh),
+            MeshMaterial3d(white.clone()),
+            Transform::default(),
+        ));
         for (part, r, len, m) in parts {
             let mesh = match part {
-                Part::Head | Part::HandL | Part::HandR | Part::Pelvis => meshes.add(Sphere::new(r).mesh().ico(2).unwrap()),
+                Part::Head | Part::HandL | Part::HandR | Part::Pelvis => {
+                    meshes.add(Sphere::new(r).mesh().ico(2).unwrap())
+                }
                 Part::Goggles => meshes.add(Cuboid::new(0.1, 0.07, 0.2)),
                 Part::BootL | Part::BootR => meshes.add(Cuboid::new(0.2, 0.13, 0.13)),
                 _ => capsule(meshes, r, len),
             };
-            c.spawn((Mesh3d(mesh), MeshMaterial3d(m), Transform::default(), Bone(part, len)));
+            c.spawn((
+                Mesh3d(mesh),
+                MeshMaterial3d(m),
+                Transform::default(),
+                Bone(part, len),
+            ));
         }
     });
     root
@@ -238,11 +285,24 @@ struct Joints {
 fn joints(p: &RiderPose) -> Joints {
     let crashed = matches!(p.phase, Phase::Crashed(_));
     let grabbing = p.grab.is_some();
-    let c = if crashed { 0.1 } else if grabbing { 1.0 } else { p.crouch.clamp(0.0, 1.0) };
-    let bob = if p.idle { (p.t * 2.2).sin() * 0.02 } else { 0.0 };
+    let c = if crashed {
+        0.1
+    } else if grabbing {
+        1.0
+    } else {
+        p.crouch.clamp(0.0, 1.0)
+    };
+    let bob = if p.idle {
+        (p.t * 2.2).sin() * 0.02
+    } else {
+        0.0
+    };
     let ankle = [Vec3::new(0.0, 0.12, -0.25), Vec3::new(0.0, 0.12, 0.25)];
     let pelvis = Vec3::new(-0.04 - 0.1 * c, 0.97 - 0.44 * c + bob, 0.0);
-    let hip = [pelvis + Vec3::new(0.0, 0.0, -0.11), pelvis + Vec3::new(0.0, 0.0, 0.11)];
+    let hip = [
+        pelvis + Vec3::new(0.0, 0.0, -0.11),
+        pelvis + Vec3::new(0.0, 0.0, 0.11),
+    ];
     let knee_hint = [Vec3::new(1.0, 0.0, -0.3), Vec3::new(1.0, 0.0, 0.3)];
     let mut knee = [Vec3::ZERO; 2];
     for i in 0..2 {
@@ -252,7 +312,10 @@ fn joints(p: &RiderPose) -> Joints {
     let up = Vec3::new(bend.sin(), bend.cos(), 0.0);
     let neck = pelvis + up * 0.56;
     let head = neck + up * 0.2 + Vec3::new(0.03, 0.04, -0.03);
-    let shoulder = [neck + Vec3::new(0.0, -0.06, -0.2), neck + Vec3::new(0.0, -0.06, 0.2)];
+    let shoulder = [
+        neck + Vec3::new(0.0, -0.06, -0.2),
+        neck + Vec3::new(0.0, -0.06, 0.2),
+    ];
     let wave = (p.t * 3.1).sin();
     let mut hand = if crashed {
         [
@@ -312,7 +375,15 @@ fn bone_between(a: Vec3, b: Vec3, nominal: f32) -> Transform {
     Transform {
         translation: (a + b) * 0.5,
         rotation: Quat::from_rotation_arc(Vec3::Y, d / len),
-        scale: Vec3::new(1.0, if nominal > 0.0 { (len / nominal).clamp(0.4, 2.0) } else { 1.0 }, 1.0),
+        scale: Vec3::new(
+            1.0,
+            if nominal > 0.0 {
+                (len / nominal).clamp(0.4, 2.0)
+            } else {
+                1.0
+            },
+            1.0,
+        ),
     }
 }
 

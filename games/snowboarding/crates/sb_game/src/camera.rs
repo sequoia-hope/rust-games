@@ -16,7 +16,10 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<CamFocus>()
         .init_resource::<CamState>()
         .add_systems(Startup, (spawn_camera, no_light_clustering))
-        .add_systems(PostUpdate, drive_camera.before(bevy::transform::TransformSystems::Propagate));
+        .add_systems(
+            PostUpdate,
+            drive_camera.before(bevy::transform::TransformSystems::Propagate),
+        );
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -140,9 +143,17 @@ fn drive_camera(
             let dist = 3.7 + speed * 0.04 + if f.airborne { 1.0 } else { 0.0 };
             let height = 1.6 + if f.airborne { 0.7 } else { 0.0 };
             let desired = f.pos + Vec3::Y * height - d * dist;
-            (desired, f.pos + Vec3::Y * 0.9 + d * 3.0, 56.0 + (speed * 0.28).min(16.0))
+            (
+                desired,
+                f.pos + Vec3::Y * 0.9 + d * 3.0,
+                56.0 + (speed * 0.28).min(16.0),
+            )
         }
-        CamMode::Orbit { radius, height, rate } => {
+        CamMode::Orbit {
+            radius,
+            height,
+            rate,
+        } => {
             st.orbit += rate * dt;
             let a = st.orbit;
             let desired = f.pos + Vec3::new(a.cos() * radius, height, a.sin() * radius);
@@ -155,7 +166,11 @@ fn drive_camera(
             let d = dir(a);
             let dist = 4.0 + 2.5 * e;
             let desired = f.pos + Vec3::Y * (1.3 + 0.9 * e) - d * dist;
-            (desired, f.pos + Vec3::Y * 0.9 + dir(f.yaw) * (4.0 * e), 55.0 + 7.0 * e)
+            (
+                desired,
+                f.pos + Vec3::Y * 0.9 + dir(f.yaw) * (4.0 * e),
+                55.0 + 7.0 * e,
+            )
         }
     };
     let mut desired = desired;

@@ -75,9 +75,15 @@ fn set(o: &Object, k: &str, v: impl Into<JsValue>) {
 }
 
 fn publish(st: Res<Status>) {
-    let Some(window) = web_sys::window() else { return };
-    let Ok(sb) = Reflect::get(&window, &JsValue::from_str("__sb")) else { return };
-    let Some(sb) = sb.dyn_ref::<Object>() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(sb) = Reflect::get(&window, &JsValue::from_str("__sb")) else {
+        return;
+    };
+    let Some(sb) = sb.dyn_ref::<Object>() else {
+        return;
+    };
     set(sb, "frames", st.frames as f64);
     set(sb, "backend", BACKEND);
     set(sb, "screen", st.screen);
@@ -92,6 +98,11 @@ fn publish(st: Res<Status>) {
     set(sb, "tricks", st.tricks as f64);
     set(sb, "crashes", st.crashes);
     set(sb, "place", st.place as f64);
-    set(sb, "finish", st.finish.map_or(JsValue::NULL, |f| JsValue::from_f64(f as f64)));
+    set(
+        sb,
+        "finish",
+        st.finish
+            .map_or(JsValue::NULL, |f| JsValue::from_f64(f as f64)),
+    );
     set(sb, "lastTrick", st.last_trick.as_str());
 }

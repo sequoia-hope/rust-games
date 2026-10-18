@@ -25,9 +25,9 @@ use std::collections::VecDeque;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Announcers>()
-    .init_resource::<Watch>()
-    .add_systems(Startup, spawn_captions)
-    .add_systems(Update, (direct, narrate, captions).chain().after(RideSet));
+        .init_resource::<Watch>()
+        .add_systems(Startup, spawn_captions)
+        .add_systems(Update, (direct, narrate, captions).chain().after(RideSet));
 }
 
 /// What the RADIO setting plays.
@@ -131,7 +131,9 @@ struct Watch {
 fn scene(screen: Screen, run: Option<&Run>) -> Scene {
     match (screen, run) {
         (Screen::Ride, Some(r)) if r.paused => Scene::Paused,
-        (Screen::Ride, Some(r)) if r.session.state == State::Done && r.done_for > 0.4 => Scene::Results,
+        (Screen::Ride, Some(r)) if r.session.state == State::Done && r.done_for > 0.4 => {
+            Scene::Results
+        }
         (Screen::Ride, _) => Scene::Riding,
         (Screen::Menu, _) => Scene::Menu,
     }
@@ -188,13 +190,21 @@ fn direct(
                     points: t.points,
                     spin_deg: t.spin_deg,
                 }),
-                SessionEvent::Rider(0, Event::Land { landing: Landing::Sloppy, .. }) => Some(Cue::Sloppy),
+                SessionEvent::Rider(
+                    0,
+                    Event::Land {
+                        landing: Landing::Sloppy,
+                        ..
+                    },
+                ) => Some(Cue::Sloppy),
                 SessionEvent::Rider(0, Event::Crash { tree }) => Some(Cue::Crash { tree: *tree }),
                 SessionEvent::Finish { who: 0, .. } => Some(Cue::Finish {
                     mode: s.mode,
                     won: s.mode == Mode::Race && s.place(0) == 1,
                 }),
-                SessionEvent::Finish { who, .. } if *who > 0 && s.player().finish.is_none() => Some(Cue::RivalDone),
+                SessionEvent::Finish { who, .. } if *who > 0 && s.player().finish.is_none() => {
+                    Some(Cue::RivalDone)
+                }
                 _ => None,
             };
             if let Some(c) = cue {
@@ -212,7 +222,11 @@ fn direct(
                 }
                 w.held += dt;
                 if w.held > 1.0 && w.new_place != w.place {
-                    a.director.cue(if w.new_place < w.place { Cue::Lead } else { Cue::Behind });
+                    a.director.cue(if w.new_place < w.place {
+                        Cue::Lead
+                    } else {
+                        Cue::Behind
+                    });
                     w.place = w.new_place;
                 }
             }
@@ -357,7 +371,11 @@ fn captions(
     // In the menu, right of its column of settings and above its line of
     // keys; in a run, at the foot of the screen.
     let menu = *screen.get() == Screen::Menu;
-    let (left, bottom) = if menu { (Val::VMin(77.0), Val::VMin(7.0)) } else { (Val::Px(0.0), Val::VMin(3.0)) };
+    let (left, bottom) = if menu {
+        (Val::VMin(77.0), Val::VMin(7.0))
+    } else {
+        (Val::Px(0.0), Val::VMin(3.0))
+    };
     for mut n in &mut rows {
         if n.bottom != bottom || n.left != left {
             n.bottom = bottom;
@@ -366,7 +384,11 @@ fn captions(
     }
     let line = a.now.as_ref().map(|n| &n.line);
     for mut n in &mut boxes {
-        let d = if line.is_some() { Display::Flex } else { Display::None };
+        let d = if line.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
         if n.display != d {
             n.display = d;
         }

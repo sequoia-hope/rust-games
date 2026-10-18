@@ -10,7 +10,10 @@ fn main() {
         .first()
         .and_then(|k| CourseId::from_key(k))
         .unwrap_or(CourseId::Crystal);
-    let mode = args.get(1).and_then(|k| Mode::from_key(k)).unwrap_or(Mode::Race);
+    let mode = args
+        .get(1)
+        .and_then(|k| Mode::from_key(k))
+        .unwrap_or(Mode::Race);
     let mut s = Session::new(course, mode, 0, true);
     println!(
         "{}: {:.0} m, drop {:.0} m, {} kickers, {} obstacles",

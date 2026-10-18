@@ -91,7 +91,11 @@ impl Options {
     /// From a query string (`?a=1&b`).
     pub fn from_query(q: &str) -> Options {
         let mut o = Options::default();
-        for pair in q.trim_start_matches('?').split('&').filter(|p| !p.is_empty()) {
+        for pair in q
+            .trim_start_matches('?')
+            .split('&')
+            .filter(|p| !p.is_empty())
+        {
             let (k, v) = pair.split_once('=').unwrap_or((pair, "1"));
             o.set(k, v);
         }
@@ -142,9 +146,17 @@ mod tests {
         assert_eq!(o.character, 2);
         assert!(o.go && !o.auto);
         let o = Options::from_args(
-            ["--course", "pipe", "--go", "--screenshot", "a.png", "--frames", "9"]
-                .into_iter()
-                .map(String::from),
+            [
+                "--course",
+                "pipe",
+                "--go",
+                "--screenshot",
+                "a.png",
+                "--frames",
+                "9",
+            ]
+            .into_iter()
+            .map(String::from),
         );
         assert_eq!(o.course, CourseId::Pipe);
         assert!(o.go);

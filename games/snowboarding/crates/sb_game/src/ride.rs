@@ -102,7 +102,13 @@ pub fn start_run(
     // The fast-forward is for the first run only: a restart starts over.
     opts.0.skip = 0.0;
     for (i, e) in run.session.entrants.iter().enumerate() {
-        spawn_rider(&mut commands, &mut meshes, &mut materials, e.character, RiderSlot(i));
+        spawn_rider(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            e.character,
+            RiderSlot(i),
+        );
     }
     let p = &run.session.entrants[0].rider;
     focus.pos = p.pos;
@@ -170,7 +176,9 @@ fn pose(
     let alpha = (run.acc / TICK).clamp(0.0, 1.0);
     let s = &run.session;
     for (slot, mut pose) in &mut riders {
-        let Some(e) = s.entrants.get(slot.0) else { continue };
+        let Some(e) = s.entrants.get(slot.0) else {
+            continue;
+        };
         let r = &e.rider;
         let pos = if run.paused {
             r.pos
@@ -196,14 +204,25 @@ fn pose(
         // Snow off the edge.
         if !run.paused && r.phase != Phase::Air {
             let speed = r.speed();
-            let rate = r.spray * speed * 9.0 + if matches!(r.phase, Phase::Crashed(_)) { speed * 6.0 } else { 0.0 };
+            let rate = r.spray * speed * 9.0
+                + if matches!(r.phase, Phase::Crashed(_)) {
+                    speed * 6.0
+                } else {
+                    0.0
+                };
             let n = (rate * time.delta_secs() + fastrand_frac(run.clock + slot.0 as f32)) as usize;
             if n > 0 {
                 let fwd = r.forward();
                 let side = fwd.cross(r.normal).normalize_or(Vec3::X);
-                let lean = if r.lean.abs() > 0.05 { -r.lean.signum() } else { 1.0 };
+                let lean = if r.lean.abs() > 0.05 {
+                    -r.lean.signum()
+                } else {
+                    1.0
+                };
                 let at = r.pos + side * 0.2 * lean + fwd * 0.2;
-                let vel = r.vel * 0.35 + side * lean * (1.5 + speed * 0.12) + Vec3::Y * (1.2 + speed * 0.08);
+                let vel = r.vel * 0.35
+                    + side * lean * (1.5 + speed * 0.12)
+                    + Vec3::Y * (1.2 + speed * 0.08);
                 particles.emit(at, vel, 1.3, n.min(12), 0.11);
             }
         }

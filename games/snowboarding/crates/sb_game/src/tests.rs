@@ -45,7 +45,9 @@ const FRAME: f64 = 1.0 / 60.0;
 impl Harness {
     fn new(o: Options) -> Harness {
         let mut app = crate::headless(o);
-        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(FRAME)));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f64(
+            FRAME,
+        )));
         app.finish();
         app.cleanup();
         let mut h = Harness {
@@ -137,23 +139,40 @@ impl Harness {
     }
 
     fn screen(&self) -> Screen {
-        *self.app.world().resource::<bevy::state::state::State<Screen>>().get()
+        *self
+            .app
+            .world()
+            .resource::<bevy::state::state::State<Screen>>()
+            .get()
     }
 
     fn count<T: Component>(&mut self) -> usize {
-        self.world().query_filtered::<(), With<T>>().iter(self.world()).count()
+        self.world()
+            .query_filtered::<(), With<T>>()
+            .iter(self.world())
+            .count()
     }
 
     fn panels(&mut self) -> Vec<Panel> {
-        self.world().query::<&Panel>().iter(self.world()).copied().collect()
+        self.world()
+            .query::<&Panel>()
+            .iter(self.world())
+            .copied()
+            .collect()
     }
 
     fn run_state(&self) -> Option<State> {
-        self.app.world().get_resource::<Run>().map(|r| r.session.state)
+        self.app
+            .world()
+            .get_resource::<Run>()
+            .map(|r| r.session.state)
     }
 
     fn paused(&self) -> bool {
-        self.app.world().get_resource::<Run>().is_some_and(|r| r.paused)
+        self.app
+            .world()
+            .get_resource::<Run>()
+            .is_some_and(|r| r.paused)
     }
 
     fn setup(&mut self) -> Mut<'_, Setup> {
@@ -177,7 +196,11 @@ impl Harness {
         assert_eq!(self.screen(), Screen::Menu);
         self.key(KeyCode::Enter);
         self.frames(2);
-        assert_eq!(self.screen(), Screen::Ride, "Enter on the menu starts a run");
+        assert_eq!(
+            self.screen(),
+            Screen::Ride,
+            "Enter on the menu starts a run"
+        );
     }
 
     /// The pause panel, by its key.
@@ -190,7 +213,9 @@ impl Harness {
     /// From a run to the menu, through the pause panel.
     fn quit(&mut self) {
         if self.run_state() == Some(State::Done) {
-            self.until(2.0, "showing the results", |h| h.panels() == vec![Panel::Results]);
+            self.until(2.0, "showing the results", |h| {
+                h.panels() == vec![Panel::Results]
+            });
             self.keys(&[KeyCode::ArrowDown, KeyCode::Enter]);
         } else {
             if !self.paused() {
@@ -215,47 +240,85 @@ impl Harness {
             .world()
             .get_resource::<Run>()
             .map(|r| (r.session.entrants.len(), r.session.state));
-        assert!(panels.len() <= 1, "frame {frame}: {} panels at once: {panels:?}", panels.len());
+        assert!(
+            panels.len() <= 1,
+            "frame {frame}: {} panels at once: {panels:?}",
+            panels.len()
+        );
         match screen {
             Screen::Ride => {
                 let Some((entrants, _)) = run else {
                     panic!("frame {frame}: a run on screen without a Run");
                 };
                 assert_eq!(huds, 1, "frame {frame}: {huds} HUDs in a run");
-                assert_eq!(riders, entrants, "frame {frame}: {riders} riders drawn for {entrants} entrants");
-                assert_eq!(showcase, 0, "frame {frame}: the menu's rider is still out in a run");
-                assert!(!panels.contains(&Panel::Title), "frame {frame}: the title panel in a run");
+                assert_eq!(
+                    riders, entrants,
+                    "frame {frame}: {riders} riders drawn for {entrants} entrants"
+                );
+                assert_eq!(
+                    showcase, 0,
+                    "frame {frame}: the menu's rider is still out in a run"
+                );
+                assert!(
+                    !panels.contains(&Panel::Title),
+                    "frame {frame}: the title panel in a run"
+                );
             }
             Screen::Menu => {
                 assert!(run.is_none(), "frame {frame}: a Run left over in the menu");
                 assert_eq!(huds, 0, "frame {frame}: a HUD in the menu");
-                assert_eq!(riders, 0, "frame {frame}: {riders} run riders left in the menu");
-                assert_eq!(showcase, 1, "frame {frame}: {showcase} showcase riders in the menu");
-                assert_eq!(panels, vec![Panel::Title], "frame {frame}: the menu's panels");
+                assert_eq!(
+                    riders, 0,
+                    "frame {frame}: {riders} run riders left in the menu"
+                );
+                assert_eq!(
+                    showcase, 1,
+                    "frame {frame}: {showcase} showcase riders in the menu"
+                );
+                assert_eq!(
+                    panels,
+                    vec![Panel::Title],
+                    "frame {frame}: the menu's panels"
+                );
             }
         }
 
         // The world: spawned once for its course, never twice, never
         // partly.
-        let course = self.app.world().resource::<Built>().course.as_ref().map(|c| c.id);
+        let course = self
+            .app
+            .world()
+            .resource::<Built>()
+            .course
+            .as_ref()
+            .map(|c| c.id);
         let want = self.app.world().resource::<Setup>().course;
         let size = self.count::<CourseEntity>();
         if let Some(id) = course
             && id == want
         {
             let first = *self.world_size.entry(id).or_insert(size);
-            assert_eq!(size, first, "frame {frame}: {id:?}'s world has {size} entities, {first} the first time");
+            assert_eq!(
+                size, first,
+                "frame {frame}: {id:?}'s world has {size} entities, {first} the first time"
+            );
         }
 
         // Nothing NaN on screen.
         let mut q = self.world().query_filtered::<&Transform, With<RiderSlot>>();
         for t in q.iter(self.app.world()) {
-            assert!(t.translation.is_finite() && t.rotation.is_finite(), "frame {frame}: a rider at {t:?}");
+            assert!(
+                t.translation.is_finite() && t.rotation.is_finite(),
+                "frame {frame}: a rider at {t:?}"
+            );
         }
         if let Some(run) = self.app.world().get_resource::<Run>() {
             for e in &run.session.entrants {
                 let r = &e.rider;
-                assert!(r.pos.is_finite() && r.vel.is_finite() && r.yaw.is_finite(), "frame {frame}: {r:?}");
+                assert!(
+                    r.pos.is_finite() && r.vel.is_finite() && r.yaw.is_finite(),
+                    "frame {frame}: {r:?}"
+                );
             }
         }
 
@@ -284,7 +347,10 @@ fn boots_to_the_menu() {
     let mut h = Harness::query("");
     h.frames(10);
     assert_eq!(h.screen(), Screen::Menu);
-    assert!(h.app.world().resource::<Built>().course.is_some(), "the world is built behind the menu");
+    assert!(
+        h.app.world().resource::<Built>().course.is_some(),
+        "the world is built behind the menu"
+    );
 }
 
 #[test]
@@ -300,7 +366,10 @@ fn every_course_and_mode_rides_and_quits() {
             h.frames(2);
             h.ride();
             h.seconds(4.5);
-            assert!(matches!(h.run_state(), Some(State::Running)), "{course:?} {mode:?}: running after the countdown");
+            assert!(
+                matches!(h.run_state(), Some(State::Running)),
+                "{course:?} {mode:?}: running after the countdown"
+            );
             h.hold(KeyCode::ArrowLeft, 20);
             h.hold(KeyCode::Space, 30);
             h.seconds(1.0);
@@ -315,7 +384,10 @@ fn escape_pauses_and_stays_paused() {
     h.seconds(1.0);
     h.key(KeyCode::Escape);
     h.frames(5);
-    assert!(h.paused(), "Esc pauses (and the same press must not resume)");
+    assert!(
+        h.paused(),
+        "Esc pauses (and the same press must not resume)"
+    );
     assert_eq!(h.panels(), vec![Panel::Pause]);
     h.key(KeyCode::Escape);
     h.frames(2);
@@ -337,13 +409,19 @@ fn restarting_again_and_again_leaks_nothing() {
         h.keys(&[KeyCode::ArrowDown, KeyCode::Enter]);
         h.frames(2);
         assert_eq!(h.screen(), Screen::Ride);
-        assert!(matches!(h.run_state(), Some(State::Countdown(_))), "restart {i}: a fresh countdown");
+        assert!(
+            matches!(h.run_state(), Some(State::Countdown(_))),
+            "restart {i}: a fresh countdown"
+        );
         assert!(!h.paused());
         h.frames(1 + i % 7);
     }
     h.seconds(1.0);
     let now = h.world().entities().len();
-    assert!(now <= entities + 50, "{now} entities after 25 restarts, {entities} before");
+    assert!(
+        now <= entities + 50,
+        "{now} entities after 25 restarts, {entities} before"
+    );
 }
 
 #[test]
@@ -351,7 +429,10 @@ fn spinning_through_the_courses_in_the_menu() {
     let mut h = Harness::query("");
     // To the course row.
     h.keys(&[KeyCode::ArrowUp; 8][..crate::menu::RIDE_ROW - COURSE_ROW]);
-    assert_eq!(h.app.world().resource::<crate::menu::Focus>().index, COURSE_ROW);
+    assert_eq!(
+        h.app.world().resource::<crate::menu::Focus>().index,
+        COURSE_ROW
+    );
     for _ in 0..2 * CourseId::ALL.len() {
         h.key(KeyCode::ArrowRight);
     }
@@ -383,7 +464,11 @@ fn changing_rider_and_mode_in_the_menu() {
     for (row, n) in [(0, 7), (2, 9), (3, 3), (4, 6)] {
         h.world().resource_mut::<crate::menu::Focus>().index = row;
         for i in 0..n {
-            h.key(if i % 4 == 3 { KeyCode::ArrowLeft } else { KeyCode::ArrowRight });
+            h.key(if i % 4 == 3 {
+                KeyCode::ArrowLeft
+            } else {
+                KeyCode::ArrowRight
+            });
         }
     }
     h.world().resource_mut::<crate::menu::Focus>().index = crate::menu::RIDE_ROW;
@@ -394,7 +479,13 @@ fn changing_rider_and_mode_in_the_menu() {
 
 #[test]
 fn any_rider_number_in_the_address() {
-    for q in ["rider=9", "rider=-1", "rider=x", "rider=4&go=1", "course=nowhere&mode=x&go=1"] {
+    for q in [
+        "rider=9",
+        "rider=-1",
+        "rider=x",
+        "rider=4&go=1",
+        "course=nowhere&mode=x&go=1",
+    ] {
         let mut h = Harness::query(q);
         h.frames(20);
         if h.screen() == Screen::Ride {
@@ -408,7 +499,11 @@ fn any_rider_number_in_the_address() {
 fn straight_into_every_course() {
     for course in CourseId::ALL {
         for mode in Mode::ALL {
-            let mut h = Harness::query(&format!("go=1&auto=1&course={}&mode={}", course.key(), mode.key()));
+            let mut h = Harness::query(&format!(
+                "go=1&auto=1&course={}&mode={}",
+                course.key(),
+                mode.key()
+            ));
             h.seconds(6.0);
             assert_eq!(h.screen(), Screen::Ride);
             h.quit();
@@ -422,14 +517,21 @@ fn results_then_ride_again_then_menu() {
     for course in CourseId::ALL {
         let mut h = Harness::query(&format!("go=1&auto=1&skip=400&course={}", course.key()));
         h.until(120.0, "finished", |h| h.run_state() == Some(State::Done));
-        h.until(2.0, "showing the results", |h| h.panels() == vec![Panel::Results]);
+        h.until(2.0, "showing the results", |h| {
+            h.panels() == vec![Panel::Results]
+        });
         // P on the results does nothing.
         h.key(KeyCode::KeyP);
         assert_eq!(h.panels(), vec![Panel::Results]);
         h.key(KeyCode::Enter);
         h.frames(2);
-        assert!(matches!(h.run_state(), Some(State::Countdown(_))), "{course:?}: RIDE AGAIN restarts");
-        h.until(150.0, "finished again", |h| h.run_state() == Some(State::Done));
+        assert!(
+            matches!(h.run_state(), Some(State::Countdown(_))),
+            "{course:?}: RIDE AGAIN restarts"
+        );
+        h.until(150.0, "finished again", |h| {
+            h.run_state() == Some(State::Done)
+        });
         h.quit();
         h.ride();
         h.quit();
@@ -443,9 +545,16 @@ fn touch_through_a_run() {
     for i in 0..10 {
         // Steer, jump and grab, wherever the fingers land.
         let x = 100.0 + 90.0 * i as f32;
-        h.swipe(Vec2::new(x, 300.0), Vec2::new(60.0 - 12.0 * i as f32, -40.0), 8);
+        h.swipe(
+            Vec2::new(x, 300.0),
+            Vec2::new(60.0 - 12.0 * i as f32, -40.0),
+            8,
+        );
     }
-    assert!(h.app.world().resource::<Setup>().assist, "touch turns the landing assist on");
+    assert!(
+        h.app.world().resource::<Setup>().assist,
+        "touch turns the landing assist on"
+    );
     h.quit();
 }
 
@@ -479,8 +588,15 @@ fn mashing_every_key() {
         let r = next();
         match r % 10 {
             0..=5 => h.key(keys[(r / 10) as usize % keys.len()]),
-            6 => h.hold(keys[(r / 10) as usize % keys.len()], (r / 100 % 40) as usize),
-            7 => h.swipe(Vec2::new((r % 1280) as f32, (r / 7 % 720) as f32), Vec2::new(40.0, -30.0), 3),
+            6 => h.hold(
+                keys[(r / 10) as usize % keys.len()],
+                (r / 100 % 40) as usize,
+            ),
+            7 => h.swipe(
+                Vec2::new((r % 1280) as f32, (r / 7 % 720) as f32),
+                Vec2::new(40.0, -30.0),
+                3,
+            ),
             _ => h.frames((r / 10 % 30) as usize),
         }
         let now = h.screen();
@@ -492,32 +608,56 @@ fn mashing_every_key() {
             was = now;
         }
     }
-    assert!(rides >= 3 && menus >= 3, "the mashing went between the screens: {rides} runs, {menus} menus");
+    assert!(
+        rides >= 3 && menus >= 3,
+        "the mashing went between the screens: {rides} runs, {menus} menus"
+    );
 }
 
 fn said(h: &Harness) -> Vec<&'static str> {
-    h.app.world().resource::<crate::radio::Announcers>().log.iter().map(|(t, _)| *t).collect()
+    h.app
+        .world()
+        .resource::<crate::radio::Announcers>()
+        .log
+        .iter()
+        .map(|(t, _)| *t)
+        .collect()
 }
 
 fn talking(h: &Harness) -> bool {
-    h.app.world().resource::<crate::radio::Announcers>().now.is_some()
+    h.app
+        .world()
+        .resource::<crate::radio::Announcers>()
+        .now
+        .is_some()
 }
 
 #[test]
 fn the_announcers_greet_the_menu_and_call_a_run() {
     let mut h = Harness::query("course=timber&mode=race&auto=1");
     h.seconds(3.0);
-    assert_eq!(said(&h), vec!["ident"], "the menu opens with the broadcast's open");
+    assert_eq!(
+        said(&h),
+        vec!["ident"],
+        "the menu opens with the broadcast's open"
+    );
     assert!(talking(&h), "a caption is up while they talk");
     h.ride();
     h.frames(3);
     let intro = *said(&h).last().unwrap();
-    assert!(["timber", "kai"].contains(&intro), "the run starts with its intro, not {intro}");
+    assert!(
+        ["timber", "kai"].contains(&intro),
+        "the run starts with its intro, not {intro}"
+    );
     // To the finish (the autopilot rides), and the result is called.
     h.until(150.0, "finished", |h| h.run_state() == Some(State::Done));
     h.seconds(1.0);
     let last = *said(&h).last().unwrap();
-    assert!(["win", "win-clean", "lose", "lose-trees"].contains(&last), "the race's result is called, not {last}: {:?}", said(&h));
+    assert!(
+        ["win", "win-clean", "lose", "lose-trees"].contains(&last),
+        "the race's result is called, not {last}: {:?}",
+        said(&h)
+    );
 }
 
 #[test]
@@ -555,7 +695,10 @@ fn the_radio_setting_cycles_in_the_menu() {
         seen.push(h.app.world().resource::<Setup>().radio);
     }
     use crate::radio::Radio;
-    assert_eq!(seen, vec![Radio::Music, Radio::Voices, Radio::Off, Radio::All]);
+    assert_eq!(
+        seen,
+        vec![Radio::Music, Radio::Voices, Radio::Off, Radio::All]
+    );
 }
 
 #[test]
@@ -573,7 +716,10 @@ fn mesh_bytes() {
             bytes += m.count_vertices() * m.get_vertex_size() as usize
                 + m.indices().map_or(0, |i| i.len() * 4);
         }
-        println!("{course:?}: {n} meshes, {verts} vertices, {:.1} MB", bytes as f64 / 1048576.0);
+        println!(
+            "{course:?}: {n} meshes, {verts} vertices, {:.1} MB",
+            bytes as f64 / 1048576.0
+        );
     }
 }
 
@@ -582,13 +728,18 @@ fn mesh_bytes() {
 #[derive(Resource, Default)]
 struct Uploads(Vec<usize>);
 
-fn count_uploads(mut events: MessageReader<AssetEvent<Mesh>>, meshes: Res<Assets<Mesh>>, mut up: ResMut<Uploads>) {
+fn count_uploads(
+    mut events: MessageReader<AssetEvent<Mesh>>,
+    meshes: Res<Assets<Mesh>>,
+    mut up: ResMut<Uploads>,
+) {
     let mut bytes = 0;
     for e in events.read() {
         if let AssetEvent::Added { id } | AssetEvent::Modified { id } = e
             && let Some(m) = meshes.get(*id)
         {
-            bytes += m.count_vertices() * m.get_vertex_size() as usize + m.indices().map_or(0, |i| i.len() * 4);
+            bytes += m.count_vertices() * m.get_vertex_size() as usize
+                + m.indices().map_or(0, |i| i.len() * 4);
         }
     }
     up.0.push(bytes);
@@ -604,7 +755,9 @@ fn count_uploads(mut events: MessageReader<AssetEvent<Mesh>>, meshes: Res<Assets
 fn every_course_uploads_little_per_frame() {
     for course in CourseId::ALL {
         let mut h = Harness::query(&format!("go=1&auto=1&course={}", course.key()));
-        h.app.init_resource::<Uploads>().add_systems(Last, count_uploads);
+        h.app
+            .init_resource::<Uploads>()
+            .add_systems(Last, count_uploads);
         h.seconds(1.0);
         h.world().resource_mut::<Uploads>().0.clear();
         h.seconds(12.0);
@@ -613,7 +766,13 @@ fn every_course_uploads_little_per_frame() {
         let max = *up.iter().max().unwrap() as f64 / 1024.0;
         println!("{course:?}: {mean:.1} KB a frame on average, {max:.1} KB at most");
         // The spray off the board writes a few KB while it flies.
-        assert!(mean <= 8.0, "{course:?}: {mean:.1} KB of mesh written a frame on average");
-        assert!(max <= 64.0, "{course:?}: {max:.1} KB of mesh written in one frame");
+        assert!(
+            mean <= 8.0,
+            "{course:?}: {mean:.1} KB of mesh written a frame on average"
+        );
+        assert!(
+            max <= 64.0,
+            "{course:?}: {max:.1} KB of mesh written in one frame"
+        );
     }
 }

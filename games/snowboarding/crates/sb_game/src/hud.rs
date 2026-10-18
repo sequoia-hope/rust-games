@@ -3,11 +3,11 @@
 //! trick names with their points, the touch controls, and a hint of the
 //! keys at the start.
 
+use crate::Screen;
 use crate::input::Controls;
 use crate::ride::{Feed, Run};
 use crate::rider_view::palette;
 use crate::ui::{self, Fonts, clock, full_screen, ordinal, text, thousands};
-use crate::Screen;
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
 use sb_sim::race::{Mode, SessionEvent, State};
@@ -16,7 +16,10 @@ use sb_sim::tricks::Landing;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<HudState>()
-        .add_systems(OnEnter(Screen::Ride), spawn_hud.after(crate::ride::start_run))
+        .add_systems(
+            OnEnter(Screen::Ride),
+            spawn_hud.after(crate::ride::start_run),
+        )
         .add_systems(OnExit(Screen::Ride), despawn::<HudRoot>)
         .add_systems(
             Update,
@@ -92,7 +95,12 @@ pub fn despawn<T: Component>(mut commands: Commands, q: Query<Entity, With<T>>) 
     }
 }
 
-fn spawn_hud(mut commands: Commands, fonts: Res<Fonts>, mut st: ResMut<HudState>, run: Option<Res<Run>>) {
+fn spawn_hud(
+    mut commands: Commands,
+    fonts: Res<Fonts>,
+    mut st: ResMut<HudState>,
+    run: Option<Res<Run>>,
+) {
     *st = HudState::default();
     let course_name = run
         .as_ref()
@@ -357,17 +365,30 @@ fn events(time: Res<Time>, feed: Res<Feed>, run: Option<Res<Run>>, mut st: ResMu
                 st.points = format!("+{}", thousands(t.points));
                 st.trick_t = 0.0;
             }
-            SessionEvent::Rider(0, Event::Land { landing: Landing::Sloppy, .. }) => {
+            SessionEvent::Rider(
+                0,
+                Event::Land {
+                    landing: Landing::Sloppy,
+                    ..
+                },
+            ) => {
                 if st.trick_t > 0.1 {
                     st.trick = "SLOPPY LANDING".into();
                     st.points = String::new();
                     st.trick_t = 0.0;
                 }
             }
-            SessionEvent::Rider(0, Event::Crash { tree }) => {
-                say(&mut st, if *tree { "TIMBER!" } else { "WIPEOUT!" }, Some(ui::HOT), 1.4)
-            }
-            SessionEvent::Checkpoint { who: 0, index, time } => {
+            SessionEvent::Rider(0, Event::Crash { tree }) => say(
+                &mut st,
+                if *tree { "TIMBER!" } else { "WIPEOUT!" },
+                Some(ui::HOT),
+                1.4,
+            ),
+            SessionEvent::Checkpoint {
+                who: 0,
+                index,
+                time,
+            } => {
                 let mut line = format!("CHECKPOINT {}  {}", index + 1, clock(*time));
                 if s.mode == Mode::Race
                     && let Some(rival) = s.entrants.get(1)
@@ -401,7 +422,11 @@ fn update_hud(
 ) {
     let hint_on = !controls.touch_seen && st.age < 10.0;
     for mut n in &mut pill {
-        n.display = if hint_on { Display::Flex } else { Display::None };
+        n.display = if hint_on {
+            Display::Flex
+        } else {
+            Display::None
+        };
     }
     let Some(run) = run else { return };
     let s = &run.session;
@@ -411,11 +436,22 @@ fn update_hud(
         let (value, c): (String, Option<Color>) = match kind {
             HudText::Time => (clock(me.finish.unwrap_or(s.time)), None),
             HudText::Split => (
-                if st.split_t < 3.5 { st.split.clone() } else { String::new() },
+                if st.split_t < 3.5 {
+                    st.split.clone()
+                } else {
+                    String::new()
+                },
                 None,
             ),
             HudText::PlaceLabel => (
-                if s.mode == Mode::TrickAttack { "SCORE" } else if s.mode == Mode::Race { "PLACE" } else { "" }.into(),
+                if s.mode == Mode::TrickAttack {
+                    "SCORE"
+                } else if s.mode == Mode::Race {
+                    "PLACE"
+                } else {
+                    ""
+                }
+                .into(),
                 None,
             ),
             HudText::Place => match s.mode {
@@ -435,7 +471,10 @@ fn update_hud(
                         transform.scale = scale;
                     }
                     let a = ((st.msg_len - st.msg_t) / 0.3).clamp(0.0, 1.0);
-                    (st.msg.clone(), Some(st.msg_color.unwrap_or(ui::WHITE).with_alpha(a)))
+                    (
+                        st.msg.clone(),
+                        Some(st.msg_color.unwrap_or(ui::WHITE).with_alpha(a)),
+                    )
                 } else {
                     (String::new(), None)
                 }
@@ -443,19 +482,42 @@ fn update_hud(
             HudText::Trick | HudText::Points => {
                 let a = ((2.6 - st.trick_t) / 0.4).clamp(0.0, 1.0);
                 if a > 0.0 && !done {
-                    let v = if matches!(kind, HudText::Trick) { st.trick.clone() } else { st.points.clone() };
-                    let base = if matches!(kind, HudText::Trick) { ui::WHITE } else { ui::GOLD };
+                    let v = if matches!(kind, HudText::Trick) {
+                        st.trick.clone()
+                    } else {
+                        st.points.clone()
+                    };
+                    let base = if matches!(kind, HudText::Trick) {
+                        ui::WHITE
+                    } else {
+                        ui::GOLD
+                    };
                     (v, Some(base.with_alpha(a)))
                 } else {
                     (String::new(), None)
                 }
             }
             HudText::Hint => {
-                let a = if controls.touch_seen { 0.0 } else { ((9.0 - st.age) / 1.0).clamp(0.0, 1.0) };
-                (if a > 0.0 && !done { t.0.clone() } else { String::new() }, Some(ui::WHITE.with_alpha(a)))
+                let a = if controls.touch_seen {
+                    0.0
+                } else {
+                    ((9.0 - st.age) / 1.0).clamp(0.0, 1.0)
+                };
+                (
+                    if a > 0.0 && !done {
+                        t.0.clone()
+                    } else {
+                        String::new()
+                    },
+                    Some(ui::WHITE.with_alpha(a)),
+                )
             }
             HudText::Course => (
-                if matches!(s.state, State::Countdown(_)) { t.0.clone() } else { String::new() },
+                if matches!(s.state, State::Countdown(_)) {
+                    t.0.clone()
+                } else {
+                    String::new()
+                },
                 None,
             ),
         };
@@ -469,7 +531,11 @@ fn update_hud(
         }
     }
     for mut node in &mut place_box {
-        node.display = if s.mode == Mode::TimeAttack { Display::None } else { Display::Flex };
+        node.display = if s.mode == Mode::TimeAttack {
+            Display::None
+        } else {
+            Display::Flex
+        };
     }
     for (m, mut node) in &mut markers {
         node.left = Val::Percent(100.0 * s.progress(m.0));
@@ -482,21 +548,43 @@ fn touch_overlay(
     mut q: Query<(&Touch, &mut Node, &mut BackgroundColor)>,
 ) {
     let show = controls.touch_seen;
-    let vmin = window.single().map_or(8.0, |w| w.width().min(w.height()) / 100.0);
+    let vmin = window
+        .single()
+        .map_or(8.0, |w| w.width().min(w.height()) / 100.0);
     for (kind, mut node, mut bg) in &mut q {
         match kind {
             Touch::Jump | Touch::Grab => {
                 node.display = if show { Display::Flex } else { Display::None };
-                let on = if matches!(kind, Touch::Jump) { controls.touch_jump } else { controls.touch_grab };
-                bg.0 = if on { Color::srgba(0.55, 0.85, 1.0, 0.7) } else { TOUCH_BG };
+                let on = if matches!(kind, Touch::Jump) {
+                    controls.touch_jump
+                } else {
+                    controls.touch_grab
+                };
+                bg.0 = if on {
+                    Color::srgba(0.55, 0.85, 1.0, 0.7)
+                } else {
+                    TOUCH_BG
+                };
             }
             Touch::Rest => {
-                node.display = if show && controls.stick.is_none() { Display::Flex } else { Display::None };
+                node.display = if show && controls.stick.is_none() {
+                    Display::Flex
+                } else {
+                    Display::None
+                };
             }
             Touch::Stick | Touch::Knob => {
-                let size = if matches!(kind, Touch::Stick) { 24.0 } else { 10.0 } * vmin;
+                let size = if matches!(kind, Touch::Stick) {
+                    24.0
+                } else {
+                    10.0
+                } * vmin;
                 if let Some((anchor, knob)) = controls.stick {
-                    let at = if matches!(kind, Touch::Stick) { anchor } else { knob };
+                    let at = if matches!(kind, Touch::Stick) {
+                        anchor
+                    } else {
+                        knob
+                    };
                     node.display = Display::Flex;
                     node.left = Val::Px(at.x - size / 2.0);
                     node.top = Val::Px(at.y - size / 2.0);

@@ -32,13 +32,27 @@ pub const DIM: Color = Color::srgba(0.85, 0.9, 1.0, 0.7);
 pub const PANEL: Color = Color::srgba(0.02, 0.05, 0.13, 0.93);
 
 /// Text at `size` vmin.
-pub fn text(fonts: &Fonts, s: impl Into<String>, size: f32, color: Color, bold: bool) -> impl Bundle {
+pub fn text(
+    fonts: &Fonts,
+    s: impl Into<String>,
+    size: f32,
+    color: Color,
+    bold: bool,
+) -> impl Bundle {
     (
         Text::new(s),
         TextFont {
-            font: FontSource::Handle(if bold { fonts.bold.clone() } else { fonts.semi.clone() }),
+            font: FontSource::Handle(if bold {
+                fonts.bold.clone()
+            } else {
+                fonts.semi.clone()
+            }),
             font_size: FontSize::VMin(size),
-            weight: if bold { FontWeight::BOLD } else { FontWeight::SEMIBOLD },
+            weight: if bold {
+                FontWeight::BOLD
+            } else {
+                FontWeight::SEMIBOLD
+            },
             ..default()
         },
         TextColor(color),

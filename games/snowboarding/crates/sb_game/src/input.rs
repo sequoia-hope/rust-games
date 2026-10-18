@@ -67,7 +67,11 @@ struct PadState {
 }
 
 fn dead(v: f32) -> f32 {
-    if v.abs() < 0.18 { 0.0 } else { (v - 0.18 * v.signum()) / 0.82 }
+    if v.abs() < 0.18 {
+        0.0
+    } else {
+        (v - 0.18 * v.signum()) / 0.82
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -104,9 +108,13 @@ fn read_web_pads() -> PadState {
     use wasm_bindgen::JsCast;
     let mut s = PadState::default();
     let Some(w) = web_sys::window() else { return s };
-    let Ok(list) = w.navigator().get_gamepads() else { return s };
+    let Ok(list) = w.navigator().get_gamepads() else {
+        return s;
+    };
     for v in list.iter() {
-        let Ok(g) = v.dyn_into::<web_sys::Gamepad>() else { continue };
+        let Ok(g) = v.dyn_into::<web_sys::Gamepad>() else {
+            continue;
+        };
         let axes = g.axes();
         let ax = |i: u32| axes.get(i).as_f64().unwrap_or(0.0) as f32;
         let (x, y) = (ax(0), -ax(1));
@@ -175,14 +183,21 @@ fn gather(
     steer = (steer + px + dx).clamp(-1.0, 1.0);
     pitch = (pitch + py + dy).clamp(-1.0, 1.0);
     let mut jump = k(&[KeyCode::Space, KeyCode::KeyJ]) || pad.a;
-    let mut grab = k(&[KeyCode::ShiftLeft, KeyCode::ShiftRight, KeyCode::KeyK, KeyCode::KeyL]) || pad.grab;
+    let mut grab = k(&[
+        KeyCode::ShiftLeft,
+        KeyCode::ShiftRight,
+        KeyCode::KeyK,
+        KeyCode::KeyL,
+    ]) || pad.grab;
 
     // Touch.
     let forced_touch = opts.0.touch == Some(true);
     if forced_touch {
         c.touch_seen = true;
     }
-    let (w, h) = window.single().map_or((1.0, 1.0), |w| (w.width(), w.height()));
+    let (w, h) = window
+        .single()
+        .map_or((1.0, 1.0), |w| (w.width(), w.height()));
     c.stick = None;
     c.touch_jump = false;
     c.touch_grab = false;
@@ -221,10 +236,14 @@ fn gather(
     c.grab = grab;
 
     let edge = |now: bool, was: bool| now && !was;
-    c.up = kj(&[KeyCode::ArrowUp, KeyCode::KeyW]) || edge(pad.up || pad.y > 0.6, prev.up || prev.y > 0.6);
-    c.down = kj(&[KeyCode::ArrowDown, KeyCode::KeyS]) || edge(pad.down || pad.y < -0.6, prev.down || prev.y < -0.6);
-    c.left = kj(&[KeyCode::ArrowLeft, KeyCode::KeyA]) || edge(pad.left || pad.x < -0.6, prev.left || prev.x < -0.6);
-    c.right = kj(&[KeyCode::ArrowRight, KeyCode::KeyD]) || edge(pad.right || pad.x > 0.6, prev.right || prev.x > 0.6);
+    c.up = kj(&[KeyCode::ArrowUp, KeyCode::KeyW])
+        || edge(pad.up || pad.y > 0.6, prev.up || prev.y > 0.6);
+    c.down = kj(&[KeyCode::ArrowDown, KeyCode::KeyS])
+        || edge(pad.down || pad.y < -0.6, prev.down || prev.y < -0.6);
+    c.left = kj(&[KeyCode::ArrowLeft, KeyCode::KeyA])
+        || edge(pad.left || pad.x < -0.6, prev.left || prev.x < -0.6);
+    c.right = kj(&[KeyCode::ArrowRight, KeyCode::KeyD])
+        || edge(pad.right || pad.x > 0.6, prev.right || prev.x > 0.6);
     c.confirm = kj(&[KeyCode::Enter, KeyCode::Space, KeyCode::NumpadEnter]) || edge(pad.a, prev.a);
     c.back = kj(&[KeyCode::Escape, KeyCode::Backspace]) || edge(pad.b, prev.b);
     c.pause = kj(&[KeyCode::Escape, KeyCode::KeyP]) || edge(pad.start, prev.start);
