@@ -78,7 +78,7 @@ member), `.config/nextest.toml`, `.githooks/`, `scripts/land.sh`.
 
 | What | Command (from the repo root or a worktree root) |
 |---|---|
-| Fast check (the pre-commit hook) | `cargo fmt --all --check && cargo check --workspace --all-targets` |
+| Fast check (the pre-commit hook) | `cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings` |
 | Tests (nextest kills a hung test; plain `cargo test` doesn't) | `cargo nextest run --workspace` |
 | Lints | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Wasm builds | `cargo check --workspace --target wasm32-unknown-unknown` |

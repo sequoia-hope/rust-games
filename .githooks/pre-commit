@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # pre-commit: the fast check. Formatting, and the whole workspace still
-# compiling (every target: tests, examples, benches), because a change to a
-# shared crate must not break another consumer (CLAUDE.md).
+# compiling with clippy clean (every target: tests, examples, benches),
+# because a change to a shared crate must not break another consumer
+# (CLAUDE.md). Incremental, it takes a few seconds (2 to 4 s measured after
+# an edit to pk_math or mp_game on 2026-10-18).
 # Enabled once per clone: git config core.hooksPath .githooks
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -16,5 +18,5 @@ if ! cargo fmt --all --check >/dev/null; then
   echo "pre-commit: formatting differs; run 'cargo fmt --all' and stage the result." >&2
   exit 1
 fi
-echo "pre-commit: cargo check --workspace --all-targets" >&2
-cargo check --workspace --all-targets --quiet
+echo "pre-commit: cargo clippy --workspace --all-targets -- -D warnings" >&2
+cargo clippy --workspace --all-targets --quiet -- -D warnings
