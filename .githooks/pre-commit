@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# pre-commit: the fast check. Formatting, and the whole workspace still
+# compiling (every target: tests, examples, benches), because a change to a
+# shared crate must not break another consumer (CLAUDE.md).
+# Enabled once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Nothing Rust staged (docs, JS, status pages): nothing to check.
+if ! git diff --cached --name-only --diff-filter=ACMRD | grep -qE '\.rs$|(^|/)Cargo\.(toml|lock)$|(^|/)deps\.toml$|rust-toolchain\.toml$'; then
+  exit 0
+fi
+
+echo "pre-commit: cargo fmt --all --check" >&2
+if ! cargo fmt --all --check >/dev/null; then
+  echo "pre-commit: formatting differs; run 'cargo fmt --all' and stage the result." >&2
+  exit 1
+fi
+echo "pre-commit: cargo check --workspace --all-targets" >&2
+cargo check --workspace --all-targets --quiet

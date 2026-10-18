@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# pre-push: the slow checks, before anything leaves this machine. The same
+# ones scripts/land.sh runs before a merge to main (it is the gate that
+# matters while the repo has no remote).
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/land.sh" --check-only
