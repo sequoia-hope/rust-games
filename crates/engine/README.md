@@ -7,8 +7,13 @@ so that its sister games (a snowboarding game first; bicycle, kayak,
 platformer, diving, basketball and fantasy games planned) build on one
 library instead of copies.
 
-Crates are `pk_*`. The games depend on them by sibling path
-(`../game-engine/crates/pk_*`): this checkout lives beside the games.
+Crates are `pk_*`. Since 2026-10-18 the kit lives in the rust-games
+monorepo at `crates/engine/`, with the crates directly in it
+(`crates/engine/pk_math`, …); the games here depend on them through the
+root workspace, and games outside depend on them by path or git URL
+(`CHANGELOG.md` says how to migrate from the old `../game-engine` layout).
+The repo-wide rules are in the root `CLAUDE.md`, the kit's own in
+`CLAUDE.md` here.
 
 | Where | What |
 |---|---|
@@ -18,7 +23,7 @@ Crates are `pk_*`. The games depend on them by sibling path
 | `docs/RECOMMENDATIONS.md` | what the split means for the racing game's roadmap |
 | `docs/DECISIONS.md` | every choice the plan did not cover, numbered |
 | `docs/design/` | one note per seam, written before its phase |
-| `crates/` | the library |
+| `pk_*/` | the library |
 | `patches/` | wgpu (29 for Bevy 0.19, `wgpu-30` for 0.20), wgpu-hal and bevy_ui_render as the games patch them, until upstream lands |
 | `template/` | a new game's skeleton: xtask, loader page, server, CI |
 | `js/` | headless-Chrome tools: perf, profile by Bevy system, GL calls, build diff, shots |
@@ -38,7 +43,9 @@ Crates are `pk_*`. The games depend on them by sibling path
   third-party Bevy plugins without a DECISIONS entry naming the alternative.
 - Output is viewed through the registered server only (`proj up
   game-engine`); never start another server or write a port anywhere.
-- Commit and push straight to `main`: imperative subject, a prose body.
+- Work on a branch in its own worktree and land it with `scripts/land.sh`
+  (root `CLAUDE.md`): imperative subject, a prose body. Record breaking
+  changes in `CHANGELOG.md`.
 
 ## Licence
 

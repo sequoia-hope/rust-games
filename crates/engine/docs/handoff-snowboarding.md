@@ -1,5 +1,12 @@
 # Hand-off to Snowboarding's agent
 
+> **2026-10-18:** the kit and Snowboarding are now `crates/engine/` and
+> `games/snowboarding/` in the rust-games monorepo. The steps below still
+> hold; the per-repo agent split ("the kit's agent never edits this repo")
+> does not: whichever session takes the adoption does it, kit fixes included.
+> Old paths (`~/Software/snowboarding`, `../game-engine/crates/pk_*`) map to
+> `games/snowboarding` and `crates/engine/pk_*`.
+
 What the snowboarding game (`~/Software/snowboarding`, `crates/sb_game`)
 replaces with Playground Kit, in the order PLAN.md section 7 gives, with
 the kit API names as shipped. Nothing here was applied to that repository;

@@ -1,7 +1,19 @@
 # Reorganization plan: one Rust monorepo for the games
 
-Status: **draft, waiting on the owner.** No files have been moved yet.
-Written 2026-10-18 from the three `HANDOFF.md` files and a survey of the repos.
+Status: **approved and carried out on 2026-10-18** (branch `reorg/monorepo`).
+Written 2026-10-18 from the three `HANDOFF.md` files and a survey of the repos;
+the owner approved every recommendation in section 2.
+
+**Where execution differed from this plan:**
+- The music crate's package keeps the name `mp_music` (section 3 said
+  `music`). The worklet's file name `mp_music.wasm` is wired into about twenty
+  JS, HTML and Python files, so renaming the package would not be the
+  "minimal change" the kickoff asked for. The redesign can rename it.
+- Snowboarding had never been run through rustfmt. Its formatting is a
+  separate commit after the migration, so the pre-commit format check passes.
+- The browser suites (Midnight Playground's `test:e2e:rust`, Snowboarding's
+  `cargo xtask check --web`) were not run. They need each game's registered
+  server, and the registry still points at the old folders (section 9).
 
 ## 1. What is there now
 

@@ -7,14 +7,24 @@ Pages serves the Rust game at https://sequoia-hope.github.io/midnight-playground
 legacy version, under `legacy/` on Pages. The local checkout, the `proj`
 name and the tailnet path are `midnight-playground` too (renamed 2026-10-10).
 
-Two games live in this repo:
+**Since 2026-10-18 this game lives in the rust-games monorepo**, at
+`games/midnight-playground/`; read the root `CLAUDE.md` (two levels up) first:
+its rules (one agent follows a task into the shared crates, branches and
+worktrees, `scripts/land.sh`, `status/`) override anything here. Paths below
+are relative to this folder unless they start at the repo root
+(`crates/engine/…`, `crates/music/…`). The GitHub repo and Pages are frozen
+at the move until the owner decides where rust-games is pushed. The music
+engine (`mp_music`) moved to `crates/music/`, its goldens to
+`crates/music/tests/golden/`.
+
+Two games live in this folder:
 
 - **The JS game** (repo root: `index.html`, `src/`, `vendor/`, `test/`). It is
   the legacy version (Pages serves it under `legacy/`), and it is **frozen** except for bug
   fixes the owner reports, and parity hooks during roadmap M0. After the
   `js-reference` tag, hooks are closed too.
-- **The Rust port** (`Cargo.toml`, `crates/`, `xtask/`, `tools/parity/`,
-  `parity/`). The plan is `docs/rust-port/SPEC.md` (what and how it is
+- **The Rust port** (`crates/`, `xtask/`, `tools/parity/`, `parity/`; the
+  workspace manifest is the rust-games root `Cargo.toml`). The plan is `docs/rust-port/SPEC.md` (what and how it is
   judged) and `docs/rust-port/ROADMAP.md` (order, work packages, gates). Read
   both before starting a work package, plus the inventory section for the JS
   you are porting.
@@ -39,7 +49,7 @@ apply only as history and as regression checks that still pass. Principles
    behind small traits.
 6. **Deterministic by construction**: fixed tick, seeded streams in the
    state, and every inexact math function through `pk_math`'s kernel (the
-   kit's, `../game-engine/crates/pk_math`, D1231). Never
+   kit's, `crates/engine/pk_math` at the repo root, D1231). Never
    call `f64::sin` and friends, `powi`, or `mul_add` in the simulation or
    world generation (`check-deps` rejects them).
 
@@ -79,7 +89,8 @@ The build tooling (`cargo xtask web`, `size`, `prof`, `check-deps`,
 its `WebBuild` config plus the parity commands. The headless-Chrome tools
 (`rust-perf.mjs`, `rust-prof.mjs`, `gl-calls.mjs`, `build-diff.mjs`,
 `web-console.mjs`, `e2e/harness.mjs`, `lib/server.mjs`) are thin wrappers
-with this game's defaults over `../game-engine/js/*.mjs`, which read the
+with this game's defaults over the kit's `crates/engine/js/*.mjs` (repo
+root), which read the
 status global named by `--global`. The global is the kit's `window.__game`
 (D1234); the same object is also `window.__mp`, the name the e2e suites and
 the wrappers read. `crates/mp_game/web/index.html` is generated from the
@@ -124,8 +135,8 @@ mp_game uses mp_sim, mp_net, mp_scene, mp_worldgen, mp_audio
 
 Only `mp_game` depends on Bevy. The simulation crates (`mp_track`,
 `mp_levels`, `mp_vdyn`, `mp_sim`, and `pk_math` in the kit) have `#![forbid(unsafe_code)]` and no
-clock, threads, `rand`, or hash maps. `deps.toml` at the repo root holds
-the rule for every crate; a new crate needs one there.
+clock, threads, `rand`, or hash maps. `deps.toml` at the rust-games root
+holds the rule for every crate; a new crate needs one there.
 
 ## JS semantics to keep (SPEC 4.2)
 
@@ -166,10 +177,12 @@ relative, because the game is always served under a sub-path.
 2. Write the parity test first where a golden exists; port until it passes.
 3. Check your own work: run the tests, render headless, look at the result,
    compare with the reference.
-4. Commit and push straight to `main` (no branches): imperative subject, a
-   prose body. Build output (`dist/`, `target/`, `parity/report/`) stays out
-   of git. `.github/workflows/pages.yml` builds and publishes on every push
-   to `main` (D1112): the Rust build at the site root, the JS game's tracked
+4. Commit on your task's branch, in its own worktree, and land it with
+   `scripts/land.sh` (the root `CLAUDE.md`; no more pushing straight to
+   `main`): imperative subject, a prose body. Build output (`dist/`,
+   `target/`, `parity/report/`) stays out of git. Until the monorepo is
+   pushed somewhere, nothing publishes; `.github/workflows/pages.yml` (inert
+   in this subfolder) is how it was published on every push to `main` (D1112): the Rust build at the site root, the JS game's tracked
    files under `legacy/`, and `dist/next/` forwarding to the root. The web
    build is self-contained (`cargo xtask web` copies the fonts, Seaside's
    survey and photo and the radio clips into it), so it works at

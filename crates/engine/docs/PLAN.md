@@ -235,6 +235,11 @@ for their seam and a short consult.
 
 ## 7. Snowboarding: hand-off, not a touch
 
+> **Superseded 2026-10-18:** the kit and both games now share the rust-games
+> monorepo, where one agent follows a task across crates and games (root
+> `CLAUDE.md`). The adoption below is ordinary work for whichever session
+> takes it, not a hand-off between per-repo agents.
+
 Its agent is mid-task (a headless test harness and crash fixes;
 uncommitted tree). This plan does not modify that repository. At phase 6,
 `docs/handoff-snowboarding.md` tells its agent what to adopt and in what

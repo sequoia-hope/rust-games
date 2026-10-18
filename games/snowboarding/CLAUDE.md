@@ -1,9 +1,16 @@
 # Snowboarding: working rules for agents
 
-A 1080°-style snowboarding game: Rust + Bevy 0.19.1 + wasm. The sister
-project is `~/Software/midnight-playground`, which this one borrows from.
-When you need a Bevy 0.19 idiom, its `crates/mp_game` is the best
-reference, and so is `~/.cargo/registry/src/*/bevy_*-0.19.1`.
+A 1080°-style snowboarding game: Rust + Bevy 0.19.1 + wasm. Since
+2026-10-18 it lives in the rust-games monorepo at `games/snowboarding/`:
+read the root `CLAUDE.md` (two levels up) first; its rules (one agent
+follows a task into the shared crates, branches and worktrees,
+`scripts/land.sh`, `status/`) override anything here. The sister game is
+`../midnight-playground`, which this one borrows from: when you need a Bevy
+0.19 idiom, its `crates/mp_game` is the best reference, and so is
+`~/.cargo/registry/src/*/bevy_*-0.19.1`. The shared engine (Playground
+Kit) is `crates/engine/` at the repo root; adopting its `pk_shell`
+(`crates/engine/docs/handoff-snowboarding.md`) is open work. `sb_music` is
+a fork of the shared music engine (`crates/music/CLAUDE.md`).
 
 ## Principles
 
@@ -19,8 +26,8 @@ reference, and so is `~/.cargo/registry/src/*/bevy_*-0.19.1`.
 
 | What | Command |
 |---|---|
-| Tests | `cargo test --workspace` |
-| Lints | `cargo clippy --workspace --all-targets` |
+| Tests (this game's crates; the whole workspace: root `CLAUDE.md`) | `cargo nextest run -p sb_sim -p sb_radio -p sb_music -p sb_game` |
+| Lints | `cargo clippy -p sb_sim -p sb_radio -p sb_music -p sb_game --all-targets` |
 | Web build into `dist/web/` | `cargo xtask web --release` (`--only webgpu\|webgl2`) |
 | Wasm sizes | `cargo xtask size` |
 | Headless CPU race, for tuning physics | `cargo run --release -p sb_sim --bin sb-sim -- <course> <mode>` |
