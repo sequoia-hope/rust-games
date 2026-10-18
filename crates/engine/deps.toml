@@ -1,0 +1,47 @@
+# The crate dependency rules of Playground Kit, enforced by
+# `cargo xtask check-deps` (crates/pk_xtask/src/deps.rs explains the
+# fields). Every workspace member needs an entry.
+#
+# Layer 0 (pk_math, pk_lockstep, pk_canvas, ...) has no engine, browser,
+# ambient randomness or threads: it builds for native and wasm alike and
+# the simulation on it is deterministic by construction.
+
+[banned]
+sim = ["bevy*", "wgpu*", "web-sys", "js-sys", "wasm-bindgen*", "rand*", "getrandom", "rayon*", "crossbeam*"]
+# No engine, no GPU; rayon only behind a non-default feature, so it must
+# be absent from the default tree.
+world = ["bevy*", "wgpu*", "rayon*"]
+no_bevy = ["bevy*"]
+
+# The math kernel: libm with ECMAScript semantics, the rng, the noise.
+[crates.pk_math]
+allowed = []
+banned = "sim"
+pure = true
+exact_math = true
+
+# The lockstep simulation traits and helpers (recording, hashing, fuzz).
+[crates.pk_lockstep]
+allowed = ["pk_math"]
+banned = "sim"
+pure = true
+exact_math = true
+
+# Canvas 2D on tiny-skia with runtime fonts.
+[crates.pk_canvas]
+allowed = ["pk_math"]
+banned = "world"
+
+# The build tooling behind a game's `cargo xtask`.
+[crates.pk_xtask]
+allowed = []
+banned = "no_bevy"
+
+# The Bevy client shell (layer 1): anything in layer 0.
+[crates.pk_shell]
+allowed = ["pk_math", "pk_lockstep", "pk_canvas"]
+banned = []
+
+[crates.xtask]
+allowed = ["*"]
+banned = []

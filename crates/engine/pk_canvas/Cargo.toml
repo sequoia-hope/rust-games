@@ -1,0 +1,21 @@
+[package]
+name = "pk_canvas"
+description = "A Canvas 2D subset on tiny-skia with harfrust/skrifa text, for generated textures that match the browser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The deterministic kernel (sin, cos, pow... through libm) and the JS
+# rounding rules colour parsing follows.
+pk_math.workspace = true
+# Pixmap, path building and the stroker. Coverage and compositing are
+# pk_canvas's own (Midnight Playground DECISIONS D151).
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std"] }
+# Text: HarfBuzz's shaping in Rust (GPOS kerning and ligatures, with
+# variable-font deltas) and skrifa's outlines and metrics, both on
+# read-fonts 0.43 (Midnight Playground DECISIONS D152).
+harfrust = "0.13.3"
+skrifa = "0.46.0"

@@ -1,0 +1,57 @@
+# Playground Kit: a shared toolkit for Rust + Bevy games on the web (wasm,
+# WebGPU or WebGL2) and natively, carved from Midnight Playground. The plan
+# is docs/PLAN.md; the crate dependency rules are enforced by
+# `cargo xtask check-deps` (deps.toml).
+#
+# Games depend on these crates by sibling path (`../game-engine/crates/pk_*`)
+# and on the patched crates below through their own `[patch.crates-io]`.
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+default-members = ["crates/*"]
+# Patched dependencies, not ours to build, lint or format.
+exclude = ["patches", "template"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sequoia-hope/playground-kit"
+publish = false
+
+[workspace.dependencies]
+pk_math = { path = "crates/pk_math" }
+pk_lockstep = { path = "crates/pk_lockstep" }
+pk_canvas = { path = "crates/pk_canvas" }
+pk_xtask = { path = "crates/pk_xtask" }
+pk_shell = { path = "crates/pk_shell" }
+# The CLI that post-processes the wasm must be this exact version;
+# `cargo xtask web` checks it.
+wasm-bindgen = "=0.2.129"
+js-sys = "0.3"
+web-sys = "0.3"
+# Bevy 0.19.1, pinned (PLAN.md section 3's version policy). Default
+# features off; every client crate names the features it needs.
+bevy = { version = "=0.19.1", default-features = false }
+
+# Dev builds: our code fast to compile, dependencies optimised.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Release web builds: `cargo xtask web --release`, then wasm-opt.
+[profile.web-release]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev.package.xtask]
+opt-level = 3
+
+# The same patches the games apply (patches/*/PATCHED.md says what and why,
+# and docs/ECOSYSTEM.md section 3 which upstream PR each waits on).
+[patch.crates-io]
+wgpu = { path = "patches/wgpu" }
+wgpu-hal = { path = "patches/wgpu-hal" }
+bevy_ui_render = { path = "patches/bevy_ui_render" }

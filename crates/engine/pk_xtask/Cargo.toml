@@ -1,0 +1,16 @@
+[package]
+name = "pk_xtask"
+description = "Build, size, profiling, dependency-rule and image-diff tooling behind a game's `cargo xtask`"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+brotli = "8"
+flate2 = "1"
+png = "0.18"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"

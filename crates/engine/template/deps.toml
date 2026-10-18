@@ -1,0 +1,27 @@
+# The crate dependency rules, enforced by `cargo xtask check-deps`
+# (Playground Kit's crates/pk_xtask/src/deps.rs explains the fields).
+# Every workspace member needs an entry; the kit's pk_* crates are path
+# dependencies outside the workspace, allowed by default and still subject
+# to `banned`.
+
+[banned]
+# No engine, browser, ambient randomness or threads: the simulation
+# builds for native and wasm alike and is deterministic by construction.
+sim = ["bevy*", "wgpu*", "web-sys", "js-sys", "wasm-bindgen*", "rand*", "getrandom", "rayon*", "crossbeam*"]
+no_bevy = ["bevy*"]
+
+# The simulation: a pk_lockstep::Simulation, pure and exact.
+# [crates.game_sim]
+# allowed = []
+# banned = "sim"
+# pure = true
+# exact_math = true
+
+# The Bevy client.
+[crates.game]
+allowed = []
+banned = []
+
+[crates.xtask]
+allowed = ["*"]
+banned = []

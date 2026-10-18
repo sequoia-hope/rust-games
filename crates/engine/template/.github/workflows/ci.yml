@@ -1,0 +1,96 @@
+# CI: format, clippy (native, and the wasm client per backend), tests,
+# the dependency rules, the wasm tests under Node, the native smoke test on
+# software Vulkan, the web build and its size budget. No deploy here:
+# pages.yml publishes the site. Browser suites need a GPU and run on the
+# dev machine.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust:
+    name: Rust (format, clippy, tests, dependency rules, smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Playground Kit beside the game: the pk_* crates and the patched
+      # wgpu/Bevy crates are path dependencies on ../game-engine.
+      - name: Playground Kit (the sibling checkout)
+        run: git clone --depth 1 https://github.com/sequoia-hope/playground-kit "$GITHUB_WORKSPACE/../game-engine"
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The Bevy client links libwayland-client natively, its sound plays
+      # through ALSA (cpal), and gamepads are read through libudev (gilrs).
+      # The smoke test below draws on a virtual X display (Xvfb) through
+      # Mesa's software Vulkan, lavapipe; winit opens the X client libraries
+      # at run time (dlopen), so the runner needs them installed.
+      - name: System libraries for the native client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev xvfb xauth mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p game --target wasm32-unknown-unknown -- -D warnings
+      # The WebGL2 build of the client: the same crate with the `pk_webgl2`
+      # cfg, in its own target directory (as `cargo xtask web` builds it).
+      - name: Clippy, the WebGL2 client
+        env:
+          RUSTFLAGS: -D warnings --cfg pk_webgl2
+        run: cargo clippy -p game --target wasm32-unknown-unknown --target-dir target/webgl2 -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo xtask check-deps
+      # The native client's smoke test: the window on Xvfb, drawn by
+      # lavapipe (no GPU here). It fails on a failed load, a logged error,
+      # or no frames in time. A store of its own, so no saved setting
+      # changes what is tested.
+      - name: Build the native client
+        run: cargo build -p game --bin game
+      - name: Smoke test, native, software Vulkan
+        timeout-minutes: 15
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+          WGPU_BACKEND: vulkan
+          PK_STORE: ${{ runner.temp }}/store/storage.json
+        run: xvfb-run -a -s "-screen 0 1280x800x24" target/debug/game --smoke-test --after 5
+
+  wasm:
+    name: Wasm (tests under Node, web build, size)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Playground Kit (the sibling checkout)
+        run: git clone --depth 1 https://github.com/sequoia-hope/playground-kit "$GITHUB_WORKSPACE/../game-engine"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      # The version `WebBuild::wasm_opt` pins (xtask/src/main.rs).
+      - name: wasm-opt (binaryen 116)
+        run: |
+          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_116/binaryen-version_116-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_116/bin" >> "$GITHUB_PATH"
+      # The simulation's tests in wasm (Node): the same bits as native.
+      # - name: Simulation tests in wasm (Node)
+      #   run: cargo test --target wasm32-unknown-unknown -p game_sim
+      # Both clients: WebGPU and the WebGL2 fallback.
+      - run: cargo xtask web --release
+      - run: cargo xtask size --budget

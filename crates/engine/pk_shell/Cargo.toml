@@ -1,0 +1,74 @@
+[package]
+name = "pk_shell"
+description = "The Bevy client shell of Playground Kit: plugins, parameters, load status and readiness, the settings store, the native window and its state, the web page glue and status bridge, pipeline warm-up, the debug overlay, the session recorder, the worker executor and the screenshot stations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# The wasm backend this build is for (Midnight Playground DECISIONS D391:
+# one wasm file per backend, the page picks). A game's wasm target tables
+# turn exactly one of them on; neither is on by default so the native
+# build's Bevy features stay as they are.
+webgpu = ["bevy/webgpu"]
+webgl2 = ["bevy/webgl2"]
+
+[dependencies]
+# The settings store's JSON values and the recorder's lines, in the order
+# the fields are written (`preserve_order`, as the games have it on).
+serde_json = { version = "1", features = ["preserve_order"] }
+# Bevy 0.19.1, pinned (PLAN.md section 3). Default features off; what the
+# shell needs, which is a subset of what a client crate on it turns on:
+# windowing, the renderer (the pipeline cache and the GPU queue the
+# readiness fence reads), Bevy UI and text (the debug overlay, the warm-up's
+# glyphs and menu node), screenshots (`png`).
+bevy = { workspace = true, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_state",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_light",
+    "bevy_camera",
+    "bevy_mesh",
+    "bevy_image",
+    "bevy_color",
+    "keyboard",
+    "mouse",
+    "touch",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_text",
+    # The debug overlay's monospace face when the game gives none (Fira
+    # Mono, OFL).
+    "default_font",
+    "png",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { workspace = true, features = [
+    "multi_threaded",
+    "x11",
+    "wayland",
+    # Gamepads natively, in the plugin group (Midnight Playground D781).
+    "bevy_gilrs",
+] }
+# The window's icon, decoded from the PNG the game gives.
+image = { version = "0.25", default-features = false, features = ["png"] }
+# The window's icon and state natively (Midnight Playground D1000): Bevy
+# has no icon API and does not re-export `winit::window::Icon`. The version
+# Bevy 0.19.1 uses; its features come from bevy_winit.
+winit = { version = "0.30", default-features = false }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+bevy = { workspace = true, features = ["web"] }
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["Window", "Document", "Element", "HtmlElement", "Navigator", "Location", "Performance", "Storage", "Worker", "MessageEvent", "ErrorEvent"] }

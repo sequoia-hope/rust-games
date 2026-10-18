@@ -1,0 +1,9 @@
+[package]
+name = "xtask"
+description = "cargo xtask <command>: the build tooling, from Playground Kit's pk_xtask"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+pk_xtask.workspace = true

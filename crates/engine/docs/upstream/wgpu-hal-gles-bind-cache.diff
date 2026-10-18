@@ -1,0 +1,234 @@
+--- a/src/gles/adapter.rs
++++ b/src/gles/adapter.rs
+@@ -890,6 +890,7 @@
+                     next_shader_id: Default::default(),
+                     program_cache: Default::default(),
+                     es: es_ver.is_some(),
++                    tex_levels: Default::default(),
+                     max_msaa_samples: max_samples,
+                 }),
+             },
+@@ -1062,6 +1063,7 @@
+                 temp_query_results: Mutex::new(Vec::new()),
+                 draw_buffer_count: AtomicU8::new(1),
+                 current_index_buffer: Mutex::new(None),
++                bind_cache: Default::default(),
+             },
+         })
+     }
+--- a/src/gles/command.rs
++++ b/src/gles/command.rs
+@@ -1030,12 +1030,18 @@
+         index: u32,
+         binding: crate::BufferBinding<'a, super::Buffer>,
+     ) {
+-        self.state.dirty_vbuf_mask |= 1 << index;
+         let (_, ref mut vb) = self.state.vertex_buffers[index as usize];
+-        *vb = Some(super::BufferBinding {
++        let next = super::BufferBinding {
+             raw: binding.buffer.raw.unwrap(),
+             offset: binding.offset,
+-        });
++        };
++        // D1190: the same buffer at the same offset (Bevy's mesh slabs, draw
++        // after draw) needs no new attribute pointers.
++        if vb.as_ref() == Some(&next) {
++            return;
++        }
++        self.state.dirty_vbuf_mask |= 1 << index;
++        *vb = Some(next);
+     }
+     unsafe fn set_viewport(&mut self, rect: &crate::Rect<f32>, depth: Range<f32>) {
+         self.cmd_buffer.commands.push(C::SetViewport {
+--- a/src/gles/device.rs
++++ b/src/gles/device.rs
+@@ -997,6 +997,8 @@
+                 super::TextureInner::DefaultRenderbuffer => {}
+                 super::TextureInner::Texture { raw, .. } => {
+                     unsafe { gl.delete_texture(raw) };
++                    // D1190: GL may give the name to a new texture.
++                    self.shared.tex_levels.lock().remove(&raw);
+                 }
+                 #[cfg(webgl)]
+                 super::TextureInner::ExternalFramebuffer { .. } => {}
+--- a/src/gles/mod.rs
++++ b/src/gles/mod.rs
+@@ -281,6 +281,12 @@
+     next_shader_id: AtomicU32,
+     program_cache: Mutex<ProgramCache>,
+     es: bool,
++    /// Midnight Playground (D1190): the mip range each texture's
++    /// `TEXTURE_BASE_LEVEL` and `TEXTURE_MAX_LEVEL` were last set to, so a
++    /// bind sets them only when the view's range differs. Every change to
++    /// those parameters goes through `Queue::process` (`C::BindTexture`);
++    /// `destroy_texture` forgets the texture, as GL may reuse its name.
++    tex_levels: Mutex<FastHashMap<glow::Texture, Range<u32>>>,
+ 
+     /// Result of `gl.get_parameter_i32(glow::MAX_SAMPLES)`.
+     /// Cached here so it doesn't need to be queried every time texture format capabilities are requested.
+@@ -326,6 +332,21 @@
+     temp_query_results: Mutex<Vec<u64>>,
+     draw_buffer_count: AtomicU8,
+     current_index_buffer: Mutex<Option<glow::Buffer>>,
++    /// Midnight Playground (D1190): what GL has bound since the command
++    /// buffer began, so the recorder's repeated binds of the same program,
++    /// texture or sampler cost no GL call. Cleared by `reset_state` (the
++    /// start of every command buffer) and by the copies that bind a
++    /// texture outside `C::BindTexture`.
++    bind_cache: Mutex<BindCache>,
++}
++
++/// GL's current program and texture-unit bindings, as `Queue::process`
++/// last set them (D1190).
++#[derive(Default)]
++struct BindCache {
++    program: Option<glow::Program>,
++    textures: [Option<(glow::Texture, u32, Range<u32>)>; MAX_TEXTURE_SLOTS],
++    samplers: [Option<Option<glow::Sampler>>; MAX_TEXTURE_SLOTS],
+ }
+ 
+ impl Drop for Queue {
+@@ -630,7 +651,7 @@
+     format_desc: VertexFormatDesc,
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, PartialEq)]
+ struct BufferBinding {
+     raw: glow::Buffer,
+     offset: wgt::BufferAddress,
+--- a/src/gles/queue.rs
++++ b/src/gles/queue.rs
+@@ -102,6 +102,7 @@
+         unsafe { gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None) };
+         let mut current_index_buffer = self.current_index_buffer.lock();
+         *current_index_buffer = None;
++        *self.bind_cache.lock() = Default::default();
+     }
+ 
+     unsafe fn set_attachment(
+@@ -486,6 +487,7 @@
+                 }
+ 
+                 unsafe { gl.bind_texture(dst_target, Some(dst)) };
++                self.bind_cache.lock().textures = Default::default(); // D1190
+                 let format_desc = self.shared.describe_texture_format(dst_format);
+                 if is_layered_target(dst_target) {
+                     let z_offset = get_z_offset(dst_target, &copy.dst_base);
+@@ -713,6 +715,7 @@
+                 }
+ 
+                 unsafe { gl.bind_texture(dst_target, Some(dst)) };
++                self.bind_cache.lock().textures = Default::default(); // D1190
+                 if is_layered_target(dst_target) {
+                     unsafe {
+                         gl.copy_tex_sub_image_3d(
+@@ -763,6 +766,7 @@
+                     .map_or(0, |rpi| block_height * rpi);
+ 
+                 unsafe { gl.bind_texture(dst_target, Some(dst)) };
++                self.bind_cache.lock().textures = Default::default(); // D1190
+                 unsafe { gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, row_texels as i32) };
+                 unsafe { gl.pixel_store_i32(glow::UNPACK_IMAGE_HEIGHT, column_texels as i32) };
+                 let mut unbind_unpack_buffer = false;
+@@ -984,9 +988,12 @@
+                 }
+             }
+             C::SetIndexBuffer(buffer) => {
+-                unsafe { gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(buffer)) };
+                 let mut current_index_buffer = self.current_index_buffer.lock();
+-                *current_index_buffer = Some(buffer);
++                // D1190: already bound (the index slab, draw after draw).
++                if *current_index_buffer != Some(buffer) {
++                    unsafe { gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(buffer)) };
++                    *current_index_buffer = Some(buffer);
++                }
+             }
+             C::BeginQuery(query, target) => {
+                 unsafe { gl.begin_query(target, query) };
+@@ -1252,6 +1259,8 @@
+                 if usage.contains(wgt::BufferUses::INDEX) {
+                     flags |= glow::ELEMENT_ARRAY_BARRIER_BIT;
+                     unsafe { gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(raw)) };
++                    // D1190: the next SetIndexBuffer must bind again.
++                    *self.current_index_buffer.lock() = None;
+                 }
+                 if usage.contains(wgt::BufferUses::UNIFORM) {
+                     flags |= glow::UNIFORM_BARRIER_BIT;
+@@ -1443,7 +1452,11 @@
+                 }
+             }
+             C::SetProgram(program) => {
+-                unsafe { gl.use_program(Some(program)) };
++                let mut cache = self.bind_cache.lock();
++                if cache.program != Some(program) {
++                    unsafe { gl.use_program(Some(program)) };
++                    cache.program = Some(program);
++                }
+             }
+             C::SetPrimitive(ref state) => {
+                 unsafe { gl.front_face(state.front_face) };
+@@ -1557,7 +1570,12 @@
+                 unsafe { gl.bind_buffer_range(target, slot, Some(buffer), offset, size) };
+             }
+             C::BindSampler(texture_index, sampler) => {
+-                unsafe { gl.bind_sampler(texture_index, sampler) };
++                let mut cache = self.bind_cache.lock();
++                let slot = &mut cache.samplers[texture_index as usize];
++                if *slot != Some(sampler) {
++                    unsafe { gl.bind_sampler(texture_index, sampler) };
++                    *slot = Some(sampler);
++                }
+             }
+             C::BindTexture {
+                 slot,
+@@ -1566,19 +1584,39 @@
+                 aspects,
+                 ref mip_levels,
+             } => {
++                // D1190: the unit already holds this texture with this range.
++                let mut cache = self.bind_cache.lock();
++                let bound = &mut cache.textures[slot as usize];
++                if bound.as_ref().is_some_and(|b| *b == (texture, target, mip_levels.clone())) {
++                    return;
++                }
+                 unsafe { gl.active_texture(glow::TEXTURE0 + slot) };
+                 unsafe { gl.bind_texture(target, Some(texture)) };
++                *bound = Some((texture, target, mip_levels.clone()));
++                drop(cache);
+ 
+-                unsafe {
+-                    gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, mip_levels.start as i32)
+-                };
+-                unsafe {
+-                    gl.tex_parameter_i32(
+-                        target,
+-                        glow::TEXTURE_MAX_LEVEL,
+-                        (mip_levels.end - 1) as i32,
+-                    )
+-                };
++                // D1190: the levels are set on the texture, not the unit;
++                // set them only when this view's range differs from the
++                // last one set.
++                let mut levels = self.shared.tex_levels.lock();
++                if levels.get(&texture) != Some(mip_levels) {
++                    unsafe {
++                        gl.tex_parameter_i32(
++                            target,
++                            glow::TEXTURE_BASE_LEVEL,
++                            mip_levels.start as i32,
++                        )
++                    };
++                    unsafe {
++                        gl.tex_parameter_i32(
++                            target,
++                            glow::TEXTURE_MAX_LEVEL,
++                            (mip_levels.end - 1) as i32,
++                        )
++                    };
++                    levels.insert(texture, mip_levels.clone());
++                }
++                drop(levels);
+ 
+                 let version = gl.version();
+                 let is_min_es_3_1 = version.is_embedded && (version.major, version.minor) >= (3, 1);

@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<!-- ===== BRANDING (1 of 3): the game's name, words, colours and icon. The
+     rest of this page is Playground Kit's loader (template/web/index.html)
+     and changes only with the kit. ===== -->
+<meta name="theme-color" content="#05060c">
+<title>New Game</title>
+<meta name="description" content="A game that runs in your browser, on a desktop or a phone. Nothing to install.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="New Game">
+<meta property="og:description" content="A game that runs in your browser, on a desktop or a phone. Nothing to install.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23111'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%235ad0ff'/%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: dark;
+          --bg: #05060c; --fg: #e8ecf4; --dim: #9aa3b8; --accent: #5ad0ff; --accent2: #a0f0ff;
+          --loading-bg: radial-gradient(ellipse at 50% 40%, #102030, #05060a 70%);
+          --logo-font: ui-sans-serif, system-ui, sans-serif; }
+</style>
+<!-- ===== end BRANDING (1 of 3) ===== -->
+<style>
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+               font: 16px/1.5 system-ui, sans-serif; overflow: hidden; }
+  /* !important: the client draws the canvas at a pixel ratio of its own by
+     setting the window's size in pixels, and winit then writes that size
+     into the canvas's inline style; the box stays the page's. */
+  #game { position: fixed; inset: 0; width: 100% !important; height: 100% !important; display: block;
+          outline: none; touch-action: none; -webkit-touch-callout: none;
+          -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 14px; padding: 16px;
+            background: var(--bg); text-align: center; }
+  .screen[hidden] { display: none; }
+  .screen p { max-width: 34em; margin: 0; color: var(--dim); }
+  .logo { font-family: var(--logo-font); font-size: clamp(44px, 9vw, 104px); font-weight: 900; font-style: italic;
+          letter-spacing: -.02em; line-height: .9; text-align: center; padding: 0 .18em;
+          background: linear-gradient(180deg, #fff 30%, #9aa4c0); -webkit-background-clip: text; background-clip: text;
+          color: transparent; filter: drop-shadow(0 6px 24px rgba(90, 208, 255, .35)); }
+  .logo span { display: block; font-size: .5em; letter-spacing: .45em; margin-left: .3em;
+               background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text;
+               background-clip: text; color: transparent; }
+  .bar { width: min(420px, 80vw); height: 6px; border-radius: 3px; background: rgba(255,255,255,.1); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2));
+           transition: width .15s; }
+  #msg { margin: 0; color: var(--dim); letter-spacing: .2em; text-transform: uppercase; font-size: 13px; min-height: 1.5em; }
+  #msg.error { color: #ff8a8a; letter-spacing: normal; text-transform: none; font: 14px/1.5 system-ui, sans-serif;
+               white-space: pre-wrap; max-width: 46em; text-align: left; }
+  #loading { background: var(--loading-bg); gap: 16px; }
+  #crashed code { display: block; max-width: 46em; max-height: 30vh; overflow: auto; text-align: left;
+                  font: 12px/1.4 ui-monospace, monospace; color: #ff9a8a; white-space: pre-wrap; }
+  #crashed button { font: 700 18px system-ui, sans-serif; letter-spacing: .1em; padding: 10px 28px;
+                    border-radius: 10px; border: 2px solid var(--accent); background: transparent; color: var(--fg); }
+  /* The build line, at the foot of the menu only (never over play). */
+  #build { position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 4px);
+           text-align: center; font: 11px/1.4 system-ui, sans-serif; color: #8b93a8; opacity: 0.75;
+           pointer-events: none; padding: 0 12px; }
+  /* Hidden off the menu, but still laid out: the menu keeps clear of its
+     height (the status global's `footer`), which it needs before it shows. */
+  #build[hidden] { display: block; visibility: hidden; }
+  #build a { color: #b9c2d8; pointer-events: auto; text-decoration: none; border-bottom: 1px dotted #6b7388; }
+  #build a:hover { color: #fff; }
+  @media (max-height: 780px) { #loading { gap: 10px; justify-content: flex-start; padding-top: 18px; }
+                               .logo { font-size: clamp(40px, 7vw, 76px); } }
+  @media (max-height: 500px) { #loading { gap: 8px; padding: 10px 16px; } .logo { font-size: 34px; } }
+</style>
+</head>
+<body>
+<!-- Playground Kit's loader page. It picks the backend (WebGPU, else the
+     WebGL2 build), shows download progress while the wasm loads, keeps the
+     loading screen up while the client builds its scene and warms its
+     pipelines up, bridges user gestures into the wasm (sound may only start
+     inside one), and shows a crash screen if the wasm traps after its
+     first frame. ?stats=1 shows a frame-rate panel; ?perf=1 runs the
+     measurement (perf.js). Every URL here is relative: the build is served
+     under a sub-path on the dev server and at the root on Pages. -->
+<canvas id="game" tabindex="0"></canvas>
+<div id="build" hidden></div>
+<!-- ===== BRANDING (2 of 3): the screens' words. ===== -->
+<div id="loading" class="screen">
+  <div class="logo">NEW<span>GAME</span></div>
+  <div class="bar"><i id="bar"></i></div>
+  <p id="msg">Starting…</p>
+</div>
+<div id="nogpu" class="screen" hidden>
+  <div class="logo">NEW<span>GAME</span></div>
+  <p><strong>This browser has neither WebGPU nor WebGL2</strong>, one of which this game needs.</p>
+  <p>Use a current Chrome or Edge (113 or newer on Windows, macOS or ChromeOS;
+     121 or newer on Android 12+), or Safari 26 on iOS, iPadOS or macOS.
+     WebGPU is only offered to secure pages: open the game over https (or on
+     localhost) to get it.</p>
+  <p id="nogpu-why"></p>
+</div>
+<div id="crashed" class="screen" hidden>
+  <div class="logo">OOPS</div>
+  <p>The game hit an error and stopped. Reloading starts it again.</p>
+  <button id="reload">RELOAD</button>
+  <code id="crash-msg"></code>
+</div>
+<!-- ===== end BRANDING (2 of 3) ===== -->
+<script type="module">
+  // ===== BRANDING (3 of 3): the names the page needs. =====
+  // The status global's name: the ONE place it is spelled. The wasm
+  // publishes its status on window[GLOBAL] and every tool in the kit's
+  // js/ reads it (`--global`).
+  const GLOBAL = '__game';
+  const TITLE = 'New Game';
+  // wasm-bindgen's out-name per backend (`WebBuild::backends` in xtask).
+  const OUT_NAME = (backend) => backend === 'webgl2' ? 'game_webgl2' : 'game';
+  // ===== end BRANDING (3 of 3) =====
+
+  // ===== GAME HOOKS: what this game adds to the loader. Each is optional. =====
+  const hooks = {
+    // Extra links on the build line: [[href, text], ...]; `up` is the path
+    // from this page to the repository root on the dev server ('' on Pages).
+    buildLine(build, backend, up) { return [[up + 'tools/', 'Tools']]; },
+    // After the wasm is instantiated, before `glue.run()`: put the game's
+    // own bridge functions on G (the status global) here. `page` has the
+    // loader's helpers: $, show(fraction, text), fail(text), download(url,
+    // onProgress), nextFrame(), poll() (the loading screen's watcher),
+    // MB(n), and `build` (build.json's contents).
+    glue(glue, G, params, page) {},
+    // After `glue.run()`: what the page downloads for the client (scenes,
+    // surveys, photos), with `page.show` for the bar (the wasm took 0 to
+    // 0.3; 'building' takes 0.8 to 1). Nothing by default.
+    async load(glue, G, params, page) {},
+    // Which of G's screens shows the build line.
+    showBuild(G) { return G.screen === 'menu'; },
+    // An extra line for the ?stats=1 panel.
+    statsLine(G) { return ''; },
+  };
+  // ===== end GAME HOOKS =====
+
+  // The status contract (PLAN.md section 5, item 7). The wasm publishes on
+  // window[GLOBAL]; the page and every tool read:
+  //   state     'boot' | 'loading' | 'building' | 'warming' | 'running' | 'failed' | 'crashed' | 'nogpu'
+  //   progress  0..1 within 'building' (optional)
+  //   frames    frames drawn so far (the page's fallbacks key on it)
+  //   ready     true once the scene is up and every pipeline compiled
+  //   backend   'webgpu' | 'webgl2' (set here, before the wasm loads)
+  //   error     the message when state is 'failed' or 'crashed'
+  //   shot      the page's screenshot hook sets it; `screenshot(name)` saves the next frame as a download
+  //   wasmMemoryBytes()  the wasm memory's high-water mark (it never shrinks)
+  //   stage(cmd)  a test hook: a command for the client (a string, or an object sent as JSON)
+  //   screen    the client's current screen name ('menu', ...), optional
+  // The page adds: startMs, adapter, webgpu, secure, fallback, touch,
+  // insets, wasmMB, footer, stats, screenshot, cover, reload.
+  const G = (window[GLOBAL] = { state: 'boot', startMs: performance.now() });
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  const show = (frac, text) => {
+    if (frac !== null) $('bar').style.width = (100 * Math.max(0, Math.min(1, frac))).toFixed(1) + '%';
+    if (text !== null) $('msg').textContent = text;
+  };
+  const fail = (text) => {
+    G.state = 'failed'; G.error = text;
+    $('loading').hidden = false;
+    $('msg').className = 'error';
+    $('msg').textContent = text;
+  };
+  const MB = (n) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+
+  // Fetch with progress: onProgress(received, total or 0). A precompressed
+  // response's Content-Length is the compressed size, not the file's: no
+  // fraction then, only the count.
+  async function download(url, onProgress) {
+    const res = await fetch(url, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+    const total = res.headers.get('content-encoding') ? 0 : Number(res.headers.get('content-length')) || 0;
+    if (!res.body) return new Uint8Array(await res.arrayBuffer());
+    const reader = res.body.getReader();
+    let buf = new Uint8Array(total || 1 << 20), n = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (n + value.length > buf.length) {
+        const next = new Uint8Array(Math.max(buf.length * 2, n + value.length));
+        next.set(buf.subarray(0, n)); buf = next;
+      }
+      buf.set(value, n); n += value.length;
+      onProgress(n, total);
+    }
+    return buf.length === n ? buf : buf.slice(0, n);
+  }
+
+  // WebGPU, asked a few times: Chrome can answer null while its GPU process
+  // is still starting (seen headless on Linux).
+  async function webgpuAdapter() {
+    let adapter = null;
+    for (let i = 0; i < 4 && !adapter && 'gpu' in navigator; i++) {
+      if (i) await new Promise((r) => setTimeout(r, 400));
+      adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null);
+    }
+    return adapter;
+  }
+  function hasWebGL2() {
+    try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; }
+  }
+
+  // The same page with other parameters (the WebGPU-failed fallback).
+  const withParams = (extra) => {
+    const q = new URLSearchParams(location.search);
+    for (const [k, v] of Object.entries(extra)) q.set(k, v);
+    return location.pathname + '?' + q.toString() + location.hash;
+  };
+
+  async function main() {
+    // 1. The backend, before anything else is downloaded: the WebGPU build
+    // where the browser offers an adapter and the build has it, else the
+    // WebGL2 build. ?backend=webgpu or ?backend=webgl2 forces one.
+    const build = await fetch('build.json', { cache: 'no-cache' }).then((r) => r.json()).catch(() => ({}));
+    const built = build.backends || ['webgpu', 'webgl2'];
+    const want = params.get('backend');
+    let backend = null, adapter = null;
+    if (want !== 'webgl2' && built.includes('webgpu')) {
+      adapter = await webgpuAdapter();
+      if (adapter) backend = 'webgpu';
+    }
+    if (!backend && want !== 'webgpu' && built.includes('webgl2') && hasWebGL2()) backend = 'webgl2';
+    G.adapter = adapter ? `${adapter.info?.vendor || ''} ${adapter.info?.architecture || ''}`.trim() : null;
+    G.webgpu = !!adapter; G.secure = window.isSecureContext;
+    G.backend = backend;
+    if (params.get('fallback')) G.fallback = params.get('fallback');
+    if (!backend) {
+      G.state = 'nogpu';
+      $('loading').hidden = true; $('nogpu').hidden = false;
+      $('nogpu-why').textContent = (!window.isSecureContext
+        ? 'This page is not a secure context (plain http on a network address), so it gets no WebGPU. '
+        : ('gpu' in navigator ? 'navigator.gpu exists but gave no adapter. ' : 'navigator.gpu is missing. '))
+        + (want === 'webgpu' ? 'WebGL2 was not tried (?backend=webgpu).' : 'WebGL2 is not available either.');
+      return;
+    }
+
+    // If the WebGPU build fails before its first frame (a panic while Bevy
+    // asks for the device, a shader the browser rejects at start), load the
+    // page again with the WebGL2 build, unless WebGPU was asked for.
+    if (backend === 'webgpu' && want !== 'webgpu' && built.includes('webgl2')) {
+      const fallBack = (e) => {
+        if (G.frames || G.state === 'failed') return;
+        console.error('WebGPU build failed before its first frame; trying WebGL2:', e?.message || e?.reason || e);
+        location.replace(withParams({ backend: 'webgl2', fallback: 'webgpu-failed' }));
+      };
+      window.addEventListener('error', fallBack);
+      window.addEventListener('unhandledrejection', fallBack);
+    }
+
+    // After the first frame, a trap in the wasm (a Rust panic aborts) or a
+    // lost GPU stops the game for good: say so, with a way back, instead of
+    // leaving a frozen picture.
+    const crashed = (why) => {
+      if (G.state === 'crashed' || !G.frames) return;
+      G.state = 'crashed'; G.error = why;
+      console.error('crashed:', why);
+      $('crash-msg').textContent = why;
+      $('crashed').hidden = false;
+    };
+    $('reload').addEventListener('click', () => location.reload());
+    window.addEventListener('error', (e) => {
+      const err = e.error || e.message;
+      if (err instanceof WebAssembly.RuntimeError || /unreachable|RuntimeError|panicked/.test(String(err))) {
+        crashed(String(err && err.stack || err));
+      }
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      if (e.reason instanceof WebAssembly.RuntimeError) crashed(String(e.reason.stack || e.reason));
+    });
+
+    // The build line at the foot of the menu: the renderer, the commit, the
+    // day and the compiler (build.json), and the game's links. Beside
+    // dist/ on the dev server the repository root is two levels up; on
+    // Pages, where the build is the site's root, it is beside it.
+    function showBuild(build, backend) {
+      const el = $('build');
+      const up = /\/dist\/[^/]+\/$/.test(location.pathname) ? '../../' : '';
+      const parts = [
+        TITLE,
+        `Rust + Bevy, ${backend === 'webgl2' ? 'WebGL2' : 'WebGPU'}`,
+        build.commit ? `build ${build.commit}` : null,
+        build.date || null,
+        build.rustc ? `rustc ${build.rustc.split(' ')[0]}` : null,
+        build.profile && build.profile !== 'web-release' ? `${build.profile} profile` : null,
+      ].filter(Boolean);
+      el.textContent = parts.join(' · ');
+      const link = (href, text) => { const a = document.createElement('a'); a.href = href; a.textContent = text; return a; };
+      for (const [href, text] of hooks.buildLine(build, backend, up) || []) el.append(' · ', link(href, text));
+      // How far up from the window's foot the line reaches (it wraps on a
+      // narrow phone): the menu's column stops above it.
+      const footer = () => { G.footer = Math.max(0, Math.ceil(window.innerHeight - el.getBoundingClientRect().top)); };
+      footer();
+      window.addEventListener('resize', footer);
+      setInterval(() => { el.hidden = !hooks.showBuild(G); footer(); }, 400);
+    }
+
+    // 2. The client: wasm with progress (0–30 % of the bar).
+    const name = OUT_NAME(backend);
+    showBuild(build, backend);
+    const glue = await import(`./${name}.js`);
+    show(0, `Loading the game (${backend === 'webgl2' ? 'WebGL2' : 'WebGPU'})…`);
+    const wasmBytes = await download(`${name}_bg.wasm`, (n, t) => show(t ? 0.3 * n / t : null, `Loading the game… ${MB(n)}`));
+    G.wasmMB = +(wasmBytes.length / 1048576).toFixed(2);
+    const wasm = await glue.default({ module_or_path: wasmBytes });
+    // The wasm memory never shrinks, so its size is its high-water mark.
+    G.wasmMemoryBytes = () => wasm.memory.buffer.byteLength;
+
+    // 3. The gesture bridge: inside the handler, into the wasm. Every
+    // gesture wakes the sound (pointerdown too); the up-events also carry
+    // where the pointer is, for the controls that go fullscreen or ask a
+    // permission inside the tap.
+    for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) {
+      window.addEventListener(type, (e) => {
+        glue.gesture(type);
+        if (type === 'pointerdown' || type === 'keydown') return;
+        const t = e.changedTouches ? e.changedTouches[0] : e;
+        if (t && t.clientX !== undefined && glue.gesture_at) glue.gesture_at(type, t.clientX, t.clientY);
+      }, { capture: true, passive: true });
+    }
+
+    // Touch controls on a touch-first device, or forced with ?touch=1 (and
+    // off with ?touch=0); and the safe-area insets they keep clear of
+    // (env(safe-area-inset-*)), probed through a hidden element.
+    G.touch = params.get('touch') === '1' ? true : params.get('touch') === '0' ? false
+      : !!window.matchMedia?.('(pointer: coarse)').matches && (navigator.maxTouchPoints || 0) > 0;
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;'
+      + 'padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+    document.body.appendChild(probe);
+    const insets = () => {
+      const c = getComputedStyle(probe), px = (v) => parseFloat(v) || 0;
+      G.insets = { top: px(c.paddingTop), right: px(c.paddingRight), bottom: px(c.paddingBottom), left: px(c.paddingLeft) };
+    };
+    insets();
+    window.addEventListener('resize', insets);
+    // No long-press menu on the game.
+    $('game').addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // 4. The test hooks every tool relies on, then the game's own, then
+    // the app: its first frame draws while the rest downloads.
+    // screenshot(name) saves the next frame as a download.
+    if (glue.screenshot) G.screenshot = (n) => glue.screenshot(String(n));
+    if (glue.stage) G.stage = (c) => glue.stage(typeof c === 'string' ? c : JSON.stringify(c));
+    // cover(): the loading screen up at once (while the client frees a
+    // scene before asking for the next).
+    G.cover = () => { $('loading').hidden = false; $('msg').className = ''; show(0.3, 'Loading…'); };
+    // 5. Building (80–100 %), the warm-up, then hide the loading screen.
+    const poll = () => {
+      if (G.state === 'failed') return fail(G.error || 'failed');
+      if (G.state === 'building') show(0.8 + 0.2 * (G.progress || 0), 'Building…');
+      if (G.state === 'warming') show(1, `Preparing the shaders… (${G.warmUp || 0})`);
+      if (G.state === 'running') { show(1, ''); $('loading').hidden = true; $('game').focus(); return; }
+      requestAnimationFrame(poll);
+    };
+    const page = { $, show, fail, download, nextFrame, poll, MB, build };
+    hooks.glue(glue, G, params, page);
+    glue.run();
+    poll();
+    await hooks.load(glue, G, params, page);
+    if (params.has('stats') || params.has('perf')) statsPanel();
+    if (params.has('perf')) (await import('./perf.js')).runPerf(G, new URLSearchParams(location.search));
+  }
+
+  // ?stats=1: frame rate and the longest frame of each half second, from
+  // requestAnimationFrame, and what the client reports. For reading on
+  // phones.
+  function statsPanel() {
+    const el = Object.assign(document.createElement('div'), { id: 'stats' });
+    el.style.cssText = 'position:fixed;left:8px;bottom:8px;font:12px ui-monospace,monospace;color:#9f9;background:rgba(0,0,0,.6);padding:4px 8px;border-radius:4px;z-index:9;pointer-events:none;white-space:pre';
+    document.body.appendChild(el);
+    let t0 = performance.now(), last = null, n = 0, worst = 0;
+    const frame = (now) => {
+      requestAnimationFrame(frame);
+      if (last !== null) worst = Math.max(worst, now - last);
+      last = now; n++;
+      const dt = now - t0;
+      if (dt < 500) return;
+      const c = G.counts || {};
+      const mem = G.wasmMemoryBytes ? `  wasm ${(G.wasmMemoryBytes() / 1048576).toFixed(0)} MB` : '';
+      G.stats = { fps: +(1000 * n / dt).toFixed(1), worstMs: +worst.toFixed(1) };
+      el.textContent = `fps ${G.stats.fps}  worst ${G.stats.worstMs}ms  ${G.backend || ''} ${G.adapter || ''}\n`
+        + `${G.state} ${G.screen || ''} ${hooks.statsLine(G)}${mem}\n`
+        + `first frame ${G.firstFrameMs ? (G.firstFrameMs / 1000).toFixed(2) + 's' : '…'}  ready ${G.readyMs ? (G.readyMs / 1000).toFixed(2) + 's' : '…'}\n`
+        + `entities ${c.entities ?? '…'}  materials ${c.materials ?? '…'}  warm-up ${G.warmUp ?? '…'}`;
+      t0 = now; n = 0; worst = 0;
+    };
+    requestAnimationFrame(frame);
+  }
+  main().catch((e) => {
+    // winit's run loop returns by throwing a control-flow exception on the web.
+    if (String(e).includes('Using exceptions for control flow')) return;
+    fail('Failed to start: ' + (e && e.stack || e));
+  });
+</script>
+</body>
+</html>

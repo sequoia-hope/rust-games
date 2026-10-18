@@ -1,0 +1,68 @@
+# GitHub Pages: the web build at the site root. A failed build fails the
+# job and nothing is deployed: the previous site stays up rather than a
+# broken root going out.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push waits for the running one, and only
+# the newest waiting push is kept.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Playground Kit beside the game: the pk_* crates and the patched
+      # wgpu/Bevy crates are path dependencies on ../game-engine.
+      - name: Playground Kit (the sibling checkout)
+        run: git clone --depth 1 https://github.com/sequoia-hope/playground-kit "$GITHUB_WORKSPACE/../game-engine"
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - name: wasm-opt (binaryen 116)
+        run: |
+          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_116/binaryen-version_116-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_116/bin" >> "$GITHUB_PATH"
+      - name: Web build
+        run: cargo xtask web --release
+      # The build is the site. Pages compresses on the fly, so the .br and
+      # .gz copies stay out. Tools' pages that the game links go beside it.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp -r dist/next/. _site/
+          find _site \( -name '*.br' -o -name '*.gz' \) -delete
+          du -sh _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

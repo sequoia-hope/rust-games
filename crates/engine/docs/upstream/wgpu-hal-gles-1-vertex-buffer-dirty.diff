@@ -1,0 +1,35 @@
+--- a/src/gles/command.rs
++++ b/src/gles/command.rs
+@@ -1030,12 +1030,18 @@
+         index: u32,
+         binding: crate::BufferBinding<'a, super::Buffer>,
+     ) {
+-        self.state.dirty_vbuf_mask |= 1 << index;
+         let (_, ref mut vb) = self.state.vertex_buffers[index as usize];
+-        *vb = Some(super::BufferBinding {
++        let next = super::BufferBinding {
+             raw: binding.buffer.raw.unwrap(),
+             offset: binding.offset,
+-        });
++        };
++        // D1190: the same buffer at the same offset (Bevy's mesh slabs, draw
++        // after draw) needs no new attribute pointers.
++        if vb.as_ref() == Some(&next) {
++            return;
++        }
++        self.state.dirty_vbuf_mask |= 1 << index;
++        *vb = Some(next);
+     }
+     unsafe fn set_viewport(&mut self, rect: &crate::Rect<f32>, depth: Range<f32>) {
+         self.cmd_buffer.commands.push(C::SetViewport {
+--- a/src/gles/mod.rs
++++ b/src/gles/mod.rs
+@@ -630,7 +630,7 @@
+     format_desc: VertexFormatDesc,
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, PartialEq)]
+ struct BufferBinding {
+     raw: glow::Buffer,
+     offset: wgt::BufferAddress,
