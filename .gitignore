@@ -1,0 +1,10 @@
+# Build output of the one workspace. Each game and crates/engine keep their
+# own .gitignore for what they generate.
+/target/
+/dist/
+node_modules/
+__pycache__/
+
+# Coordination notes live only in the main checkout (status/README.md).
+/status/*
+!/status/README.md
