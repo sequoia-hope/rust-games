@@ -1,0 +1,13 @@
+[package]
+name = "sb_sim"
+description = "The simulation: the mountain, the rider's physics, tricks, scoring, races and the CPU riders. No engine, no clock."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+glam.workspace = true
+
+[[bin]]
+name = "sb-sim"
+path = "src/bin/sb-sim.rs"
