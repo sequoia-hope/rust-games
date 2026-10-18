@@ -20,7 +20,7 @@
 //! exact_math = true        # no float methods that call the platform's libm (use the kernel)
 //! ```
 
-use crate::{Result, cargo, output, root};
+use crate::{Result, cargo, output, workspace_root};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -117,7 +117,7 @@ pub const IMPURE: &[&str] = &[
 ];
 
 pub fn run(_args: &[String]) -> Result {
-    let path = root().join("deps.toml");
+    let path = workspace_root().join("deps.toml");
     let text = std::fs::read_to_string(&path).map_err(|e| {
         format!(
             "reading {}: {e} (every workspace needs one)",
@@ -237,7 +237,7 @@ fn check_source(rule: &Rule, crate_dir: &Path, problems: &mut Vec<String>) -> Re
         let text = std::fs::read_to_string(&file)
             .map_err(|e| format!("reading {}: {e}", file.display()))?;
         let rel = file
-            .strip_prefix(root())
+            .strip_prefix(workspace_root())
             .unwrap_or(&file)
             .display()
             .to_string();

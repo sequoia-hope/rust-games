@@ -18,7 +18,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ROOT } from '../lib/jstree.mjs';
-import { DEVICES, Game, launch as kitLaunch, openGame as kitOpenGame, sleep } from '../../../../game-engine/js/harness.mjs';
+import { DEVICES, Game, launch as kitLaunch, openGame as kitOpenGame, sleep } from '../../../../../crates/engine/js/harness.mjs';
 
 export { DEVICES, sleep };
 if (process.env.MP_VERBOSE) process.env.PK_VERBOSE = '1';

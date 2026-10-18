@@ -7,7 +7,7 @@
 //! `tools/parity/kernel/mr_kernel.wasm`. With it, nothing is written: the
 //! fresh build and the committed file are both checked (CI).
 
-use crate::{Result, cargo, exec, output, root};
+use crate::{Result, cargo, exec, output, root, target_dir};
 use std::process::Command;
 
 const N: u32 = 1_000_000;
@@ -26,7 +26,7 @@ pub fn run(args: &[String]) -> Result {
         "--profile",
         "web-release",
     ]))?;
-    let fresh = root.join("target/wasm32-unknown-unknown/web-release/mr_kernel.wasm");
+    let fresh = target_dir().join("wasm32-unknown-unknown/web-release/mr_kernel.wasm");
     let committed = root.join("tools/parity/kernel/mr_kernel.wasm");
     if !check_only {
         std::fs::copy(&fresh, &committed).map_err(|e| format!("copying the kernel: {e}"))?;

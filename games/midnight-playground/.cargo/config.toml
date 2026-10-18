@@ -1,5 +1,5 @@
 [alias]
-xtask = "run --quiet --package xtask --"
+xtask = "run --quiet --package mp_xtask --"
 
 # `cargo test --target wasm32-unknown-unknown` runs the tests under Node.
 [target.wasm32-unknown-unknown]

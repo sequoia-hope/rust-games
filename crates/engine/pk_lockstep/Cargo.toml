@@ -3,8 +3,8 @@ name = "pk_lockstep"
 description = "The Simulation seam of lockstep games: the trait and its netcode hooks, FNV-1a, named RNG streams, recordings, determinism and fuzz checks, the frame-to-tick arithmetic"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sequoia-hope/playground-kit"
 publish.workspace = true
 
 [dependencies]

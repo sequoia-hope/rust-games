@@ -7,7 +7,7 @@ import { ROOT } from './lib/jstree.mjs';
 
 process.env.GAME_GLOBAL ??= '__mp';
 process.env.PK_PROJECT_ROOT ??= ROOT;
-const { run } = await import('../../../game-engine/js/console.mjs');
+const { run } = await import('../../../../crates/engine/js/console.mjs');
 await run({
   args: process.argv.slice(2),
   defaults: { backend: 'webgl2', query: 'level=sierra&s=300&h=2.2&back=7&freeze=1&t=0.3&hq=1' },

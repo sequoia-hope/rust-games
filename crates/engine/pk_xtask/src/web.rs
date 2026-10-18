@@ -13,7 +13,7 @@
 //! registered dev server (`template/tools/serve.py`) lays `<dist>/` over
 //! the repository root, and every URL the page uses is relative.
 
-use crate::{Command, Result, cargo, copy_dir, exec, output, root};
+use crate::{Command, Result, cargo, copy_dir, exec, output, root, target_dir, workspace_root};
 use std::path::{Path, PathBuf};
 use std::process::Command as Process;
 
@@ -112,8 +112,8 @@ impl WebBuild {
     /// The release profile's wasm of a backend, as cargo wrote it.
     pub fn target_wasm(&self, b: &Backend, profile_dir: &str) -> PathBuf {
         let target_root = match b.target_dir {
-            Some(d) => root().join("target").join(d),
-            None => root().join("target"),
+            Some(d) => target_dir().join(d),
+            None => target_dir(),
         };
         target_root
             .join(TARGET)
@@ -329,7 +329,6 @@ fn copy_runtime_files(files: &RuntimeFiles, root: &Path, out: &Path) -> Result {
 /// Builds one backend's wasm and runs wasm-bindgen (and, for a release,
 /// wasm-opt and the precompression) into `out`.
 fn build_backend(web: &WebBuild, b: &Backend, o: &Options, out: &Path) -> Result {
-    let root = root();
     let mut build = cargo();
     build.args([
         "build",
@@ -342,7 +341,7 @@ fn build_backend(web: &WebBuild, b: &Backend, o: &Options, out: &Path) -> Result
         &o.profile,
     ]);
     if let Some(d) = b.target_dir {
-        build.arg("--target-dir").arg(root.join("target").join(d));
+        build.arg("--target-dir").arg(target_dir().join(d));
     }
     if let Some(cfg) = b.cfg {
         add_cfg(&mut build, cfg);
@@ -393,7 +392,7 @@ fn build_side(s: &SideWasm, release: bool, out: &Path) -> Result {
     println!("web: building the {} wasm", s.what);
     exec(&mut build)?;
     let name = format!("{}.wasm", s.krate);
-    let wasm = root.join("target").join(TARGET).join(profile).join(&name);
+    let wasm = target_dir().join(TARGET).join(profile).join(&name);
     let dest = out.join(&name);
     std::fs::copy(&wasm, &dest).map_err(|e| format!("copying {}: {e}", wasm.display()))?;
     let mut names = vec![name.clone()];
@@ -459,7 +458,7 @@ fn add_cfg_value(encoded: Option<&str>, flags: &str, cfg: &str) -> (&'static str
 /// The wasm-bindgen CLI must be the same version as the crate in Cargo.lock,
 /// or the glue it writes does not match the module.
 pub fn check_bindgen_version() -> Result {
-    let lock = std::fs::read_to_string(root().join("Cargo.lock"))
+    let lock = std::fs::read_to_string(workspace_root().join("Cargo.lock"))
         .map_err(|e| format!("reading Cargo.lock: {e}"))?;
     let want = locked_version(&lock, "wasm-bindgen").ok_or("wasm-bindgen is not in Cargo.lock")?;
     let have = output(Process::new("wasm-bindgen").arg("--version")).map_err(|_| {

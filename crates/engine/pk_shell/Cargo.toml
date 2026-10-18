@@ -3,8 +3,8 @@ name = "pk_shell"
 description = "The Bevy client shell of Playground Kit: plugins, parameters, load status and readiness, the settings store, the native window and its state, the web page glue and status bridge, pipeline warm-up, the debug overlay, the session recorder, the worker executor and the screenshot stations"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sequoia-hope/playground-kit"
 publish.workspace = true
 
 [features]

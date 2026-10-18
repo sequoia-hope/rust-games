@@ -14,7 +14,7 @@
 //!    CIEDE2000 metric with SPEC 12's limits, the report in
 //!    `parity/report/shots-materials/`. Fails if a scene is over a limit.
 
-use crate::{Result, cargo, exec, root, shots};
+use crate::{Result, cargo, exec, root, shots, target_dir};
 use std::process::Command;
 
 pub fn run(args: &[String]) -> Result {
@@ -52,7 +52,7 @@ pub fn run(args: &[String]) -> Result {
     let _ = std::fs::remove_dir_all(&rust);
     println!("materials: rendering the Rust side ({only})");
     exec(cargo().args(["build", "-p", "mp_game"]))?;
-    let exe = root.join("target/debug/midnight-playground");
+    let exe = target_dir().join("debug/midnight-playground");
     exec(Command::new(exe).args([
         "--materials",
         &only,

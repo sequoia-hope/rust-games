@@ -1,4 +1,5 @@
-# cargo-nextest: the test runner for local runs (`cargo nextest run --workspace`).
+# cargo-nextest: the test runner (`cargo nextest run --workspace`), for the
+# whole rust-games workspace (it was Midnight Playground's).
 #
 # `cargo test` has no timeout, and a test killed from outside leaves its
 # binary running: when an agent's command timed out on a test that looped,
@@ -12,3 +13,11 @@
 
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+# mp_host's http integration tests bind real sockets and time out when the
+# machine is loaded during a whole-workspace run (they pass alone): retry
+# them, so a busy machine doesn't block scripts/land.sh. A test that fails
+# every retry still fails; one that needed a retry is reported as flaky.
+[[profile.default.overrides]]
+filter = 'package(mp_host) & binary(http)'
+retries = 2

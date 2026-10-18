@@ -7,10 +7,7 @@ use mp_music::json::{Val, canon};
 use mp_music::seq::Seq;
 
 fn golden() -> serde_json::Value {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/golden/events.json"
-    );
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/events.json");
     serde_json::from_str(&std::fs::read_to_string(path).expect("events.json")).expect("json")
 }
 

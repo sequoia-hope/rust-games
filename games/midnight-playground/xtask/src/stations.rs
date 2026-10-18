@@ -21,7 +21,7 @@
 //! --base` if missing) into `shots/<rust-run>.base/`, and the gate defaults
 //! to [`BASE_GATE`] on Sierra.
 
-use crate::{Result, cargo, exec, root, shots};
+use crate::{Result, cargo, exec, root, shots, target_dir};
 use std::process::Command;
 
 const LEVELS: [&str; 6] = ["sierra", "coast", "streets", "desert", "seaside", "cruise"];
@@ -112,7 +112,7 @@ pub fn run(args: &[String]) -> Result {
         ]))?;
     }
     exec(cargo().args(["build", "-p", "mp_game"]))?;
-    let exe = root.join("target/debug/midnight-playground");
+    let exe = target_dir().join("debug/midnight-playground");
     let rust = cache.join("shots").join(format!("{rust_run}{suffix}"));
     let _ = std::fs::remove_dir_all(&rust);
     for level in &levels {

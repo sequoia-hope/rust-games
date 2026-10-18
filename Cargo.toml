@@ -1,0 +1,125 @@
+# rust-games: the shared crates and the games built on them, one workspace.
+# The layout and the rules are in CLAUDE.md and docs/ARCHITECTURE.md; the
+# crate dependency rules are enforced by `cargo xtask check-deps` (deps.toml).
+#
+# Cargo reads `[patch]` and `[profile]` only here, at the workspace root:
+# the games' and the kit's own workspace manifests were merged into this one
+# when they moved in (docs/REORG_PLAN.md).
+[workspace]
+resolver = "3"
+members = [
+    "crates/engine/pk_*",
+    "crates/engine/xtask",
+    "crates/music",
+    "games/midnight-playground/crates/*",
+    "games/midnight-playground/xtask",
+    "games/midnight-playground/tools/parity/kernel",
+    "games/snowboarding/crates/*",
+    "games/snowboarding/xtask",
+]
+default-members = [
+    "crates/engine/pk_*",
+    "crates/music",
+    "games/midnight-playground/crates/*",
+    "games/snowboarding/crates/*",
+]
+# Patched dependencies (not ours to build, lint or format) and the kit's
+# template for a new game (its own workspace).
+exclude = ["crates/engine/patches", "crates/engine/template"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+# The shared crates.
+pk_math = { path = "crates/engine/pk_math" }
+pk_lockstep = { path = "crates/engine/pk_lockstep" }
+pk_canvas = { path = "crates/engine/pk_canvas" }
+pk_xtask = { path = "crates/engine/pk_xtask" }
+pk_shell = { path = "crates/engine/pk_shell" }
+mp_music = { path = "crates/music" }
+# Midnight Playground.
+mp_track = { path = "games/midnight-playground/crates/mp_track" }
+mp_levels = { path = "games/midnight-playground/crates/mp_levels" }
+mp_sim = { path = "games/midnight-playground/crates/mp_sim" }
+mp_scene = { path = "games/midnight-playground/crates/mp_scene" }
+mp_worldgen = { path = "games/midnight-playground/crates/mp_worldgen" }
+mp_audio = { path = "games/midnight-playground/crates/mp_audio" }
+mp_exhaust = { path = "games/midnight-playground/crates/mp_exhaust" }
+mp_builder = { path = "games/midnight-playground/crates/mp_builder" }
+mp_net = { path = "games/midnight-playground/crates/mp_net" }
+mp_vdyn = { path = "games/midnight-playground/crates/mp_vdyn" }
+mp_atlas = { path = "games/midnight-playground/crates/mp_atlas" }
+# Snowboarding.
+sb_sim = { path = "games/snowboarding/crates/sb_sim" }
+sb_radio = { path = "games/snowboarding/crates/sb_radio" }
+sb_music = { path = "games/snowboarding/crates/sb_music" }
+# Bevy 0.19.1, pinned, for every game (the kit's PLAN.md section 3).
+# Default features off; every client crate names the features it needs.
+bevy = { version = "=0.19.1", default-features = false }
+# The same glam Bevy 0.19.1 uses, so a simulation's vectors are Bevy's.
+glam = "0.32.1"
+# The CLI that post-processes the wasm must be this exact version;
+# `cargo xtask web` checks it.
+wasm-bindgen = "=0.2.129"
+js-sys = "0.3"
+web-sys = "0.3"
+
+# Dev builds: our code fast to compile, dependencies optimised.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Release web builds: `cargo xtask web --release`, then wasm-opt.
+[profile.web-release]
+inherits = "release"
+# Size over speed: about 1.3 MB less wasm after gzip for 0.1 to 0.2 ms more
+# per CPU-bound frame, pictures identical (Midnight Playground D675).
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# The audio engines run per sample on the audio thread: a dev build of a
+# native game must keep up in real time, and on the web each is its own
+# wasm in an AudioWorklet, where speed matters more than size.
+[profile.dev.package.mp_exhaust]
+opt-level = 3
+
+[profile.web-release.package.mp_exhaust]
+opt-level = 3
+
+[profile.dev.package.mp_music]
+opt-level = 3
+
+[profile.web-release.package.mp_music]
+opt-level = 3
+
+[profile.web-release.package.sb_music]
+opt-level = 3
+
+# The xtasks' image metrics run over hundreds of screenshots.
+[profile.dev.package.engine_xtask]
+opt-level = 3
+
+[profile.dev.package.mp_xtask]
+opt-level = 3
+
+[profile.dev.package.sb_xtask]
+opt-level = 3
+
+# The patched crates every game builds on, in Playground Kit
+# (crates/engine/patches/*/PATCHED.md says what and why, and the kit's
+# docs/ECOSYSTEM.md section 3 which upstream PR each waits on):
+# - wgpu reads the WebGPU device's limits and features once (Bevy asks on
+#   every draw) and destroys buffers and textures when they are dropped
+#   (else they wait for the JS garbage collector: the iPhone memory deaths).
+# - wgpu-hal's GL backend skips binding what is already bound (WebGL2 made
+#   24,600 calls a frame on Sierra where three.js made 4,400).
+# - bevy_ui_render skips the draw of an empty batch (a Chrome warning).
+# `patches/wgpu-30` is for Bevy 0.20 consumers outside this repo.
+[patch.crates-io]
+wgpu = { path = "crates/engine/patches/wgpu" }
+wgpu-hal = { path = "crates/engine/patches/wgpu-hal" }
+bevy_ui_render = { path = "crates/engine/patches/bevy_ui_render" }

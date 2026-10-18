@@ -8,8 +8,11 @@
 //! its client crate, backends, page and side wasms, then
 //! [`main_with`] over [`web::commands`] plus its own [`Command`]s
 //! (`template/xtask` in this repository). Nothing here knows a port or a
-//! game name; every path is relative to the workspace root, found with
-//! `cargo locate-project --workspace`.
+//! game name. A game's paths (its page, `dist/`, its tools) are relative to
+//! [`root`]: the workspace root, unless the game named its own folder with
+//! [`set_root`], as a game in a workspace of several games must. Build
+//! output is under [`target_dir`], and `deps.toml` and `Cargo.lock` are at
+//! [`workspace_root`].
 
 pub mod deps;
 pub mod imgdiff;
@@ -106,10 +109,26 @@ pub fn main_with(args: impl Iterator<Item = String>, extra: &[Command]) -> Resul
     }
 }
 
+static GAME_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// Names the game's own folder, for a workspace that holds more than one
+/// game: its xtask calls this first, with the folder above its manifest
+/// (`Path::new(env!("CARGO_MANIFEST_DIR")).parent()`). Without it, [`root`]
+/// is the workspace root, as for a game that is its own workspace.
+pub fn set_root(dir: impl Into<PathBuf>) {
+    let _ = GAME_ROOT.set(dir.into());
+}
+
+/// The game's root, which every game path is relative to: the folder
+/// [`set_root`] named, else the workspace root.
+pub fn root() -> PathBuf {
+    GAME_ROOT.get().cloned().unwrap_or_else(workspace_root)
+}
+
 /// The workspace root: the directory of the `Cargo.toml` that
 /// `cargo locate-project --workspace` names from the current directory,
-/// found once.
-pub fn root() -> PathBuf {
+/// found once. `deps.toml` and `Cargo.lock` are here.
+pub fn workspace_root() -> PathBuf {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
     ROOT.get_or_init(|| {
         let out = cargo()
@@ -125,7 +144,26 @@ pub fn root() -> PathBuf {
     .clone()
 }
 
-/// Runs a command in the workspace root, failing on a non-zero exit.
+/// Cargo's build directory, as `cargo metadata` reports it (the workspace's
+/// `target/`, or `$CARGO_TARGET_DIR`), found once.
+pub fn target_dir() -> PathBuf {
+    static TARGET: OnceLock<PathBuf> = OnceLock::new();
+    TARGET
+        .get_or_init(|| {
+            let json = output(cargo().args(["metadata", "--no-deps", "--format-version", "1"]))
+                .expect("cargo metadata runs");
+            let meta: serde_json::Value =
+                serde_json::from_str(&json).expect("cargo metadata writes JSON");
+            PathBuf::from(
+                meta["target_directory"]
+                    .as_str()
+                    .expect("cargo metadata names the target directory"),
+            )
+        })
+        .clone()
+}
+
+/// Runs a command in the game's root, failing on a non-zero exit.
 pub fn exec(cmd: &mut Process) -> Result {
     let status = cmd
         .current_dir(root())
@@ -138,7 +176,7 @@ pub fn exec(cmd: &mut Process) -> Result {
     }
 }
 
-/// Runs a command in the workspace root and returns its stdout.
+/// Runs a command in the game's root and returns its stdout.
 pub fn output(cmd: &mut Process) -> Result<String> {
     let out = cmd
         .current_dir(root())

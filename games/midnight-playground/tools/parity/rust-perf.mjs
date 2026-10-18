@@ -28,7 +28,7 @@ if (opt('--game', 'rust') !== 'rust') {
 }
 process.env.GAME_GLOBAL ??= '__mp';
 process.env.PK_PROJECT_ROOT ??= ROOT;
-const { run } = await import('../../../game-engine/js/perf.mjs');
+const { run } = await import('../../../../crates/engine/js/perf.mjs');
 
 const level = opt('--level', 'sierra');
 const hq = opt('--hq', '1');

@@ -49,12 +49,34 @@ fn usage() -> &'static str {
      \x20 check [--web]                             the whole test suite (--web: and in the browser)"
 }
 
-/// The workspace root.
+/// The game's root: the folder above this xtask. In rust-games it is not
+/// the workspace root (see [`workspace_root`]).
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("xtask sits in the workspace")
+        .expect("xtask sits in the game's folder")
         .to_path_buf()
+}
+
+/// The workspace root, where `Cargo.lock` is: the directory of the
+/// manifest `cargo locate-project --workspace` names.
+fn workspace_root() -> PathBuf {
+    let out = cargo()
+        .args(["locate-project", "--workspace", "--message-format", "plain"])
+        .output()
+        .expect("cargo locate-project runs");
+    PathBuf::from(String::from_utf8_lossy(&out.stdout).trim())
+        .parent()
+        .expect("the workspace manifest has a directory")
+        .to_path_buf()
+}
+
+/// Cargo's build directory: `$CARGO_TARGET_DIR`, else the workspace's
+/// `target/`.
+fn target_dir() -> PathBuf {
+    std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace_root().join("target"))
 }
 
 /// `cargo`, as the one running us.

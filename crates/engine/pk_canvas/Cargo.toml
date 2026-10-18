@@ -3,8 +3,8 @@ name = "pk_canvas"
 description = "A Canvas 2D subset on tiny-skia with harfrust/skrifa text, for generated textures that match the browser"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sequoia-hope/playground-kit"
 publish.workspace = true
 
 [dependencies]

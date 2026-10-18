@@ -8,7 +8,7 @@
 //! `dist/web.staging/` and swapped in whole once done, so `dist/web/` keeps
 //! serving the last complete build while a new one compiles.
 
-use crate::{Result, cargo, exec, output, root};
+use crate::{Result, cargo, exec, output, root, target_dir, workspace_root};
 use std::path::Path;
 use std::process::Command;
 
@@ -60,7 +60,10 @@ const RUNTIME_FILES: &[(&str, &str)] = &[
         "assets/fonts/rajdhani/Rajdhani-Bold.ttf",
         "assets/fonts/rajdhani/Rajdhani-Bold.ttf",
     ),
-    ("assets/fonts/rajdhani/OFL.txt", "assets/fonts/rajdhani/OFL.txt"),
+    (
+        "assets/fonts/rajdhani/OFL.txt",
+        "assets/fonts/rajdhani/OFL.txt",
+    ),
 ];
 
 pub fn run(args: &[String]) -> Result {
@@ -71,7 +74,11 @@ pub fn run(args: &[String]) -> Result {
         match a.as_str() {
             "--release" => release = true,
             "--only" => only = Some(it.next().ok_or("--only needs webgpu or webgl2")?.clone()),
-            bad => return Err(format!("unknown option `{bad}` (--release, --only webgpu|webgl2)")),
+            bad => {
+                return Err(format!(
+                    "unknown option `{bad}` (--release, --only webgpu|webgl2)"
+                ));
+            }
         }
     }
     if let Some(o) = &only
@@ -193,13 +200,21 @@ fn utc_date(secs: u64) -> String {
 /// Builds one backend's wasm and runs wasm-bindgen (and, for a release,
 /// wasm-opt and precompression) into `out`.
 fn build_backend(b: &Backend, release: bool, profile: &str, out: &Path) -> Result {
-    let root = root();
     let target_root = match b.target_dir {
-        Some(d) => root.join("target").join(d),
-        None => root.join("target"),
+        Some(d) => target_dir().join(d),
+        None => target_dir(),
     };
     let mut build = cargo();
-    build.args(["build", "-p", "sb_game", "--lib", "--target", TARGET, "--profile", profile]);
+    build.args([
+        "build",
+        "-p",
+        "sb_game",
+        "--lib",
+        "--target",
+        TARGET,
+        "--profile",
+        profile,
+    ]);
     if b.target_dir.is_some() {
         build.arg("--target-dir").arg(&target_root);
     }
@@ -210,10 +225,20 @@ fn build_backend(b: &Backend, release: bool, profile: &str, out: &Path) -> Resul
     exec(&mut build)?;
 
     let profile_dir = if release { "web-release" } else { "debug" };
-    let wasm = target_root.join(TARGET).join(profile_dir).join("sb_game.wasm");
+    let wasm = target_root
+        .join(TARGET)
+        .join(profile_dir)
+        .join("sb_game.wasm");
     exec(
         Command::new("wasm-bindgen")
-            .args(["--target", "web", "--no-typescript", "--out-name", b.out_name, "--out-dir"])
+            .args([
+                "--target",
+                "web",
+                "--no-typescript",
+                "--out-name",
+                b.out_name,
+                "--out-dir",
+            ])
             .arg(out)
             .arg(&wasm),
     )?;
@@ -239,14 +264,24 @@ fn build_backend(b: &Backend, release: bool, profile: &str, out: &Path) -> Resul
 /// `release` profile): it runs per sample. Borrowed from midnight-
 /// playground's `build_worklet`.
 fn build_music(release: bool, out: &Path) -> Result {
-    let root = root();
     let profile = if release { "web-release" } else { "release" };
     let mut build = cargo();
-    build.args(["build", "-p", "sb_music", "--lib", "--features", "worklet", "--target", TARGET, "--profile", profile]);
+    build.args([
+        "build",
+        "-p",
+        "sb_music",
+        "--lib",
+        "--features",
+        "worklet",
+        "--target",
+        TARGET,
+        "--profile",
+        profile,
+    ]);
     println!("web: building the music worklet");
     exec(&mut build)?;
     let name = "sb_music.wasm";
-    let wasm = root.join("target").join(TARGET).join(profile).join(name);
+    let wasm = target_dir().join(TARGET).join(profile).join(name);
     let dest = out.join(name);
     std::fs::copy(&wasm, &dest).map_err(|e| format!("copying {}: {e}", wasm.display()))?;
     if release {
@@ -268,7 +303,10 @@ fn build_music(release: bool, out: &Path) -> Result {
 fn add_cfg(cmd: &mut Command, cfg: &str) {
     if let Ok(enc) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
         let sep = if enc.is_empty() { "" } else { "\x1f" };
-        cmd.env("CARGO_ENCODED_RUSTFLAGS", format!("{enc}{sep}--cfg\x1f{cfg}"));
+        cmd.env(
+            "CARGO_ENCODED_RUSTFLAGS",
+            format!("{enc}{sep}--cfg\x1f{cfg}"),
+        );
     } else {
         let flags = std::env::var("RUSTFLAGS").unwrap_or_default();
         cmd.env("RUSTFLAGS", format!("{flags} --cfg {cfg}").trim());
@@ -278,7 +316,7 @@ fn add_cfg(cmd: &mut Command, cfg: &str) {
 /// The wasm-bindgen CLI must be the same version as the crate in Cargo.lock,
 /// or the glue it writes does not match the module.
 fn check_bindgen_version() -> Result {
-    let lock = std::fs::read_to_string(root().join("Cargo.lock"))
+    let lock = std::fs::read_to_string(workspace_root().join("Cargo.lock"))
         .map_err(|e| format!("reading Cargo.lock: {e}"))?;
     let want = locked_version(&lock, "wasm-bindgen").ok_or("wasm-bindgen is not in Cargo.lock")?;
     let have = output(Command::new("wasm-bindgen").arg("--version")).map_err(|_| {
@@ -300,7 +338,11 @@ fn locked_version(lock: &str, name: &str) -> Option<String> {
     while let Some(line) = lines.next() {
         if line.trim() == needle {
             let v = lines.next()?.trim();
-            return Some(v.strip_prefix("version = \"")?.strip_suffix('"')?.to_owned());
+            return Some(
+                v.strip_prefix("version = \"")?
+                    .strip_suffix('"')?
+                    .to_owned(),
+            );
         }
     }
     None
@@ -350,12 +392,14 @@ fn swap_in(staging: &Path, live: &Path) -> Result {
 }
 
 fn copy_dir(from: &Path, to: &Path) -> Result {
-    let entries = std::fs::read_dir(from).map_err(|e| format!("reading {}: {e}", from.display()))?;
+    let entries =
+        std::fs::read_dir(from).map_err(|e| format!("reading {}: {e}", from.display()))?;
     for entry in entries {
         let path = entry.map_err(|e| e.to_string())?.path();
         let dest = to.join(path.file_name().unwrap());
         if path.is_dir() {
-            std::fs::create_dir_all(&dest).map_err(|e| format!("creating {}: {e}", dest.display()))?;
+            std::fs::create_dir_all(&dest)
+                .map_err(|e| format!("creating {}: {e}", dest.display()))?;
             copy_dir(&path, &dest)?;
         } else {
             std::fs::copy(&path, &dest).map_err(|e| format!("copying {}: {e}", path.display()))?;

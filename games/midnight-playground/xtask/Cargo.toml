@@ -1,5 +1,5 @@
 [package]
-name = "xtask"
+name = "mp_xtask"
 description = "Build, parity and size tooling: cargo xtask <command>"
 version.workspace = true
 edition.workspace = true

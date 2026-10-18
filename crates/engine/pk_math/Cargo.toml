@@ -3,8 +3,8 @@ name = "pk_math"
 description = "Deterministic scalar math for lockstep games: libm with ECMAScript edge semantics, Mulberry32, hash2, simplex noise"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sequoia-hope/playground-kit"
 publish.workspace = true
 
 [features]

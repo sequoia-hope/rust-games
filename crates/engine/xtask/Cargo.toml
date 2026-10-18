@@ -1,5 +1,5 @@
 [package]
-name = "xtask"
+name = "engine_xtask"
 version.workspace = true
 edition.workspace = true
 publish = false

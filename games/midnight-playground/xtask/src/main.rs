@@ -23,7 +23,7 @@ mod shots;
 mod stations;
 
 use pk_xtask::{Backend, Command, RuntimeFiles, SideWasm, WebBuild};
-pub use pk_xtask::{Result, cargo, exec, output, root};
+pub use pk_xtask::{Result, cargo, exec, output, root, target_dir};
 use std::path::Path;
 
 /// The web build (SPEC 2, 11; roadmap WP 2.7): the WebGPU client and the
@@ -123,6 +123,12 @@ fn scenes_rel(root: &Path) -> Result<String> {
 }
 
 fn main() {
+    // The game's folder, not the workspace root: rust-games holds several.
+    pk_xtask::set_root(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask/ is in the game's folder"),
+    );
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut commands = pk_xtask::web::commands(&WEB);
     commands.push(Command::new(

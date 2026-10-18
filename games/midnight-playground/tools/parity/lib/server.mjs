@@ -5,7 +5,7 @@
 // checkout.
 
 import { ROOT } from './jstree.mjs';
-import { baseUrl as kitBaseUrl, chromeFlags as kitChromeFlags } from '../../../../game-engine/js/server.mjs';
+import { baseUrl as kitBaseUrl, chromeFlags as kitChromeFlags } from '../../../../../crates/engine/js/server.mjs';
 
 export function baseUrl(opt) {
   return kitBaseUrl(opt, ROOT);
