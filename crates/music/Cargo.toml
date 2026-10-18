@@ -21,7 +21,7 @@ crate-type = ["cdylib", "rlib"]
 worklet = []
 
 [dev-dependencies]
-# The goldens (parity/golden/music/) are JSON; tracks are compared by the
+# The goldens (tests/golden/) are JSON; tracks are compared by the
 # SHA-256 of their canonical text.
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.10"

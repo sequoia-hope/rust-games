@@ -2,7 +2,7 @@
 //! ([`Track`]) and turns each 16th into events, the way the game's Music.js
 //! does it, but with no audio nodes: the engine plays the events
 //! sample-accurately on the lab's instruments, and the tests can read them
-//! directly (`parity/golden/music/events.json` holds a few runs).
+//! directly (`tests/golden/events.json` holds a few runs).
 //!
 //! Compilation, voicing, fills and the per-hit humanising are Music.js's.
 //! Lab extensions to the format, used by the generated tracks:

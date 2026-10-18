@@ -465,7 +465,7 @@ UK garage and chicha tracks made from a seed (one hook each,
 `tools/music-lab/compose.js`), a keyboard and drum pads to play every instrument
 with live knobs, an A/B against the game's music in step, and offline
 measurements. `npm run test:lab` runs both labs' tests;
-`node tools/music-lab/test/golden.mjs` writes `parity/golden/music/`, the
+`node tools/music-lab/test/golden.mjs` writes `crates/music/tests/golden/` (repo root), the
 reference the Rust port (`crates/mp_music`) is checked against.
 
 ## Music player

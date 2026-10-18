@@ -1,11 +1,13 @@
-//! The Music Lab (`tools/music-lab/`) ported line for line: the DSP
+//! The Music Lab (`games/midnight-playground/tools/music-lab/`; the
+//! `tools/`, `docs/` and `crates/mp_*` paths in this crate's comments are
+//! inside that game) ported line for line: the DSP
 //! blocks, the instruments and kits, the sequencer, the composer, the genre
 //! grammars and the engine that mixes a song (docs/vision/sound.md 3, and
 //! 3.5 for the genres). It is the music of the radio stations (radio.md 7):
 //! a station is a deterministic schedule of generated songs on the wall
 //! clock, so every player hears the same song at the same moment.
 //!
-//! The lab is the oracle: `parity/golden/music/` (written by
+//! The lab is the oracle: `tests/golden/` (written by
 //! `node tools/music-lab/test/golden.mjs`) holds every grammar's tracks as
 //! canonical JSON hashes, the sequencer's events for a few tracks, and
 //! renders; the tests here reproduce the first two exactly and the renders

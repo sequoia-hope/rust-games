@@ -1,4 +1,4 @@
-// Writes parity/golden/music/: the Music Lab run offline under Node, for the
+// Writes crates/music/tests/golden/ (the music crate's goldens): the Music Lab run offline under Node, for the
 // Rust port in crates/mp_music to be checked against (its golden tests).
 // Run with `node tools/music-lab/test/golden.mjs`; regenerating must give
 // identical files.
@@ -27,7 +27,7 @@ import { Engine } from '../engine.js';
 
 const RATE = 48000;
 setRate(RATE);
-const OUT = new URL('../../../parity/golden/music/', import.meta.url);
+const OUT = new URL('../../../../../crates/music/tests/golden/', import.meta.url);
 const SEEDS = [1, 2, 3, 4, 5, 6];
 const ENGINE_SEED = 5;
 const RMS = 2400;

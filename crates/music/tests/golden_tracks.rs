@@ -1,4 +1,4 @@
-//! The grammars against the lab: `parity/golden/music/tracks.json` holds
+//! The grammars against the lab: `tests/golden/tracks.json` holds
 //! the SHA-256 of every genre's canonical track over a few seeds, and one
 //! whole track per genre (seed 1) so a mismatch can be read, not just
 //! detected.
@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 fn golden() -> serde_json::Value {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../parity/golden/music/tracks.json"
+        "/tests/golden/tracks.json"
     );
     serde_json::from_str(&std::fs::read_to_string(path).expect("tracks.json")).expect("json")
 }

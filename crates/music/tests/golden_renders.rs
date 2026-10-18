@@ -1,4 +1,4 @@
-//! The engine against the lab's renders (`parity/golden/music/renders.json`,
+//! The engine against the lab's renders (`tests/golden/renders.json`,
 //! written by `node tools/music-lab/test/golden.mjs`): a few tracks from a
 //! given bar, as RMS per 2400 samples and whole 256-sample windows. The lab
 //! uses `Math.*` and this crate the platform's `f64` functions, which may
@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 fn file() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../parity/golden/music/renders.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/renders.json")
 }
 
 /// Base64 of little-endian `f32`s.

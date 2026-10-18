@@ -1,4 +1,4 @@
-//! The sequencer against the lab: `parity/golden/music/events.json` holds,
+//! The sequencer against the lab: `tests/golden/events.json` holds,
 //! for a few generated tracks, the events of `steps` 16ths from a given bar
 //! as canonical JSON (one array per step).
 
@@ -9,7 +9,7 @@ use mp_music::seq::Seq;
 fn golden() -> serde_json::Value {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../parity/golden/music/events.json"
+        "/tests/golden/events.json"
     );
     serde_json::from_str(&std::fs::read_to_string(path).expect("events.json")).expect("json")
 }

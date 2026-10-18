@@ -23,7 +23,7 @@ procedure unchanged.
   wall clock, favourites).
 - `tools/music-lab/{compose.js,gen.js,seq.js,engine.js,instruments.js}`:
   the lab is the oracle. `tools/music-lab/test/golden.mjs` writes
-  `parity/golden/music/{tracks,events,renders}.json`.
+  `crates/music/tests/golden/{tracks,events,renders}.json`.
 - DECISIONS D1150 (the port and its rules), D1151 (stations on the wall
   clock), D1152 (three genres specified), D1153 (fixing the oracle by
   numbers), D1154 and D1155 (favourites, the Radio page's Keep/Reject),
@@ -70,7 +70,7 @@ exactly on tracks and events, and to a tolerance on renders.
 
    ```bash
    node tools/music-lab/test/golden.mjs
-   git diff --stat parity/golden/music/     # only the new genre's entries should change
+   git diff --stat crates/music/tests/golden/     # only the new genre's entries should change
    ```
 
    If an existing genre's hash changed you reordered a shared draw. Undo
