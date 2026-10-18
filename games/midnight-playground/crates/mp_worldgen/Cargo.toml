@@ -1,0 +1,44 @@
+[package]
+name = "mp_worldgen"
+description = "World generation: terrain, road, sky, sea, scenery, car models, textures"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+mp_scene.workspace = true
+# The kit's Canvas 2D. The fonts it draws with are this crate's
+# (`src/fonts.rs`, baked from assets/fonts/fonts.json by build.rs; D1232).
+pk_canvas.workspace = true
+pk_math.workspace = true
+mp_track.workspace = true
+mp_levels.workspace = true
+# Material parameters are JSON values in the scene (mp_scene::MaterialDesc),
+# in the JS order.
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+# The animators that are data (`anim::AnimatorDesc`), so a section built
+# in a worker can hand its animators over with its scene (D1215).
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# The goldens (JSON numbers parsed exactly, D55) and the texture gate's
+# cached PNGs (tests/textures.rs).
+serde_json = { version = "1", features = ["float_roundtrip"] }
+png = "0.18"
+sha2 = "0.10"
+# The car models' dimensions are checked against the simulation's table
+# (tests/car_model.rs; DECISIONS D412). A dev-dependency only: mp_worldgen
+# itself does not depend on mp_sim (SPEC 3.2).
+mp_sim.workspace = true
+
+[[example]]
+name = "font-gallery"
+path = "examples/font_gallery.rs"
+
+[features]
+# Native only: run the pieces of a parallel build job on threads (SPEC 5.5;
+# std's scoped threads, DECISIONS D196). Ignored on wasm.
+parallel = []
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

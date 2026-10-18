@@ -1,0 +1,96 @@
+# GitHub Pages, since the cutover (ROADMAP WP 9.5, DECISIONS D1112): the
+# Rust build (Midnight Playground) at the site root, and the JS game
+# (Midnight Racer) under `legacy/`, as the commit's tracked files, exactly as
+# the old "deploy from branch main" served them at the root. `dist/next/`,
+# where the Rust build lived beside the JS game (D1101), now forwards to the
+# root so old links keep working. Both games share the origin, so their
+# `mr.*` settings and best times are the same ones.
+#
+# A failed Rust build fails the job and nothing is deployed: the previous
+# site stays up rather than a broken root going out.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push waits for the running one, and only
+# the newest waiting push is kept.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Site (the Rust game, and the JS game under legacy/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Playground Kit beside the game: this workspace's pk_* crates and the
+      # patched wgpu/Bevy crates are path dependencies on ../game-engine
+      # (DECISIONS D1230).
+      - name: Playground Kit (the sibling checkout)
+        run: git clone --depth 1 https://github.com/sequoia-hope/playground-kit "$GITHUB_WORKSPACE/../game-engine"
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - name: wasm-opt (binaryen 116)
+        run: |
+          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_116/binaryen-version_116-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_116/bin" >> "$GITHUB_PATH"
+      # MP_SIGNAL_URL (a repository variable, e.g. wss://signal.example.com/)
+      # is the signalling server built in for joining by link (DECISIONS
+      # D1124); unset, the page offers it only with `?signal=`.
+      - name: Rust web build
+        env:
+          MP_SIGNAL_URL: ${{ vars.MP_SIGNAL_URL }}
+        run: cargo xtask web --release
+      # The tools at the root too (the labs, benches and voice studios count
+      # as part of the game, D1112), with what their pages load: the JS
+      # sources, vendor/, audio/, assets/ and the music player. Then the
+      # Rust build over them (its index.html is the site's); Pages
+      # compresses on the fly, so the .br and .gz copies stay out. Then the
+      # JS game's tracked files under legacy/, and a forward from the old
+      # dist/next/ address.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/legacy _site/dist/next
+          git archive HEAD tools src vendor audio assets music.html | tar -x -C _site
+          cp -r dist/next/. _site/
+          find _site \( -name '*.br' -o -name '*.gz' \) -delete
+          git archive HEAD | tar -x -C _site/legacy
+          rm -rf _site/legacy/dist
+          cat > _site/dist/next/index.html <<'EOF'
+          <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+          <title>Midnight Playground</title>
+          <script>location.replace('../../' + location.search + location.hash)</script>
+          <meta http-equiv="refresh" content="0; url=../../">
+          <p style="font:16px system-ui;margin:2em">Midnight Playground has moved to <a href="../../">the site's front page</a>.</p>
+          EOF
+          du -sh _site _site/legacy
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,168 @@
+# CI for the Rust port and the JS game's unit tests (roadmap WP 0.2).
+# No deploy here: pages.yml publishes the site (DECISIONS D1101). The
+# browser suites need a GPU and run on the dev machine.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust:
+    name: Rust (format, clippy, tests, dependency rules)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Playground Kit beside the game: this workspace's pk_* crates and the
+      # patched wgpu/Bevy crates are path dependencies on ../game-engine
+      # (DECISIONS D1230).
+      - name: Playground Kit (the sibling checkout)
+        run: git clone --depth 1 https://github.com/sequoia-hope/playground-kit "$GITHUB_WORKSPACE/../game-engine"
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The Bevy client links libwayland-client natively (DECISIONS D100),
+      # its sound plays through ALSA (cpal; DECISIONS D513), and gamepads are
+      # read through libudev (gilrs, WP 6.4). The smoke test below draws on
+      # a virtual X display (Xvfb) through Mesa's software Vulkan, lavapipe
+      # (WP 6.8, DECISIONS D1003); winit opens the X client libraries at run
+      # time (dlopen), so the runner needs them installed, not just linked.
+      - name: System libraries for the native client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev xvfb xauth mesa-vulkan-drivers libvulkan1 libxkbcommon-x11-0 libx11-xcb1 libxcursor1 libxi6 libxrandr2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p mp_game --target wasm32-unknown-unknown -- -D warnings
+      # The WebGL2 build of the client (roadmap WP 2.7; DECISIONS D391): the
+      # same crate with the `mp_webgl2` cfg, in its own target directory.
+      - name: Clippy, the WebGL2 client
+        env:
+          RUSTFLAGS: -D warnings --cfg mp_webgl2
+        run: cargo clippy -p mp_game --target wasm32-unknown-unknown --target-dir target/webgl2 -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo xtask check-deps
+      # The native client's smoke test (roadmap WP 6.8, DECISIONS D1003):
+      # the window on Xvfb, drawn by lavapipe (no GPU here), the level built
+      # in the client (D678). The menu's first screen, then a race on
+      # Seaside Raceway, the lightest level to build. Each fails on a
+      # failed load, a logged error, or no scene in 600 s. On the dev
+      # machine's CPU they take about 7 s and 11 s, and 18 s and 31 s on
+      # four of its cores without a sound device. A store of its own, so no
+      # saved setting changes what is tested.
+      - name: Build the native client
+        run: cargo build -p mp_game --bin midnight-playground
+      - name: Smoke test, native, software Vulkan
+        timeout-minutes: 15
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.json
+          WGPU_BACKEND: vulkan
+          MP_STORE: ${{ runner.temp }}/mp-store/storage.json
+        run: |
+          xvfb-run -a -s "-screen 0 1280x800x24" target/debug/midnight-playground --smoke-test --after 5
+          xvfb-run -a -s "-screen 0 1280x800x24" target/debug/midnight-playground --smoke-test --after 5 --query "level=seaside&autostart=sports"
+      # mp_audio's backends are features (SPEC 3.2, 7.1): the native one
+      # (web-audio-api, offline renders, no device) is linted and tested
+      # here, the web one is linted in its target.
+      - run: cargo clippy -p mp_audio --features native --all-targets -- -D warnings
+      - run: cargo test -p mp_audio --features native
+      - run: cargo clippy -p mp_audio --target wasm32-unknown-unknown --features web -- -D warnings
+
+  wasm:
+    name: Wasm (tests under Node, kernel bits, web build, size)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Playground Kit (the sibling checkout)
+        run: git clone --depth 1 https://github.com/sequoia-hope/playground-kit "$GITHUB_WORKSPACE/../game-engine"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - name: wasm-opt (binaryen 116)
+        run: |
+          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_116/binaryen-version_116-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_116/bin" >> "$GITHUB_PATH"
+      - name: Simulation crates' tests in wasm (Node)
+        run: cargo test --target wasm32-unknown-unknown -p mp_track -p mp_levels -p mp_sim -p mp_vdyn
+      - name: World generation's tests in wasm (Node)
+        run: cargo test --target wasm32-unknown-unknown -p mp_worldgen
+      - name: Audio's tests in wasm (Node)
+        run: cargo test --target wasm32-unknown-unknown -p mp_audio
+      - name: Kernel in wasm is bit-identical to native
+        run: cargo xtask kernel --check
+      # Both clients: WebGPU and the WebGL2 fallback (roadmap WP 2.7).
+      - run: cargo xtask web --release
+      - run: cargo xtask size --budget
+
+  js:
+    name: JS unit tests (kernel off and on), module traces
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+      - name: Engine Sound Lab tests
+        run: npm run test:lab
+      - name: Unit tests with the parity kernel
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs npm run test:unit
+      - name: Module traces reproduce the committed goldens
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/sim-module.mjs --check
+      - name: The math golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/math-golden.mjs --check
+      - name: The Seaside survey golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/seaside-golden.mjs --check
+      - name: The three.js geometry golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/three-geom.mjs --check
+      - name: The builders golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/builders.mjs --check
+      - name: The flora golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/flora.mjs --check
+      - name: The audio arrays and the facade conformance golden reproduce
+        run: |
+          node tools/parity/audio-ref.mjs arrays --check
+          node tools/parity/audio-facade-ref.mjs --check
+      - name: The terrain plan golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/terrain-plan.mjs --check
+      - name: The road plan golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/road-plan.mjs --check
+      - name: The scenery plan split reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/scenery-plan.mjs --check
+      - name: The valley updater golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/valley-node.mjs --check
+      - name: The Level 1 animators golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/animators.mjs --check
+      - name: The Level 2 animators golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/animators.mjs --level coast --check
+      - name: The beach parts golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/beach-parts.mjs --check
+      - name: The Desert Run animators golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/desert-animators.mjs --check
+      - name: The Seaside Raceway animators golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/seaside-animators.mjs --check
+      - name: The Downtown Streets animators golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/animators.mjs --level streets --check
+      - name: The Night City Cruise animators golden reproduces
+        run: NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node tools/parity/animators.mjs --level cruise --check

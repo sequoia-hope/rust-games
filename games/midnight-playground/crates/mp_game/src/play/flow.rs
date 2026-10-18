@@ -1,0 +1,1474 @@
+//! The race's flow without the engine (roadmap WP 4.6): one frame of the
+//! session as `main.js`'s `tick` and the presentation half of `Race.update`
+//! run it — pause, the input layer at the tick rate, the ticks, and the
+//! simulation's events turned into the HUD's centre text and toasts, camera
+//! bumps and body-spring kicks — then countdown → race → finish → results.
+//! The Bevy systems ([`super`]) draw it; [`smoke_race`] runs it headless.
+
+use mp_sim::assist::{Assist, steer_assist};
+use mp_sim::autopilot::autopilot;
+use mp_sim::event::{self, EventResult};
+use mp_sim::input::{AWAY, InputFrame, RESET};
+use mp_sim::physics::PhysEvent;
+use mp_sim::pursuit::PursuitEvent;
+use mp_sim::race::{
+    DT, LevelRuntime, RaceOpts, RaceStateKind, ResultRow, SimEvent, SimState, results,
+};
+
+use super::audio::TickAudio;
+use super::camera::CameraRig;
+use super::input::Input;
+use super::pose::Springs;
+use super::session::Session;
+use super::touch::TouchControls;
+use mp_track::EventKind;
+
+/// `fmtTime`: m:ss.cc, rounded to hundredths first (59.996 s reads
+/// 1:00.00), `--:--.--` for a missing time.
+pub fn fmt_time(t: Option<f64>) -> String {
+    let Some(t) = t.filter(|t| t.is_finite()) else {
+        return "--:--.--".into();
+    };
+    let cs = pk_math::js::round(t * 100.0);
+    let m = (cs / 6000.0).floor();
+    let s = (cs - m * 6000.0) / 100.0;
+    format!("{m}:{:0>5.2}", s)
+}
+
+/// Whole seconds as m:ss (a delivery's time).
+pub fn fmt_clock(t: f64) -> String {
+    let t = t.max(0.0).ceil() as i64;
+    format!("{}:{:02}", t / 60, t % 60)
+}
+
+/// "HALF MOON BAY" as "Half Moon Bay".
+fn title_case(s: &str) -> String {
+    s.split(' ')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_string() + &c.as_str().to_lowercase(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A start's card shows when the car comes this near it (metres).
+const NEAR: f64 = 150.0;
+
+/// "1st", "2nd", "3rd", "4th", …
+pub fn ordinal(n: usize) -> String {
+    let suffix = match n {
+        1 => "st",
+        2 => "nd",
+        3 => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+/// The HUD's centre text and toast (`hud.center`, `hud.toast`), with their
+/// timers.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Hud {
+    pub center: Option<String>,
+    pub center_timer: f64,
+    pub toast: Option<String>,
+    pub toast_timer: f64,
+    /// `center()` and `toast()` calls so far: each restarts the HUD's pop
+    /// or toast (`play::hud`).
+    pub centers: u32,
+    pub toasts: u32,
+    /// A card in the zone card's place (an event at a place: its name and
+    /// what it is), and a count of them.
+    pub card: (String, String),
+    pub cards: u32,
+}
+
+impl Hud {
+    pub fn center(&mut self, text: impl Into<String>, dur: f64) {
+        self.center = Some(text.into());
+        self.center_timer = dur;
+        self.centers += 1;
+    }
+
+    pub fn toast(&mut self, text: impl Into<String>, dur: f64) {
+        self.toast = Some(text.into());
+        self.toast_timer = dur;
+        self.toasts += 1;
+    }
+
+    pub fn card(&mut self, name: impl Into<String>, sub: impl Into<String>) {
+        self.card = (name.into(), sub.into());
+        self.cards += 1;
+    }
+
+    pub fn tick(&mut self, dt: f64) {
+        self.center_timer = (self.center_timer - dt).max(0.0);
+        if self.center_timer <= 0.0 {
+            self.center = None;
+        }
+        self.toast_timer = (self.toast_timer - dt).max(0.0);
+        if self.toast_timer <= 0.0 {
+            self.toast = None;
+        }
+    }
+}
+
+/// Every race start in the client gets its own number (`Race::starts`),
+/// so a race built afresh from the menu is told from the one before it as
+/// a restart is (the audio's `startRace` calls key on it).
+fn next_start() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static STARTS: AtomicU32 = AtomicU32::new(0);
+    STARTS.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+/// Where the session is, for the screens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// Driving (countdown, race, after the finish until the results).
+    Race,
+    Paused,
+    /// The results are up; the race goes on behind them.
+    Results,
+}
+
+/// Options of a race in the client.
+#[derive(Clone, Copy, Debug)]
+pub struct Setup {
+    pub opts: RaceOpts,
+    /// `?autodrive=1`: the autopilot drives the player.
+    pub autodrive: bool,
+    /// Touch: the stuck hint names the ↺ button, not R.
+    pub touch: bool,
+}
+
+/// One race in the client: the session, the input layer, the camera, the
+/// springs and the HUD state.
+pub struct Race {
+    pub session: Session,
+    pub setup: Setup,
+    pub input: Input,
+    pub touch: TouchControls,
+    pub rig: CameraRig,
+    /// Per car slot (players, rivals, the traffic pool).
+    pub springs: Vec<Springs>,
+    pub hud: Hud,
+    pub mode: Mode,
+    pub results: Option<Vec<ResultRow>>,
+    /// The events of the ticks of the last frame (for the camera bumps and
+    /// the tests).
+    pub log: Vec<SimEvent>,
+    /// What the audio hears of each tick of the last frame, in order
+    /// ([`super::audio`]).
+    pub audio_ticks: Vec<TickAudio>,
+    /// The music key (M) was pressed this frame.
+    pub music_pressed: bool,
+    /// Races started on this `Race` (`restart` counts one more).
+    pub starts: u32,
+    /// The pads should quiet what is held (`input.pads.hush()` at the
+    /// start and on resume); the client's pad system does it.
+    pub hush_pads: bool,
+    /// Rumble asked for this frame (`pads.kick`): strong, weak, ms.
+    pub kicks: Vec<(f64, f64, f64)>,
+    /// The steady buzz this frame (`pads.feel`, `Race.rumble`); `None`
+    /// while paused.
+    pub feel: Option<(f64, f64)>,
+    /// What the reset action is on the pad in hand, while one is connected
+    /// (`pads.label('reset')`, for the stuck hint).
+    pub pad_reset: Option<String>,
+    /// Events the test bridge adds to the next frame's, after its ticks'
+    /// (`race.phys.events.push(…)` in the JS suites: a wall impact for the
+    /// rumble).
+    pub inject: Vec<SimEvent>,
+    /// Hot Pursuit's radio chatter (`PursuitView.say`): the lines said this
+    /// frame ([`super::radio`]).
+    pub radio: super::radio::Radio,
+    /// Lines the test bridge says (`race.pv.say(line, now)`), said at the
+    /// next frame.
+    pub stage_say: Vec<(mp_audio::radio::lines::Line, bool)>,
+    /// Hot Pursuit's options the simulation leaves to the page
+    /// (`?cops=N`, the flash setting), set on every new field.
+    pub pursuit_opts: PursuitOpts,
+    /// Frames run (not paused): tells a frame's `radio.said` from the
+    /// last one's (the HUD shows each line once).
+    pub frames: u32,
+    /// The steering assist on the player's controls (Rust only, D1082),
+    /// from the settings (`play::guide`); never with the autopilot.
+    pub assist: Assist,
+    was_nitro: bool,
+    offroad: f64,
+    /// The last event at a place, while its results are up.
+    pub event_result: Option<EventResult>,
+    /// Events at places begun and ended on this race: the HUD is built
+    /// afresh for each (a race's furniture, then the cruise's).
+    pub legs: u32,
+    /// The start the car last came near (its card shows once a visit).
+    near: Option<usize>,
+}
+
+/// `new PursuitView(race, { cops, flash })`: the units' cap (`?cops=N`, 6
+/// by default) and whether the lights strobe (the menu's option).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PursuitOpts {
+    pub cops: f64,
+    pub flash: bool,
+}
+
+impl Default for PursuitOpts {
+    fn default() -> PursuitOpts {
+        PursuitOpts {
+            cops: 6.0,
+            flash: true,
+        }
+    }
+}
+
+/// `new Pursuit({ maxUnits: cops, flash })` on a field the simulation made
+/// with its defaults (6 units, flashing).
+fn apply_pursuit_opts(st: &mut SimState, o: PursuitOpts) {
+    if let Some(pv) = st.pv.as_mut() {
+        pv.pursuit.max_units = pk_math::clamp(o.cops, 0.0, 6.0) as usize;
+        pv.pursuit.flash = o.flash;
+    }
+}
+
+/// Every car slot of a state: the players, the rivals, the traffic pool
+/// (whether it is on the road), in a fixed order.
+pub fn slots(st: &SimState) -> impl Iterator<Item = (&mp_sim::vehicle::Vehicle, bool)> {
+    st.players
+        .iter()
+        .map(|p| (&p.v, true))
+        .chain(st.rivals.iter().map(|r| (&r.k.v, true)))
+        .chain(
+            st.traffic
+                .cars
+                .iter()
+                .map(|c| (&c.k.v, c.active && c.k.v.alive)),
+        )
+}
+
+impl Race {
+    pub fn new(lr: LevelRuntime, setup: Setup, touch: TouchControls) -> Race {
+        Race::with_session(Session::new(lr, setup.opts), setup, touch)
+    }
+
+    /// A multiplayer race (`crate::net`): its first state from the network
+    /// client, with this player at `me`.
+    pub fn online(
+        lr: std::sync::Arc<LevelRuntime>,
+        first: SimState,
+        me: usize,
+        setup: Setup,
+        touch: TouchControls,
+    ) -> Race {
+        Race::with_session(Session::online(lr, first, me), setup, touch)
+    }
+
+    /// The local player's index in the race (0 offline).
+    pub fn me(&self) -> usize {
+        self.session.me
+    }
+
+    pub fn online_now(&self) -> bool {
+        self.session.online.is_some()
+    }
+
+    fn with_session(session: Session, setup: Setup, touch: TouchControls) -> Race {
+        let n = slots(&session.curr).count();
+        Race {
+            session,
+            setup,
+            input: Input::new(),
+            touch,
+            rig: CameraRig::default(),
+            springs: vec![Springs::default(); n],
+            hud: Hud::default(),
+            mode: Mode::Race,
+            results: None,
+            log: Vec::new(),
+            audio_ticks: Vec::new(),
+            music_pressed: false,
+            starts: next_start(),
+            // Nor does the A that started it.
+            hush_pads: true,
+            kicks: Vec::new(),
+            feel: None,
+            pad_reset: None,
+            inject: Vec::new(),
+            radio: Default::default(),
+            stage_say: Vec::new(),
+            pursuit_opts: PursuitOpts::default(),
+            frames: 0,
+            assist: Assist::Off,
+            was_nitro: false,
+            offroad: 0.0,
+            event_result: None,
+            legs: 0,
+            near: None,
+        }
+    }
+
+    /// Hot Pursuit's page options, for this field and every restart.
+    pub fn set_pursuit_opts(&mut self, o: PursuitOpts) {
+        self.pursuit_opts = o;
+        apply_pursuit_opts(&mut self.session.curr, o);
+        apply_pursuit_opts(&mut self.session.prev, o);
+    }
+
+    /// `startRace` again on the same level: a new field on the grid, keys
+    /// pressed before it do not carry in.
+    pub fn restart(&mut self, opts: RaceOpts) {
+        self.setup.opts = opts;
+        let mut curr = SimState::new(&self.session.lr, opts);
+        apply_pursuit_opts(&mut curr, self.pursuit_opts);
+        self.session.prev = curr.clone();
+        self.session.curr = curr;
+        self.session.events.clear();
+        self.rig = CameraRig::default();
+        self.springs = vec![Springs::default(); slots(&self.session.curr).count()];
+        self.hud = Hud::default();
+        self.mode = Mode::Race;
+        self.results = None;
+        self.input.pressed.clear();
+        self.input.enabled = true;
+        self.hush_pads = true;
+        self.was_nitro = false;
+        self.radio = Default::default();
+        self.starts = next_start();
+        self.event_result = None;
+        self.near = None;
+    }
+
+    /// From an event's results back to the cruise, which went on behind
+    /// them.
+    pub fn continue_cruise(&mut self) {
+        self.event_result = None;
+        self.mode = Mode::Race;
+        self.input.pressed.clear();
+        self.hush_pads = true;
+    }
+
+    pub fn state(&self) -> RaceStateKind {
+        self.session.curr.race.state
+    }
+
+    /// `pause(on)`: only a race in progress pauses. Online the race goes on
+    /// (MULTIPLAYER 2.9): the menu takes the player's hands off the wheel.
+    pub fn pause(&mut self, on: bool) {
+        if on && self.mode != Mode::Race {
+            return;
+        }
+        if !on && self.mode != Mode::Paused {
+            return;
+        }
+        self.mode = if on { Mode::Paused } else { Mode::Race };
+        if !on {
+            // Keys pressed while paused don't carry into the race.
+            self.input.pressed.clear();
+            self.hush_pads = true;
+        }
+    }
+
+    /// One rendered frame: pause and the one-shot actions, then the ticks
+    /// that came due (the input layer and the autopilot once per tick), then
+    /// the events. `dt` is the frame's time (already scaled by
+    /// `?timescale`).
+    pub fn frame(&mut self, dt: f64) {
+        self.frame_with(dt, None);
+    }
+
+    /// [`Race::frame`] for a multiplayer race: the network client decides
+    /// the ticks (`now`: the app's clock, ms).
+    pub fn frame_online(&mut self, dt: f64, client: &mut crate::net::NetClient, now: f64) {
+        self.frame_with(dt, Some((client, now)));
+    }
+
+    fn frame_with(&mut self, dt: f64, net: Option<(&mut crate::net::NetClient, f64)>) {
+        self.log.clear();
+        self.audio_ticks.clear();
+        self.kicks.clear();
+        self.feel = None;
+        if self.input.consume("pause") {
+            match self.mode {
+                Mode::Race => self.pause(true),
+                Mode::Paused => self.pause(false),
+                Mode::Results => {}
+            }
+        }
+        self.music_pressed = self.input.consume("music");
+        // Online the race doesn't stop for the menu: hands off the wheel.
+        let away = self.mode == Mode::Paused;
+        if away && net.is_none() {
+            return;
+        }
+        self.frames += 1;
+        self.radio.frame(dt);
+        for (line, force) in std::mem::take(&mut self.stage_say) {
+            self.radio.say(line, force);
+        }
+        if self.input.consume("camera") {
+            self.rig.cycle();
+        }
+        let Race {
+            session,
+            input,
+            touch,
+            setup,
+            audio_ticks,
+            assist,
+            ..
+        } = self;
+        let autodrive = setup.autodrive;
+        let assist = *assist;
+        let track = session.lr.track.clone();
+        let me = session.me;
+        let mut first = true;
+        let sample = |st: &SimState| {
+            if away {
+                return InputFrame {
+                    flags: AWAY,
+                    ..InputFrame::default()
+                };
+            }
+            let s = input.update(DT, Some(touch));
+            let mut inp = s.sim();
+            if autodrive {
+                let p = &st.players[me];
+                if matches!(p.model, mp_sim::model::VehicleModel::Sim(_)) {
+                    // The profile is the arcade's: a sim car takes it
+                    // slower (as `mp-sim race --sim` drives it).
+                    mp_sim::autopilot::autopilot_at(&mut inp, &p.v, &track, 0.93 * 0.72);
+                } else {
+                    autopilot(&mut inp, &p.v, &track);
+                }
+            } else if assist != Assist::Off {
+                // Before quantising: the frame carries the assisted
+                // steering, so a recording replays it exactly.
+                let p = &st.players[me];
+                steer_assist(&mut inp, &p.v, &p.phys, &track, assist);
+            }
+            let mut f = InputFrame::quantise(&inp);
+            // The reset key is read once a frame, by its first tick.
+            if first && input.consume("reset") {
+                f.flags |= RESET;
+            }
+            first = false;
+            f
+        };
+        let observe = |lr: &LevelRuntime, st: &SimState, ev: &[SimEvent], f: &InputFrame| {
+            audio_ticks.push(TickAudio::of(lr, st, ev, f, me))
+        };
+        match net {
+            Some((client, now)) => {
+                session.advance_online(client, now, sample, observe);
+            }
+            None => {
+                session.advance_observed(dt, sample, observe);
+            }
+        }
+        self.touch.tick(dt);
+        let mut events = std::mem::take(&mut self.session.events);
+        events.append(&mut self.inject);
+        for e in &events {
+            self.on_event(e);
+        }
+        // WP 8.4: pursuit events → radio lines here.
+        self.radio.events(&mut self.audio_ticks);
+        self.log = events;
+        self.rumble();
+        self.stuck_hint();
+        self.event_hint();
+        self.hud.tick(dt);
+    }
+
+    /// The HUD, camera and spring reactions to an event (`Race.update`'s
+    /// calls to `hud`, `cam` and the vehicle).
+    fn on_event(&mut self, e: &SimEvent) {
+        let laps = self.session.curr.race.laps;
+        let me = self.session.me;
+        // Another human's lap, bonus or finish isn't this player's news.
+        let mine = match e {
+            SimEvent::PerfectStart { player }
+            | SimEvent::Bonus { player, .. }
+            | SimEvent::Lap { player, .. }
+            | SimEvent::WrongWay { player }
+            | SimEvent::Finished { player, .. }
+            | SimEvent::Phys { player, .. }
+            | SimEvent::Crash { player }
+            | SimEvent::NearMiss { player, .. }
+            | SimEvent::Whoosh { player, .. }
+            | SimEvent::Reset { player }
+            | SimEvent::Controls { player, .. } => *player == me,
+            SimEvent::CarHit { player, .. } => *player == Some(me),
+            _ => true,
+        };
+        if !mine {
+            return;
+        }
+        match e {
+            SimEvent::Countdown(n) => {
+                self.hud.center(n.to_string(), 1.0);
+                self.kicks.push((0.0, 0.25, 90.0));
+            }
+            SimEvent::Go => {
+                self.hud.center("GO!", 1.0);
+                self.kicks.push((0.3, 0.6, 200.0));
+                let lr = &self.session.lr;
+                if let Some(e) = event::running(lr, &self.session.curr) {
+                    match e.kind {
+                        EventKind::TimeTrial => self.hud.toast(
+                            format!("BEAT {}", fmt_time(Some(event::time_of(&lr.track, e)))),
+                            3.0,
+                        ),
+                        EventKind::Delivery => self
+                            .hud
+                            .toast(format!("{} IN {}", e.place, fmt_clock(e.time)), 3.0),
+                        EventKind::Race => {}
+                    }
+                }
+            }
+            SimEvent::PerfectStart { .. } => self.hud.toast("PERFECT START", 1.6),
+            SimEvent::Bonus {
+                text,
+                nitro,
+                points,
+                ..
+            } => {
+                let t = if self.session.curr.race.cruise && *points > 0.0 {
+                    format!("{text}  +{}", pk_math::js::round(*points))
+                } else if *nitro > 0.0 {
+                    format!("{text}  +N2O")
+                } else {
+                    text.clone()
+                };
+                self.hud.toast(t, 1.6);
+            }
+            SimEvent::Lap {
+                lap, time, best, ..
+            } => {
+                let c = if *lap == laps as i32 {
+                    "FINAL LAP".to_string()
+                } else {
+                    format!("LAP {lap}/{laps}")
+                };
+                self.hud.center(c, 1.4);
+                self.hud.toast(
+                    format!(
+                        "LAP {}{}",
+                        fmt_time(Some(*time)),
+                        if *best { "  BEST" } else { "" }
+                    ),
+                    2.2,
+                );
+            }
+            SimEvent::WrongWay { .. } => {
+                // A cruise has no way to go (D1217).
+                if self.hud.center_timer <= 0.0 && !self.session.curr.race.cruise {
+                    self.hud.center("WRONG WAY", 1.0);
+                }
+            }
+            SimEvent::Finished { place, .. } => {
+                let st = &self.session.curr;
+                let t = match st.race.event.as_ref().map(|e| (e.kind, e.delivered)) {
+                    Some((EventKind::Delivery, true)) => "DELIVERED".to_string(),
+                    Some((EventKind::Delivery, false)) => "OUT OF TIME".to_string(),
+                    Some((EventKind::TimeTrial, _)) => "FINISH".to_string(),
+                    _ if *place == 1 => "WINNER!".to_string(),
+                    _ => format!("{} PLACE", ordinal(*place)),
+                };
+                self.hud.center(t, 2.0);
+            }
+            SimEvent::EventStart { index } => {
+                self.legs += 1;
+                let lr = &self.session.lr;
+                let e = &lr.level.events[*index];
+                let sub = match e.kind {
+                    EventKind::Race => format!("Race to {}", title_case(e.place)),
+                    EventKind::TimeTrial => format!(
+                        "Time trial to {}: beat {}",
+                        title_case(e.place),
+                        fmt_time(Some(event::time_of(&lr.track, e)))
+                    ),
+                    EventKind::Delivery => format!(
+                        "Deliver to {} in {}",
+                        title_case(e.place),
+                        fmt_clock(e.time)
+                    ),
+                };
+                self.hud.card(e.name, sub);
+            }
+            SimEvent::EventEnd(r) => {
+                self.legs += 1;
+                self.event_result = Some(r.clone());
+                self.mode = Mode::Results;
+            }
+            SimEvent::Results => {
+                self.results = Some(results(&self.session.curr));
+                self.mode = Mode::Results;
+            }
+            SimEvent::CarHit {
+                hit,
+                player: Some(_),
+            } => {
+                self.jolt(hit.strength);
+                self.rig.bump(hit.strength * 1.2);
+            }
+            SimEvent::Phys { e, player } => match e {
+                PhysEvent::Impact { strength, .. } => {
+                    if *player == me {
+                        self.jolt(*strength);
+                    }
+                    self.rig.bump(*strength)
+                }
+                PhysEvent::Land { strength, .. } => {
+                    if *player == me {
+                        self.kicks.push((0.7 * strength, 0.5 * strength, 180.0));
+                    }
+                    self.rig.bump(strength * 0.8)
+                }
+                PhysEvent::Touchdown { impact } => {
+                    if let Some(s) = self.springs.get_mut(*player) {
+                        s.touchdown(*impact);
+                    }
+                }
+                PhysEvent::Shift { .. } => {
+                    if *player == me {
+                        self.kicks.push((0.0, 0.2, 70.0));
+                    }
+                }
+            },
+            // PursuitView's texts and camera jolts, then its rumble.
+            SimEvent::Pursuit(pe) => {
+                super::hud::pursuit::event(&mut self.hud, &mut self.rig, pe);
+                self.pursuit_kick(pe);
+            }
+            _ => {}
+        }
+    }
+
+    /// PursuitView's jolts for the player.
+    fn pursuit_kick(&mut self, pe: &PursuitEvent) {
+        match pe {
+            PursuitEvent::Takedown {
+                by_player: true, ..
+            } => self.kicks.push((0.8, 0.7, 400.0)),
+            PursuitEvent::Spiked { player: true, .. } => self.kicks.push((0.6, 0.8, 350.0)),
+            PursuitEvent::Barrier { player: true, .. } => self.kicks.push((0.5, 0.6, 250.0)),
+            PursuitEvent::Busted { player: true, .. } => self.kicks.push((0.9, 0.9, 700.0)),
+            _ => {}
+        }
+    }
+
+    /// `Race.jolt`: a hit, as a kick in the pad.
+    fn jolt(&mut self, strength: f64) {
+        if strength > 0.03 {
+            self.kicks.push((
+                0.25 + 0.75 * strength,
+                0.5 + 0.5 * strength,
+                120.0 + 280.0 * strength,
+            ));
+        }
+    }
+
+    /// `Race.rumble(speed, offroad)` and the nitro's kick, once a frame
+    /// after the ticks: the nitro firing up (per tick, where the JS looked
+    /// once a frame), then the steady buzz of a scrape, gravel, a skid, the
+    /// nitro or spiked tyres. The client hands `feel` to the pads only
+    /// while one is connected (`if (!pads?.state.connected) return`).
+    fn rumble(&mut self) {
+        for t in &self.audio_ticks {
+            if t.nitro && !self.was_nitro {
+                self.kicks.push((0.45, 0.6, 260.0));
+            }
+            self.was_nitro = t.nitro;
+            if let Some(o) = t.state.offroad {
+                self.offroad = o;
+            }
+        }
+        let p = &self.session.curr.players[self.session.me];
+        let ph = &p.phys;
+        let speed = pk_math::kernel::hypot(p.v.vx, p.v.vz);
+        let sp = pk_math::clamp(speed / 30.0, 0.0, 1.0);
+        let spiked = if ph.spiked > 0.0 { 0.3 * sp } else { 0.0 };
+        let max = pk_math::js::max_n;
+        self.feel = Some((
+            max(&[ph.scrape * 0.55, self.offroad * 0.35 * sp, spiked]),
+            max(&[
+                ph.scrape * 0.45,
+                self.offroad * 0.45 * sp,
+                ph.skid * 0.15,
+                if ph.nitro_active { 0.15 } else { 0.0 },
+                spiked,
+            ]),
+        ));
+    }
+
+    /// Stuck? Offer the reset key (`Race.update`, after the wrong-way check).
+    fn stuck_hint(&mut self) {
+        let st = &self.session.curr;
+        let p = &st.players[self.session.me];
+        let held = st
+            .pv
+            .as_ref()
+            .is_some_and(|pv| pv.held() || pv.pursuit.bust > 0.0);
+        // Stopped on a start is waiting to begin it, not stuck.
+        let on_start = st.race.cruise
+            && event::at_start(&self.session.lr.track, &self.session.lr.level, &p.v).is_some();
+        // A cruise stops where it likes (and after an event's results it
+        // has stood still all through them): stuck there is trying to go
+        // and not going.
+        let i = &self.input.state;
+        let idle = st.race.cruise && i.throttle < 0.1 && i.brake < 0.1;
+        if p.rules.stuck.is_some_and(|s| s > 3.0)
+            && self.hud.toast_timer <= 0.0
+            && !held
+            && !on_start
+            && !idle
+        {
+            let t = if self.setup.touch {
+                "STUCK? TAP R TO RESET".to_string()
+            } else {
+                format!(
+                    "STUCK? PRESS {} TO RESET",
+                    self.pad_reset
+                        .as_deref()
+                        .map_or("R".into(), str::to_uppercase)
+                )
+            };
+            self.hud.toast(t, 2.0);
+        }
+    }
+}
+
+impl Race {
+    /// Events at places: a start's card as the car comes near it, how to
+    /// begin it on its marker (and the hold filling), and a delivery's
+    /// distance and time left.
+    fn event_hint(&mut self) {
+        let lr = &self.session.lr;
+        let st = &self.session.curr;
+        if lr.level.events.is_empty() || self.mode != Mode::Race || st.players.len() != 1 {
+            return;
+        }
+        let t = &lr.track;
+        let p = &st.players[0];
+        if st.race.cruise {
+            let near = event::nearest(t, &lr.level, p.v.x, p.v.z, NEAR).map(|(i, _)| i);
+            if near != self.near {
+                if let Some(i) = near {
+                    let e = &lr.level.events[i];
+                    let kind = match e.kind {
+                        EventKind::Race => "Race",
+                        EventKind::TimeTrial => "Time trial",
+                        EventKind::Delivery => "Delivery",
+                    };
+                    self.hud.card(
+                        e.name,
+                        format!("{kind}: stop on the light, hold gas and brake"),
+                    );
+                }
+                self.near = near;
+            }
+            let slow = pk_math::kernel::hypot(p.v.vx, p.v.vz) < 8.0;
+            if slow && event::at_start(t, &lr.level, &p.v).is_some() {
+                let text = match st.race.hold {
+                    Some((_, held)) => format!(
+                        "HOLD {}%",
+                        ((held / event::HOLD) * 100.0).floor().clamp(0.0, 100.0)
+                    ),
+                    None => "HOLD GAS + BRAKE TO START".to_string(),
+                };
+                self.hud.toast(text, 0.3);
+            }
+            return;
+        }
+        if let Some(e) = event::running(lr, st)
+            && e.kind == EventKind::Delivery
+            && st.race.state == RaceStateKind::Racing
+            && !p.rules.finished
+            && self.hud.toast_timer <= 0.05
+            && let Some([dx, dz]) = e.drop
+        {
+            let d = pk_math::kernel::hypot(dx - p.v.x, dz - p.v.z);
+            let far = if d >= 1000.0 {
+                format!("{:.1} km", d / 1000.0)
+            } else {
+                format!("{} m", (d / 10.0).round() * 10.0)
+            };
+            let left = fmt_clock(e.time - st.race.time);
+            self.hud.toast(format!("{} {far} · {left}", e.place), 0.5);
+        }
+    }
+}
+
+/// What [`smoke_race`] saw.
+#[derive(Clone, Debug)]
+pub struct Smoke {
+    pub results: Vec<ResultRow>,
+    /// Centre texts in the order they showed.
+    pub centers: Vec<String>,
+    pub ticks: u32,
+    pub race_time: f64,
+    pub hash: u64,
+}
+
+/// A race from the grid to the results with the autopilot driving, through
+/// the client's own frame loop (input layer, session, events, HUD), at a
+/// steady `frame_dt`, headless. For `--smoke-race` and the tests.
+pub fn smoke_race(lr: LevelRuntime, opts: RaceOpts, frame_dt: f64) -> Result<Smoke, String> {
+    let mut race = Race::new(
+        lr,
+        Setup {
+            opts,
+            autodrive: true,
+            touch: false,
+        },
+        TouchControls::default(),
+    );
+    let mut centers: Vec<String> = Vec::new();
+    // Fifteen minutes of race at most (the JS recordings' cap).
+    let limit = (15.0 * 60.0 / frame_dt) as u64;
+    for _ in 0..limit {
+        race.frame(frame_dt);
+        if let Some(c) = &race.hud.center
+            && centers.last() != Some(c)
+            && race.hud.center_timer > 0.0
+        {
+            centers.push(c.clone());
+        }
+        if let Some(r) = &race.results {
+            return Ok(Smoke {
+                results: r.clone(),
+                centers,
+                ticks: race.session.curr.tick,
+                race_time: race.session.curr.race.time,
+                hash: mp_sim::race::hash(&race.session.curr),
+            });
+        }
+    }
+    Err(format!(
+        "no results after {:.0} s of race (state {:?})",
+        race.session.curr.race.time,
+        race.state()
+    ))
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use mp_sim::input::Input as SimInput;
+    use mp_sim::race::step;
+
+    #[test]
+    fn fmt_time_as_the_hud() {
+        assert_eq!(fmt_time(None), "--:--.--");
+        assert_eq!(fmt_time(Some(f64::NAN)), "--:--.--");
+        assert_eq!(fmt_time(Some(59.996)), "1:00.00");
+        assert_eq!(fmt_time(Some(83.456)), "1:23.46");
+        assert_eq!(fmt_time(Some(5.0)), "0:05.00");
+    }
+
+    /// The whole flow, headless: countdown 3, 2, 1, GO!, the finish, the
+    /// results, and the results are the simulation's own (the same race
+    /// stepped directly with the autopilot: no drift through the client's
+    /// frame loop).
+    #[test]
+    fn smoke_race_sierra() {
+        let opts = RaceOpts {
+            car: "sports",
+            seed: 1,
+            pursuit: false,
+            heat: 1.0,
+            physics: mp_sim::model::Physics::Arcade,
+        };
+        let lr = LevelRuntime::new(mp_levels::level_by_id("sierra")).unwrap();
+        let smoke = smoke_race(lr, opts, 1.0 / 60.0).unwrap();
+        assert_eq!(&smoke.centers[..4], ["3", "2", "1", "GO!"]);
+        assert!(
+            smoke
+                .centers
+                .iter()
+                .any(|c| c == "WINNER!" || c.ends_with(" PLACE")),
+            "{:?}",
+            smoke.centers
+        );
+        assert_eq!(smoke.results.len(), 6);
+        assert_eq!(smoke.results.iter().filter(|r| r.player).count(), 1);
+
+        let lr = LevelRuntime::new(mp_levels::level_by_id("sierra")).unwrap();
+        let mut st = SimState::new(&lr, opts);
+        let mut ev = Vec::new();
+        while st.tick < smoke.ticks {
+            let mut inp = SimInput::default();
+            autopilot(&mut inp, &st.players[0].v, &lr.track);
+            step(&lr, &mut st, &[InputFrame::quantise(&inp)], &mut ev);
+        }
+        assert_eq!(mp_sim::race::hash(&st), smoke.hash);
+        assert_eq!(results(&st), smoke.results);
+    }
+
+    #[test]
+    fn pause_holds_the_race() {
+        let lr = LevelRuntime::new(mp_levels::level_by_id("sierra")).unwrap();
+        let mut race = Race::new(
+            lr,
+            Setup {
+                opts: RaceOpts {
+                    car: "sports",
+                    seed: 1,
+                    pursuit: false,
+                    heat: 1.0,
+                    physics: mp_sim::model::Physics::Arcade,
+                },
+                autodrive: false,
+                touch: false,
+            },
+            TouchControls::default(),
+        );
+        race.frame(0.1);
+        let t = race.session.curr.tick;
+        race.input.key_down("Escape", false);
+        race.frame(0.1);
+        assert_eq!(race.mode, Mode::Paused);
+        race.frame(0.1);
+        assert_eq!(race.session.curr.tick, t);
+        race.input.key_up("Escape");
+        race.input.key_down("KeyP", false);
+        race.frame(0.05);
+        assert_eq!(race.mode, Mode::Race);
+        assert_eq!(race.session.curr.tick, t + 6);
+    }
+
+    fn pursuit_race(level: &str) -> Race {
+        let lr = LevelRuntime::new(mp_levels::level_by_id(level)).unwrap();
+        Race::new(
+            lr,
+            Setup {
+                opts: RaceOpts {
+                    car: "sports",
+                    seed: 1,
+                    pursuit: true,
+                    heat: 2.0,
+                    physics: mp_sim::model::Physics::Arcade,
+                },
+                autodrive: true,
+                touch: false,
+            },
+            TouchControls::default(),
+        )
+    }
+
+    /// `?cops=N` and the flash option reach the pursuit, and stay over a
+    /// restart.
+    #[test]
+    fn pursuit_options_reach_the_pursuit() {
+        let mut race = pursuit_race("sierra");
+        assert_eq!(race.session.curr.pv.as_ref().unwrap().pursuit.max_units, 6);
+        race.set_pursuit_opts(PursuitOpts {
+            cops: 2.0,
+            flash: false,
+        });
+        let pu = &race.session.curr.pv.as_ref().unwrap().pursuit;
+        assert_eq!((pu.max_units, pu.flash), (2, false));
+        let opts = race.setup.opts;
+        race.restart(opts);
+        let pu = &race.session.curr.pv.as_ref().unwrap().pursuit;
+        assert_eq!((pu.max_units, pu.flash), (2, false));
+    }
+
+    /// A line the bridge says goes through the radio in the next frame,
+    /// and is gone the frame after; a second, unforced line within the
+    /// gap is not said.
+    #[test]
+    fn staged_lines_go_through_the_radio() {
+        use mp_audio::radio::lines::Line;
+        let mut race = pursuit_race("sierra");
+        let line = |t: &str| Line {
+            text: t.into(),
+            parts: vec![t.into()],
+        };
+        race.stage_say.push((line("one"), true));
+        race.stage_say.push((line("two"), false));
+        race.frame(1.0 / 60.0);
+        let said: Vec<_> = race.radio.said.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(said, ["one"]);
+        race.frame(1.0 / 60.0);
+        assert!(race.radio.said.is_empty());
+    }
+
+    /// A pursuit race, headless: the police give chase and the HUD says
+    /// so (PURSUIT), as PursuitView.events shows it.
+    #[test]
+    fn a_pursuit_shows_on_the_hud() {
+        let mut race = pursuit_race("desert");
+        let mut centers = Vec::new();
+        let mut toasts = Vec::new();
+        for _ in 0..(120.0 * 60.0) as u32 {
+            race.frame(1.0 / 60.0);
+            for e in &race.log {
+                if let SimEvent::Pursuit(_) = e {
+                    if let Some(c) = &race.hud.center {
+                        centers.push(c.clone());
+                    }
+                    if let Some(t) = &race.hud.toast {
+                        toasts.push(t.clone());
+                    }
+                }
+            }
+            if centers.iter().any(|c| c == "PURSUIT") {
+                break;
+            }
+        }
+        assert!(
+            centers.iter().any(|c| c == "PURSUIT"),
+            "{centers:?} {toasts:?}"
+        );
+    }
+
+    /// An online race with two humans and this player second (`me` = 1),
+    /// not stepped: for the event handling.
+    pub(crate) fn second_of_two() -> Race {
+        use mp_sim::race::{Human, MultiOpts};
+        let lr = std::sync::Arc::new(LevelRuntime::new(mp_levels::level_by_id("coast")).unwrap());
+        let st = SimState::new_multi(
+            &lr,
+            &MultiOpts {
+                seed: 1,
+                humans: vec![
+                    Human {
+                        car: "sports",
+                        color: None,
+                    },
+                    Human {
+                        car: "muscle",
+                        color: Some(0x1f4fd8),
+                    },
+                ],
+                grid: vec![1, 0],
+                field: Some(4),
+                rubber_band: false,
+                ghost: true,
+            },
+        );
+        let opts = RaceOpts {
+            car: "muscle",
+            seed: 1,
+            pursuit: false,
+            heat: 1.0,
+            physics: mp_sim::model::Physics::Arcade,
+        };
+        Race::online(
+            lr,
+            st,
+            1,
+            Setup {
+                opts,
+                autodrive: false,
+                touch: false,
+            },
+            TouchControls::default(),
+        )
+    }
+
+    /// Another human's lap, finish, bonus or knocks aren't this player's
+    /// news; the countdown, GO! and the results are everyone's.
+    #[test]
+    fn online_only_this_players_events_reach_the_hud_and_the_pad() {
+        let mut race = second_of_two();
+        assert_eq!(race.me(), 1);
+        assert!(race.online_now());
+        let impact = |player| SimEvent::Phys {
+            player,
+            e: PhysEvent::Impact {
+                strength: 0.5,
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                side: 1,
+            },
+        };
+        let hit = |player| SimEvent::CarHit {
+            hit: mp_sim::collisions::Hit {
+                a: 0,
+                b: 1,
+                strength: 0.5,
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            player,
+        };
+        for e in [
+            SimEvent::Lap {
+                player: 0,
+                lap: 2,
+                time: 61.0,
+                best: true,
+            },
+            SimEvent::Finished {
+                player: 0,
+                place: 1,
+            },
+            SimEvent::PerfectStart { player: 0 },
+            SimEvent::Bonus {
+                player: 0,
+                text: "DRIFT".into(),
+                nitro: 0.2,
+                points: 0.0,
+            },
+            SimEvent::WrongWay { player: 0 },
+            impact(0),
+            hit(Some(0)),
+        ] {
+            race.on_event(&e);
+            assert_eq!(race.hud, Hud::default(), "{e:?}");
+            assert!(race.kicks.is_empty(), "{e:?}");
+        }
+        race.on_event(&SimEvent::Countdown(3));
+        assert_eq!(race.hud.center.as_deref(), Some("3"));
+        race.on_event(&SimEvent::Finished {
+            player: 1,
+            place: 2,
+        });
+        assert_eq!(race.hud.center.as_deref(), Some("2nd PLACE"));
+        race.on_event(&SimEvent::Lap {
+            player: 1,
+            lap: 2,
+            time: 61.0,
+            best: false,
+        });
+        assert_eq!(race.hud.toast.as_deref(), Some("LAP 1:01.00"));
+        race.kicks.clear();
+        race.on_event(&impact(1));
+        assert_eq!(race.kicks.len(), 1, "a wall hit of mine is a jolt");
+        race.on_event(&hit(Some(1)));
+        assert_eq!(race.kicks.len(), 2);
+        race.on_event(&SimEvent::Results);
+        assert_eq!(race.mode, Mode::Results);
+        assert!(race.results.is_some());
+    }
+
+    /// Online, pause doesn't stop the race (MULTIPLAYER 2.9): the ticks
+    /// go on with this player's hands off the wheel (AWAY), and the
+    /// controls come back on resume.
+    #[test]
+    fn online_pause_is_hands_off_and_the_race_goes_on() {
+        use crate::net::tests::{FRAME, Lan};
+        use mp_net::proto::{AiFill, Settings};
+        let mut lan = Lan::new(&["Ann", "Bob"]);
+        let mut races = lan.start(
+            Settings {
+                ai: AiFill::None,
+                ..Settings::default()
+            },
+            true,
+        );
+        let frame = |lan: &mut Lan, races: &mut [Race]| {
+            lan.host_frame();
+            let now = lan.now;
+            for (c, r) in lan.clients.iter_mut().zip(races.iter_mut()) {
+                r.frame_online(FRAME, c, now);
+            }
+        };
+        for _ in 0..(6 * 60) {
+            frame(&mut lan, &mut races);
+        }
+        assert_eq!(races[0].state(), RaceStateKind::Racing);
+        let driving = *races[0].session.inputs.last().unwrap();
+        assert_eq!(driving.flags & AWAY, 0);
+
+        races[0].input.key_down("Escape", false);
+        frame(&mut lan, &mut races);
+        races[0].input.key_up("Escape");
+        assert_eq!(races[0].mode, Mode::Paused);
+        let t = races[0].session.curr.tick;
+        let mut away = 0;
+        for _ in 0..60 {
+            frame(&mut lan, &mut races);
+            for f in &races[0].session.inputs {
+                assert_eq!(
+                    *f,
+                    InputFrame {
+                        flags: AWAY,
+                        ..InputFrame::default()
+                    }
+                );
+                away += 1;
+            }
+        }
+        assert!(away > 0);
+        assert!(
+            races[0].session.curr.tick >= t + 100,
+            "the race went on: {} → {}",
+            t,
+            races[0].session.curr.tick
+        );
+        assert_eq!(races[0].mode, Mode::Paused);
+
+        races[0].input.key_down("Escape", false);
+        frame(&mut lan, &mut races);
+        assert_eq!(races[0].mode, Mode::Race);
+        for _ in 0..10 {
+            frame(&mut lan, &mut races);
+        }
+        let f = races[0].session.inputs.last().unwrap();
+        assert_eq!(f.flags & AWAY, 0, "back at the wheel");
+        assert_eq!(lan.clients[0].stats.desyncs, 0);
+    }
+
+    /// Offline, the pause key toggles; Results ignores it, and a paused
+    /// frame neither ticks nor counts.
+    #[test]
+    fn pause_only_from_a_race_in_progress() {
+        let mut race = pursuit_race("sierra");
+        race.pause(false);
+        assert_eq!(race.mode, Mode::Race, "resume when not paused: nothing");
+        race.pause(true);
+        race.pause(true);
+        assert_eq!(race.mode, Mode::Paused);
+        let (t, frames) = (race.session.curr.tick, race.frames);
+        race.frame(0.05);
+        assert_eq!((race.session.curr.tick, race.frames), (t, frames));
+        race.pause(false);
+        race.mode = Mode::Results;
+        race.pause(true);
+        assert_eq!(race.mode, Mode::Results);
+        race.input.key_down("Escape", false);
+        race.frame(0.05);
+        assert_eq!(race.mode, Mode::Results, "the key does nothing there");
+    }
+
+    /// The HUD's timers count down and clear their texts.
+    #[test]
+    fn the_hud_texts_time_out() {
+        let mut h = Hud::default();
+        h.center("GO!", 1.0);
+        h.toast("PERFECT START", 1.6);
+        h.toast("LAP", 2.0);
+        assert_eq!((h.centers, h.toasts), (1, 2));
+        h.tick(0.5);
+        assert_eq!(h.center.as_deref(), Some("GO!"));
+        h.tick(0.5);
+        assert_eq!(h.center, None);
+        assert_eq!(h.center_timer, 0.0);
+        assert_eq!(h.toast.as_deref(), Some("LAP"));
+        h.tick(5.0);
+        assert_eq!(h.toast, None);
+        assert_eq!(h.toast_timer, 0.0);
+    }
+
+    #[test]
+    fn ordinals() {
+        let got: Vec<String> = (1..=12).map(ordinal).collect();
+        assert_eq!(
+            got,
+            [
+                "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th",
+                "12th"
+            ]
+        );
+    }
+
+    /// A restart is a new start: the field back on the grid, nothing kept
+    /// of the run before but the pursuit's options.
+    #[test]
+    fn a_restart_starts_afresh() {
+        let mut race = pursuit_race("sierra");
+        for _ in 0..120 {
+            race.frame(1.0 / 60.0);
+        }
+        let starts = race.starts;
+        race.input.key_down("KeyW", false);
+        race.results = Some(Vec::new());
+        race.mode = Mode::Results;
+        let opts = race.setup.opts;
+        race.restart(opts);
+        assert!(race.starts > starts);
+        assert_eq!(race.session.curr.tick, 0);
+        assert_eq!(race.session.prev.tick, 0);
+        assert_eq!(race.mode, Mode::Race);
+        assert!(race.results.is_none());
+        assert_eq!(race.hud, Hud::default());
+        assert!(race.input.pressed.is_empty());
+        assert!(race.hush_pads);
+        assert_eq!(race.springs.len(), slots(&race.session.curr).count());
+    }
+
+    /// An event at a place through the client's flow (stage 5): the
+    /// start's card, how to begin it, the hold, the event's card and its
+    /// countdown, its results, and the cruise again behind them.
+    #[test]
+    fn an_event_at_a_place_from_the_cruise_and_back() {
+        let lr = LevelRuntime::new(crate::play::cruise_level(
+            mp_levels::level_by_id("peninsula"),
+            true,
+        ))
+        .unwrap();
+        let mut race = Race::new(
+            lr,
+            Setup {
+                opts: RaceOpts {
+                    car: "sports",
+                    seed: 1,
+                    pursuit: false,
+                    heat: 1.0,
+                    physics: mp_sim::model::Physics::Arcade,
+                },
+                autodrive: false,
+                touch: false,
+            },
+            TouchControls::default(),
+        );
+        let dt = 1.0 / 60.0;
+        let mut toasts = Vec::new();
+        let frames = |race: &mut Race, n: usize, toasts: &mut Vec<String>| {
+            for _ in 0..n {
+                race.frame(dt);
+                if let Some(t) = &race.hud.toast
+                    && toasts.last() != Some(t)
+                {
+                    toasts.push(t.clone());
+                }
+            }
+        };
+        frames(&mut race, 300, &mut toasts);
+        assert_eq!(race.hud.card.0, "Midnight on the Coast", "the start's card");
+        assert!(
+            toasts.iter().any(|t| t == "HOLD GAS + BRAKE TO START"),
+            "{toasts:?}"
+        );
+        race.input.key_down("ArrowUp", false);
+        race.input.key_down("ArrowDown", false);
+        frames(&mut race, 70, &mut toasts);
+        assert!(
+            toasts
+                .iter()
+                .any(|t| t.starts_with("HOLD ") && t.ends_with('%')),
+            "{toasts:?}"
+        );
+        assert_eq!(race.legs, 1, "the event began");
+        assert!(race.hud.card.1.starts_with("Race to Half Moon Bay"));
+        assert_eq!(race.session.curr.rivals.len(), 5);
+        assert_eq!(race.session.curr.race.state, RaceStateKind::Countdown);
+        race.input.key_up("ArrowUp");
+        race.input.key_up("ArrowDown");
+        // To the finish on the autopilot.
+        race.setup.autodrive = true;
+        let mut n = 0;
+        while race.mode == Mode::Race && n < 60 * 600 {
+            frames(&mut race, 60, &mut toasts);
+            n += 60;
+        }
+        assert_eq!(race.mode, Mode::Results);
+        let r = race.event_result.clone().expect("the event's results");
+        assert_eq!(r.rows.len(), 6);
+        assert_eq!(race.legs, 2);
+        assert!(race.session.curr.race.cruise, "the cruise goes on behind");
+        assert!(race.session.curr.rivals.is_empty());
+        race.continue_cruise();
+        assert_eq!(race.mode, Mode::Race);
+        assert!(race.event_result.is_none());
+        frames(&mut race, 60, &mut toasts);
+    }
+
+    /// A cruise stopped of its own accord isn't stuck; trying to go and
+    /// not going is.
+    #[test]
+    fn a_cruise_standing_still_is_not_stuck() {
+        let lr = LevelRuntime::new(crate::play::cruise_level(
+            mp_levels::level_by_id("peninsula"),
+            true,
+        ))
+        .unwrap();
+        let t = lr.track.clone();
+        let mut race = Race::new(
+            lr,
+            Setup {
+                opts: RaceOpts {
+                    car: "sports",
+                    seed: 1,
+                    pursuit: false,
+                    heat: 1.0,
+                    physics: mp_sim::model::Physics::Arcade,
+                },
+                autodrive: false,
+                touch: false,
+            },
+            TouchControls::default(),
+        );
+        let dt = 1.0 / 60.0;
+        let stuck = |race: &mut Race, n: usize| {
+            let mut seen = false;
+            for _ in 0..n {
+                race.frame(dt);
+                seen |= race
+                    .hud
+                    .toast
+                    .as_deref()
+                    .is_some_and(|t| t.starts_with("STUCK"));
+            }
+            seen
+        };
+        stuck(&mut race, 300);
+        // Off any start's marker.
+        let p = &mut race.session.curr.players[0];
+        p.phys.reset(&mut p.v, &t, 3000.0, 2.0);
+        race.session.prev = race.session.curr.clone();
+        assert!(!stuck(&mut race, 360), "standing still");
+        race.input.key_down("ArrowUp", false);
+        race.input.key_down("ArrowDown", false);
+        assert!(stuck(&mut race, 360), "gas and brake and going nowhere");
+    }
+
+    /// The open world as a cruise (the menu's Cruise, `?cruise=1`, D1211):
+    /// the simulation's cruise mode with nobody on the grid but the
+    /// player, no pursuit, and no finish line to cross.
+    #[test]
+    fn the_south_coast_cruises() {
+        let level = crate::play::cruise_level(mp_levels::level_by_id("southcoast"), true);
+        assert_eq!(level.mode, mp_track::Mode::Cruise);
+        assert!(!level.rivals.is_empty(), "kept for its events at places");
+        let lap = crate::play::cruise_level(mp_levels::level_by_id("peninsula"), true);
+        assert_eq!(lap.laps, None, "a cruise round the loop is endless");
+        assert!(mp_sim::race::LevelRuntime::new(lap).unwrap().track.laps == 0);
+        // A drawn level is never a cruise this way.
+        assert_eq!(
+            crate::play::cruise_level(mp_levels::level_by_id("sierra"), true).mode,
+            mp_track::Mode::Race
+        );
+        let opts = RaceOpts {
+            car: "sports",
+            seed: 1,
+            pursuit: true,
+            heat: 1.0,
+            physics: mp_sim::model::Physics::Arcade,
+        };
+        let lr = LevelRuntime::new(level).unwrap();
+        let mut st = SimState::new(&lr, opts);
+        assert!(st.race.cruise);
+        assert!(!st.race.pursuit_on);
+        assert!(st.rivals.is_empty());
+        assert!(!st.traffic.cars.is_empty(), "the level's traffic stays");
+        let mut ev = Vec::new();
+        for _ in 0..120 * 60 {
+            let mut inp = SimInput::default();
+            autopilot(&mut inp, &st.players[0].v, &lr.track);
+            step(&lr, &mut st, &[InputFrame::quantise(&inp)], &mut ev);
+        }
+        let p = &st.players[0];
+        assert!(!p.rules.finished);
+        assert_eq!(st.race.state, mp_sim::race::RaceStateKind::Racing);
+        assert!(
+            p.v.s > lr.track.start_s + 300.0,
+            "drove on: s {} from {}",
+            p.v.s,
+            lr.track.start_s
+        );
+        assert!(p.rules.score > 0.0, "scored: {}", p.rules.score);
+        assert!(p.v.x.is_finite() && p.v.y.is_finite());
+    }
+}

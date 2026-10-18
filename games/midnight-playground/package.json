@@ -1,0 +1,22 @@
+{
+  "name": "midnight-playground",
+  "private": true,
+  "type": "module",
+  "description": "Browser street-racing game (three.js, no build step)",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "check-track": "node tools/check-track.js",
+    "app": "electron .",
+    "app:smoke": "electron . --smoke-test",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test 'test/unit/*.test.js'",
+    "test:unit:kernel": "NODE_OPTIONS=--import=./tools/parity/kernel/register.mjs node --test 'test/unit/*.test.js'",
+    "test:lab": "node --test 'tools/engine-lab/test/*.test.js' 'tools/music-lab/test/*.test.js'",
+    "test:e2e": "node --test --test-concurrency=2 'test/e2e/*.test.js'",
+    "test:e2e:rust": "node tools/parity/e2e/js-suites.mjs"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "puppeteer-core": "^25.12.0"
+  }
+}
