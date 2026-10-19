@@ -431,12 +431,12 @@ a phone, as G1 asks.
 | Device | Build | Level | fps median / 5th | Frame ms p50 / p95 / p99 / max | > 50 ms (30 s / all) | First frame | Ready | wasm MB after load → reload 10 | Notes |
 |---|---|---|---:|---:|---:|---:|---:|---:|---|
 | iPhone | WebGPU | sierra | | | | | | | |
-| iPhone (Safari 26.6.1, which reports itself as a Mac; 1320×2388 @ dpr 3, portrait) | WebGPU (Apple adapter) | seaside, quick look, hq off | 60 / 59.9 | 17 / 17 / 17 / 72 | 2 / 2 | 1.05 s | 10.47 s (37.5 MB scene downloaded in 3.7 s over the tailnet; 14 warm-up pipelines) | 168 → 168 (no reloads) | 2026-10-04, build 9b573da. Slow frames 72 ms at s 648 and 51 ms at s 1458, nothing else over 21 ms; no stall near s 3100 to 3300, unlike both Firefox runs |
+| iPhone (Safari 26.6.1, which reports itself as a Mac; 1320×2388 @ dpr 3, portrait) | WebGPU (Apple adapter) | seaside, quick look, hq off | 60 / 59.9 | 17 / 17 / 17 / 72 | 2 / 2 | 1.05 s | 10.47 s (37.5 MB scene downloaded in 3.7 s over the tailnet; 14 warm-up pipelines) | 168 → 168 (no reloads) | 2026-10-04, build 953f893. Slow frames 72 ms at s 648 and 51 ms at s 1458, nothing else over 21 ms; no stall near s 3100 to 3300, unlike both Firefox runs |
 | iPhone | WebGPU | coast | | | | | | | |
 | iPhone | WebGL2 | sierra | | | | | | | |
-| Owner's Linux desktop, Firefox 154 | WebGL2 (picked by itself: no WebGPU) | seaside, quick look, hq on, 3373×1323 @ dpr 1 | 60 / 52 (vsync) | 17.1 / 17.1 / 33.1 / 532.8 | 1 / 2 | 0.34 s | 1.37 s (37.5 MB scene in 0.2 s; 14 warm-up pipelines) | 159 → 159 (no reloads) | 2026-10-04, build 9b573da. The 50.2 ms frame is at 0.2 s, just after ready; the 532.8 ms one at 53.6 s, s 3272, with no pipeline compiled after warm-up |
-| Owner's Linux desktop, Firefox 154 with WebGPU turned on | WebGPU | seaside, quick look, hq on, 3373×1323 @ dpr 1 | 60 / 55.8 (vsync) | 17 / 30 / 32 / 458 | 3 / 6 | 3.49 s | 5.00 s (37.5 MB scene in 0.1 s; 14 warm-up pipelines) | 176 → 176 (no reloads) | 2026-10-04, build 9b573da, three minutes after the WebGL2 row. Slow frames: 96 ms at s 463, then 55 to 57 ms every 9 s or so (s 1329, 1845, 2401, 2920), and 458 ms at 51.4 s, s 3137, close to the WebGL2 run's 533 ms at s 3272: the same stretch of route on both backends |
-| Same desktop, Firefox 154 WebGPU, repeat with no setting changed (`allow-present-without-readback` was already true) | WebGPU | seaside, quick look, hq on, 3373×1323 @ dpr 1 | 59.9 / 46.5 | 17.1 / 17.5 / 34 / 83.3 | 3 / 7 | 0.61 s | 1.41 s | 176 → 176 | 2026-10-04 08:59, build 9b573da. No long stall this time (worst 83 ms at s 2818); the slow frames are 50.2 ms, three vsyncs, at s 1063 to 2585. The first run's 3.5 s to first frame and 458 ms stall did not repeat, so they were likely a cold start (first WebGPU use after turning it on) and something not tied to the route |
+| Owner's Linux desktop, Firefox 154 | WebGL2 (picked by itself: no WebGPU) | seaside, quick look, hq on, 3373×1323 @ dpr 1 | 60 / 52 (vsync) | 17.1 / 17.1 / 33.1 / 532.8 | 1 / 2 | 0.34 s | 1.37 s (37.5 MB scene in 0.2 s; 14 warm-up pipelines) | 159 → 159 (no reloads) | 2026-10-04, build 953f893. The 50.2 ms frame is at 0.2 s, just after ready; the 532.8 ms one at 53.6 s, s 3272, with no pipeline compiled after warm-up |
+| Owner's Linux desktop, Firefox 154 with WebGPU turned on | WebGPU | seaside, quick look, hq on, 3373×1323 @ dpr 1 | 60 / 55.8 (vsync) | 17 / 30 / 32 / 458 | 3 / 6 | 3.49 s | 5.00 s (37.5 MB scene in 0.1 s; 14 warm-up pipelines) | 176 → 176 (no reloads) | 2026-10-04, build 953f893, three minutes after the WebGL2 row. Slow frames: 96 ms at s 463, then 55 to 57 ms every 9 s or so (s 1329, 1845, 2401, 2920), and 458 ms at 51.4 s, s 3137, close to the WebGL2 run's 533 ms at s 3272: the same stretch of route on both backends |
+| Same desktop, Firefox 154 WebGPU, repeat with no setting changed (`allow-present-without-readback` was already true) | WebGPU | seaside, quick look, hq on, 3373×1323 @ dpr 1 | 59.9 / 46.5 | 17.1 / 17.5 / 34 / 83.3 | 3 / 7 | 0.61 s | 1.41 s | 176 → 176 | 2026-10-04 08:59, build 953f893. No long stall this time (worst 83 ms at s 2818); the slow frames are 50.2 ms, three vsyncs, at s 1063 to 2585. The first run's 3.5 s to first frame and 458 ms stall did not repeat, so they were likely a cold start (first WebGPU use after turning it on) and something not tied to the route |
 
 ## The Rust client after the instancing fix (DECISIONS D450 to D456)
 
@@ -531,11 +531,11 @@ are no longer clamped) and a few edge pixels (D451).
 
 **Size.** `mp_game_bg.wasm` 27.59 MB, 8.77 MB after gzip;
 `mp_game_webgl2_bg.wasm` 28.83 MB, 9.24 MB after gzip (budget 10 MB).
-The build this change started from (9b573da) is 27.51 / 8.74 MB and
+The build this change started from (953f893) is 27.51 / 8.74 MB and
 28.75 / 9.22 MB: this change adds 0.08 MB, 0.02 to 0.03 MB after gzip.
 The growth since the WP 2.6 figures above (6.09 / 6.56 MB after gzip) came
 with M3's and M4's code (world generation and the car models in the
-client), merged before 9b573da.
+client), merged before 953f893.
 
 **Races at dusk (D456).** The race with the autopilot (seed 1, high
 quality, uncapped, 60 s from the start of racing; Coast at `timescale=2`
@@ -579,7 +579,7 @@ common/` because the snap cannot see `/tmp`), WebGPU with
 `dom.webgpu.enabled` and `gfx.webgpu.ignore-blocklist`, through the
 registered server, 1280 × 800, high quality, the measurement page's quick
 look on Seaside (s 80, 60 m/s), vsync on as Firefox runs it. "Base" is the
-build before the instancing change (9b573da), "after" the instancing
+build before the instancing change (953f893), "after" the instancing
 change. The machine was shared (load 3 to 9; one later stretch at 26 to
 31, marked).
 
@@ -657,7 +657,7 @@ intervals from the start, worst 123.6), Sierra 12 (54 to 57 ms, one of
 
 2026-10-04, the same method (`node tools/parity/rust-perf.mjs --level
 sierra`, headless Chrome, 1280 × 800, high quality, uncapped, the full
-route), A/B against the build before WP 3.9's client (1bb2dd6), alternating
+route), A/B against the build before WP 3.9's client (a83f6c1), alternating
 runs. The machine was shared with other agents' builds the whole time
 (1-minute load average 8 to 21 at the starts, higher during runs), so single
 slow frames come and go in both builds.
@@ -702,38 +702,38 @@ the owner's (D498).
 
 **Races under vsync, and the WebGL2 Sierra question (2026-10-04).** The
 uncapped WebGL2 Sierra race above (12 frames over 50 ms) was run on a
-build of 5350be2, before the WP 3.9 client animators and the race audio
+build of 3475310, before the WP 3.9 client animators and the race audio
 were merged, so those could not have caused it. Run as browsers run it
 (vsync on, `CAPPED=1`, 30 s races, `timescale=2`), four builds alternating:
-1bb2dd6 (before the animators, and before the car-model warm-up of D458),
-ba1f5f1 (with the animators), d2550fe (with the race audio) and ecae56e
+a83f6c1 (before the animators, and before the car-model warm-up of D458),
+975ba80 (with the animators), 2f71ee8 (with the race audio) and cf8e3d0
 (the 24-float instance stream), on Sierra and Coast, WebGL2 and WebGPU, two
 rounds (load 7 to 32, other GPU users at 0 to 61 % between runs):
 
 - Frames over 50 ms under vsync: 0 to 1 per run in every build and on both
-  backends, except one 850 ms stall (d2550fe, Coast, WebGL2, s 1,867, at
+  backends, except one 850 ms stall (2f71ee8, Coast, WebGL2, s 1,867, at
   load 7; not seen again).
 - Frames over 33 ms on WebGL2: 0 to 16 on Sierra and 0 to 36 on Coast,
-  with no order by build (1bb2dd6: 0, 0, 4, 1; ba1f5f1: 0, 7, 0, 11;
-  d2550fe: 11, 0, 33, 36; ecae56e: 16, 0, 26, 4). WebGPU: 0 to 6 in every
+  with no order by build (a83f6c1: 0, 0, 4, 1; 975ba80: 0, 7, 0, 11;
+  2f71ee8: 11, 0, 33, 36; cf8e3d0: 16, 0, 26, 4). WebGPU: 0 to 6 in every
   build.
-- `lateFrames` 1 and 3 on 1bb2dd6 and ba1f5f1 (no D458), 0 from d2550fe on.
+- `lateFrames` 1 and 3 on a83f6c1 and 975ba80 (no D458), 0 from 2f71ee8 on.
 
 To tell the client's work from the machine, a second alternating series
 timed every `requestAnimationFrame` callback (the client's frame work, on
 WebGL2 where Bevy batches on the CPU). In the quiet runs (Coast at load
-3.8 to 4.8, all four builds; Sierra at 8.0 to 13.3 for ba1f5f1, d2550fe
-and ecae56e) the callback is 3.9 to 5.7 ms at the median and at most 7.4
+3.8 to 4.8, all four builds; Sierra at 8.0 to 13.3 for 975ba80, 2f71ee8
+and cf8e3d0) the callback is 3.9 to 5.7 ms at the median and at most 7.4
 to 20.9 ms, and no frame misses a vsync. Long callbacks come in whole runs
-and in every build, the oldest included: 1bb2dd6 had 60 and 79 over 16.7
-ms on Sierra and 64 on Coast, ba1f5f1 159 on Sierra, d2550fe and ecae56e
+and in every build, the oldest included: a83f6c1 had 60 and 79 over 16.7
+ms on Sierra and 64 on Coast, 975ba80 159 on Sierra, 2f71ee8 and cf8e3d0
 778 and 755 on Sierra (median 17 ms, load 13.5 and 29.7), and those are
-the runs with frames over 33 ms. d2550fe and ecae56e were clean on Sierra
+the runs with frames over 33 ms. 2f71ee8 and cf8e3d0 were clean on Sierra
 in the next round, so it is not a commit. The load average does not catch
-every busy spell (ba1f5f1's bad run started at 7.3), but the slow frames
+every busy spell (975ba80's bad run started at 7.3), but the slow frames
 on WebGL2 follow the machine, not the code. The one
 difference between builds at low load is the median callback on Coast:
-3.9 and 4.0 ms (1bb2dd6, ba1f5f1), 4.5 (d2550fe), 5.0 (ecae56e). That is
+3.9 and 4.0 ms (a83f6c1, 975ba80), 4.5 (2f71ee8), 5.0 (cf8e3d0). That is
 about 1 ms of frame work added with the audio and the new kinds, well
 inside the 16.7 ms.
 
@@ -741,7 +741,7 @@ inside the 16.7 ms.
 
 2026-10-04. Sizes are MB of 2^20 bytes, as `cargo xtask size` prints them;
 "gzip" is gzip at level 9 (`xtask size` uses flate2's best, which comes
-out about 0.01 MB above `gzip -9`). Main at a60cb88 was over SPEC 6.6's
+out about 0.01 MB above `gzip -9`). Main at daf4da3 was over SPEC 6.6's
 budget: `mp_game_bg.wasm` 31.27 MB, **10.00 MB gzip** (WebGPU);
 `mp_game_webgl2_bg.wasm` 32.51 MB, **10.48 MB gzip** (WebGL2).
 
@@ -763,7 +763,7 @@ of the crates around it are undercounts (removing the 2D sprites saved
 --Map`) does not help: with fat LTO all data is anonymous. `twiggy top`
 on the same named file gives the per-function sizes.
 
-| Part (WebGPU, a60cb88) | Raw MB | Gzip MB (est.) | Share |
+| Part (WebGPU, daf4da3) | Raw MB | Gzip MB (est.) | Share |
 |---|---:|---:|---:|
 | Bevy ECS, app, reflect, asset, math, tasks, log (with every system's generic code, `erased_serde`, `ron`, `glam`, `indexmap`) | 10.31 | 2.53 | 25 % |
 | Data: binary (vtables, Unicode and ICU tables, regex tables, constants) | 2.75 | 1.00 | 10 % |
@@ -812,20 +812,20 @@ workspace tests and `cargo xtask parity materials`):
 
 | Change | WebGPU gzip | WebGL2 gzip |
 |---|---:|---:|
-| a60cb88 | 10.00 | 10.48 |
+| daf4da3 | 10.00 | 10.48 |
 | No `bevy_post_process` (D670) | 9.85 | 10.33 |
 | Debug and trace logging compiled out of release wasm (D671) | 9.81 | 10.28 |
 | `ClientPlugins`: `DefaultPlugins` less the 2D sprites (D672) | 9.56 | 10.01 |
-| Main at c609122 (menus +0.14, WP 3.9's Sierra-only scenery factory -0.40), without the trims | 9.73 | 10.22 |
-| **c609122 merged with the trims (this branch)** | **9.29** | **9.76** |
+| Main at afaf05a (menus +0.14, WP 3.9's Sierra-only scenery factory -0.40), without the trims | 9.73 | 10.22 |
+| **afaf05a merged with the trims (this branch)** | **9.29** | **9.76** |
 
-The pictures through the merged build equal c609122's (Seaside on both
+The pictures through the merged build equal afaf05a's (Seaside on both
 backends and Sierra's stretch; WebGL2's usual one or two pixels apart),
 and the e2e suites (`menu`, `race-flow`, `level-switch`, `race-button`:
 30 tests), the phone harness (`tools/parity/e2e/phone.cjs`, touch and
 autopilot) and `phone-menu.mjs` pass on it.
 
-**Build settings, measured but not changed** (on a60cb88 plus the three
+**Build settings, measured but not changed** (on daf4da3 plus the three
 trims; gzip -9 MB; frame times from `tools/parity/rust-perf.mjs`, 40 s
 flights uncapped at 1280 × 800, high quality, three alternating rounds at
 load average 1.5 to 3.3 (the wasm-opt rows two rounds, load up to 14.5);
@@ -875,12 +875,12 @@ owner's, D439 and D674):
 | gzip by zopfli (`pigz -11`; any browser decodes it, only the build's `precompress` changes) | 8.86 | 9.31 |
 | brotli 11 (`Content-Encoding: br`; browsers send `Accept-Encoding: br` only over https, which the tailnet front and Pages are) | 5.82 | 6.12 |
 
-**Frame time of the merged build against c609122** (two alternating
+**Frame time of the merged build against afaf05a** (two alternating
 rounds of all four, then four more of Seaside on WebGL2; load 1.9 to 3.1):
 the same on Sierra (both backends) and Seaside on WebGPU (p50 2.0 to 2.1,
 1.8, 2.8 ms; ready within 0.2 s). Seaside on WebGL2, uncapped, is the one
 difference: mean 1.7 against 1.5 ms and p95 10.5 against 7.4 ms, every
-run, with the median frame 0.9 against 1.0 ms. Bisected to D672 (a60cb88
+run, with the median frame 0.9 against 1.0 ms. Bisected to D672 (daf4da3
 with D670 and D671: p95 6.4 to 7.2; with D672: 10.2 to 10.5). With vsync
 (`--capped`) the two are the same (16.7 ms at the 50th, 95th and 99th
 percentiles, worst 17 ms, both builds). Uncapped at about 600 frames a
@@ -952,7 +952,7 @@ device and settings. Both games measured the same way by
 (the Rust flights with `cars=0`, as the JS fly camera has no cars) or a
 race with the autopilot (`--race`), 1280 × 800, high quality, headless
 Chrome on the dev machine's RTX 3060, WebGPU unless marked; the JS game,
-the Rust build before (main at 2718502) and after alternating level by
+the Rust build before (main at 741ca7d) and after alternating level by
 level. Per frame, in ms:
 
 - **main**: the renderer main thread's CPU time (Chrome trace, thread
@@ -1068,7 +1068,7 @@ its scratchpad, not the repo.
 
 ## A framerate pass on the phone (DECISIONS D1180 to D1182)
 
-2026-10-09, main aa815d8 against the same tree with D1180 to D1182,
+2026-10-09, main 90c345c against the same tree with D1180 to D1182,
 alternating build by build, two rounds each. `rust-perf.mjs --race
 --capped --phone --throttle 4 --hq 0 --trace 10` (the sports car on the
 autopilot, 30 s from race time 3 s; 844 × 390 at dpr 3, CPU 4 × slower,

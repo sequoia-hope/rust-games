@@ -17,7 +17,7 @@ would otherwise copy. The split is judged by three gates:
 1. **Midnight Playground is unchanged to the player.** Every test it has
    today still passes, `cargo xtask check-deps` still passes, and the
    web build is pixel-identical to the pre-split build on the four levels
-   `build-diff.mjs` checks (`dist/pre-split`, built from f9ca805, as the
+   `build-diff.mjs` checks (`dist/pre-split`, built from 0b070c3, as the
    before). Coast has a known noise floor: its sea glitter is animated by
    the sea clock, so one build against itself across two Chrome runs
    differs by about 70 to 180 scattered pixels at a channel difference of

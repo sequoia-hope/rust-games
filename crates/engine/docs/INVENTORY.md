@@ -1,6 +1,6 @@
 # Inventory: what in Midnight Playground is generic
 
-Audited 2026-10-16 from `~/Software/midnight-playground` at commit 5fee62a
+Audited 2026-10-16 from `~/Software/midnight-playground` at commit 71d25d1
 (455 commits; 14 `mp_*` crates; about 250k lines of Rust, of which 56k
 are the Bevy client `mp_game`). Snowboarding (`~/Software/snowboarding`,
 no commits yet) was read for comparison: it is a hand-edited fork of

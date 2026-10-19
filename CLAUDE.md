@@ -106,5 +106,12 @@ and the kit have their own registrations.
 
 Imperative subject, a prose body that says why. Build output (`target/`,
 `dist/`, caches) stays out of git. Each game's and crate's history from
-before the move into this repo is intact (`git log --follow <file>`; the
-old commit hashes cited in DECISIONS logs and hand-offs still resolve).
+before the move into this repo is intact (`git log --follow <file>`), but
+not every hash: before the first push, a machine's private hostname was
+scrubbed from Midnight Playground's history, which renumbered its commits
+from 2026-10-03 on. The docs here cite the new hashes;
+`docs/history-rewrite.md` maps the old ones (as the old repos and GitHub
+links have them) to the new.
+
+Never commit a private hostname, address or account detail: write
+`<machine>.<tailnet>.ts.net`, and ask for the real one at run time.

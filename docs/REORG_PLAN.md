@@ -48,7 +48,7 @@ My recommendation is listed first in each.
 1. **Disk space (blocking).** `/` has **39 GB free (98% used)**. The old build dirs alone are 194 + 43 + 16 GB. A clean build of the merged workspace (native, tests, wasm, web-release) will probably fill what is left, and every extra worktree adds its own `target/`.
    - *Recommended:* run `cargo clean` in the three old folders. That frees about 250 GB. Their running dev servers serve `dist/`, not `target/`, so they keep working. The cost is that the old folders would need a full rebuild if you went back to them.
    - Alternative: put `CARGO_TARGET_DIR` for the monorepo on `/mnt/carson` (2 TB free). Builds would be much slower if that is a spinning or network disk.
-2. **History import.** See section 4. *Recommended:* commit a move in each repo, then merge, which keeps the original commit hashes.
+2. **History import.** See section 4. *Recommended:* commit a move in each repo, then merge, which keeps the original commit hashes. (Afterwards, before the first push, a private hostname was scrubbed from the history, which renumbered Midnight Playground's commits from 2026-10-03 on: `docs/history-rewrite.md`.)
 3. **Music crate scope.** See section 5. *Recommended:* move `mp_music` to `crates/music` as it is, and leave `sb_music` as a fork for the redesign agent to merge.
 4. **Directory name for Snowboarding.** *Recommended:* `games/snowboarding`, not `games/snowboard`. The package, binary, `proj` name, tmux session, `launch.sh` and memory directory are all called `snowboarding`. A bonus: its `../midnight-playground/tools/dj-voice/voices` paths keep working unchanged, because both games end up side by side under `games/`.
 5. **GitHub, CI and Pages.** *Recommended for this reorg:* keep the monorepo local, with no remote.
@@ -140,7 +140,7 @@ These are the only code changes in the migration phase:
 
 | Option | How | Pros | Cons |
 |---|---|---|---|
-| **A. Move commit + merge** (recommended) | In a scratch clone of each repo: `git mv` everything into its prefix, commit, then `git merge --allow-unrelated-histories` into the reorg branch. This is what `git subtree add` does, without squashing. | Every original commit hash survives. The handoffs, `DECISIONS.md` and GitHub links cite hashes such as `dca0b2d` and `75679ca`. No extra tools needed. | Commits before the move show the old paths. `git log -- games/x/file` needs `--follow`. Blame follows the move automatically. |
+| **A. Move commit + merge** (recommended) | In a scratch clone of each repo: `git mv` everything into its prefix, commit, then `git merge --allow-unrelated-histories` into the reorg branch. This is what `git subtree add` does, without squashing. | Every original commit hash survives. The handoffs, `DECISIONS.md` and GitHub links cite hashes such as `dca0b2d` and `2ff90be`. No extra tools needed. | Commits before the move show the old paths. `git log -- games/x/file` needs `--follow`. Blame follows the move automatically. |
 | B. `git filter-repo --to-subdirectory-filter` | Rewrite each clone so it always lived in its prefix, then merge. | Path history looks native everywhere, with no `--follow` needed. | **Every hash changes**, so cited hashes and GitHub links stop resolving inside the monorepo. Needs `git-filter-repo`, which isn't installed. |
 | C. Fresh copy, no history | Copy the files and make one commit. | Simplest. | `git log` and blame start today. The old folders, or GitHub for two of them, become the archive. Bad for Snowboarding, which has no remote. |
 
