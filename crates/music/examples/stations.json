@@ -1,0 +1,10 @@
+[
+  {"key": "club", "name": "Club", "freq": "88.1", "dj": "a",
+   "genres": [["house", 0.5], ["garage", 0.2], ["dnb", 0.3]], "seed": 881},
+  {"key": "rave", "name": "Rave", "freq": "97.7",
+   "genres": [["techno", 0.3], ["psytrance", 0.15], ["trance", 0.2], ["eurobeat", 0.2], ["dnb", 0.15]], "seed": 977},
+  {"key": "latin", "name": "Latin", "freq": "104.3",
+   "genres": [["chicha", 0.7], ["house", 0.2], ["garage", 0.1]], "seed": 1043},
+  {"key": "country", "name": "Country", "freq": "101.7",
+   "genres": [["country", 0.85], ["chicha", 0.15]], "seed": 1017}
+]

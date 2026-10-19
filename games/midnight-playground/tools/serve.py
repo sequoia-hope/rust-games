@@ -46,7 +46,7 @@ The JavaScript game is at <a href="legacy/" style="color:#b9c2d8">legacy/</a>.</
 # The song ratings the Radio page writes, relative to the repo root; the
 # same path the page fetches. One object per line under "songs", sorted, so
 # a diff shows the songs that changed.
-FAVOURITES = 'crates/mp_music/favourites.json'
+FAVOURITES = 'crates/mp_audio/favourites.json'
 FAVOURITES_ABOUT = ('Songs heard on the Radio page and kept or rejected (docs/vision/radio.md 8). A song is '
                     'its (genre, seed) pair: "keep" puts it in the station\'s rotation, "reject" keeps discovery '
                     'from drawing it again; the note is why. Written by tools/serve.py; edit by hand freely.')

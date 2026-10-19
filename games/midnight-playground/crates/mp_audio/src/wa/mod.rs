@@ -76,7 +76,7 @@ pub enum NodeKind {
     /// inputs, one stereo output. Its argument is the preset's index in
     /// [`mp_exhaust::ORDER`].
     Exhaust,
-    /// The radio: `mp_music`'s station player in an AudioWorklet
+    /// The radio: `music`'s station player in an AudioWorklet
     /// (DECISIONS D1151): no inputs, one stereo output, no argument.
     Radio,
 }
@@ -249,7 +249,7 @@ pub fn param_spec(
         (K::Exhaust, P::Speed) => (0.0, -F32_MAX, F32_MAX),
         (K::Exhaust, P::Running) => (1.0, 0.0, 1.0),
         (K::Exhaust, P::Preset) => (0.0, 0.0, (mp_exhaust::ORDER.len() - 1) as f64),
-        // The station is an index in `mp_music::radio::STATIONS` (-1: off);
+        // The station is an index in `music::radio::STATIONS` (-1: off);
         // the wall time at tuning comes in two parts because an f32 cannot
         // hold Unix seconds; `tune` is a serial.
         (K::Radio, P::Station) => (-1.0, -1.0, 63.0),
@@ -1346,7 +1346,7 @@ impl AudioContext {
     }
 
     /// Starts loading what a radio node needs (the web backend's worklet
-    /// module and `mp_music`'s wasm); settles `true` when
+    /// module and `music`'s wasm); settles `true` when
     /// [`AudioContext::create_radio`] may be called, `false` if it never can
     /// (no AudioWorklet). As [`AudioContext::prepare_exhaust`]: settles at
     /// the next [`AudioContext::settle`] on a virtual clock, by itself in a
@@ -2114,10 +2114,10 @@ pub struct ExhaustNode {
     pub preset: AudioParam,
 }
 
-/// The radio's node ([`AudioContext::create_radio`]): `mp_music`'s station
+/// The radio's node ([`AudioContext::create_radio`]): `music`'s station
 /// player, driven by k-rate params read once per block (drive them with
 /// `set_value_at_time`). `station` is an index in
-/// `mp_music::radio::STATIONS` (-1: off); `wall_day` and `wall_sec` are
+/// `music::radio::STATIONS` (-1: off); `wall_day` and `wall_sec` are
 /// the wall time at the moment of tuning (days since the Unix epoch and
 /// seconds into the day: an f32 cannot hold Unix seconds); a change of
 /// `tune` (a serial) re-syncs the player to that time, even on the same

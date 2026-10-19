@@ -2,9 +2,9 @@
 //! for a few generated tracks, the events of `steps` 16ths from a given bar
 //! as canonical JSON (one array per step).
 
-use mp_music::genres::genre;
-use mp_music::json::{Val, canon};
-use mp_music::seq::Seq;
+use music::genres::genre;
+use music::json::{Val, canon};
+use music::seq::Seq;
 
 fn golden() -> serde_json::Value {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/events.json");

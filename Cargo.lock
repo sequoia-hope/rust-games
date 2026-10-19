@@ -4353,9 +4353,9 @@ dependencies = [
  "js-sys",
  "mp_exhaust",
  "mp_levels",
- "mp_music",
  "mp_sim",
  "mp_track",
+ "music",
  "pk_math",
  "serde_json",
  "sha2",
@@ -4394,12 +4394,12 @@ dependencies = [
  "log",
  "mp_audio",
  "mp_levels",
- "mp_music",
  "mp_net",
  "mp_scene",
  "mp_sim",
  "mp_track",
  "mp_worldgen",
+ "music",
  "pk_canvas",
  "pk_math",
  "pk_shell",
@@ -4433,14 +4433,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "wasm-bindgen-test",
-]
-
-[[package]]
-name = "mp_music"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "sha2",
 ]
 
 [[package]]
@@ -4560,6 +4552,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "music"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -6232,7 +6232,7 @@ dependencies = [
  "bevy",
  "js-sys",
  "log",
- "sb_music",
+ "music",
  "sb_radio",
  "sb_sim",
  "tracing",
@@ -6240,10 +6240,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
-
-[[package]]
-name = "sb_music"
-version = "0.1.0"
 
 [[package]]
 name = "sb_radio"

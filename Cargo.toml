@@ -39,7 +39,7 @@ pk_lockstep = { path = "crates/engine/pk_lockstep" }
 pk_canvas = { path = "crates/engine/pk_canvas" }
 pk_xtask = { path = "crates/engine/pk_xtask" }
 pk_shell = { path = "crates/engine/pk_shell" }
-mp_music = { path = "crates/music" }
+music = { path = "crates/music" }
 # Midnight Playground.
 mp_track = { path = "games/midnight-playground/crates/mp_track" }
 mp_levels = { path = "games/midnight-playground/crates/mp_levels" }
@@ -55,7 +55,6 @@ mp_atlas = { path = "games/midnight-playground/crates/mp_atlas" }
 # Snowboarding.
 sb_sim = { path = "games/snowboarding/crates/sb_sim" }
 sb_radio = { path = "games/snowboarding/crates/sb_radio" }
-sb_music = { path = "games/snowboarding/crates/sb_music" }
 # Bevy 0.19.1, pinned, for every game (the kit's PLAN.md section 3).
 # Default features off; every client crate names the features it needs.
 bevy = { version = "=0.19.1", default-features = false }
@@ -90,13 +89,10 @@ opt-level = 3
 [profile.web-release.package.mp_exhaust]
 opt-level = 3
 
-[profile.dev.package.mp_music]
+[profile.dev.package.music]
 opt-level = 3
 
-[profile.web-release.package.mp_music]
-opt-level = 3
-
-[profile.web-release.package.sb_music]
+[profile.web-release.package.music]
 opt-level = 3
 
 # The xtasks' image metrics run over hundreds of screenshots.

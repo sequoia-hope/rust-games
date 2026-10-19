@@ -4,12 +4,14 @@
 //! - **Effects**: wind that rises with speed, the edge's hiss when carving
 //!   and the scrape when braking (filtered noise), and short synthesised
 //!   cues: the countdown, take-offs, landings, tricks, crashes, the finish.
-//! - **Music**: Ten-Eighty FM, `sb_music`'s station player running as its
-//!   own wasm in an AudioWorklet (`web/music-worklet.js`, `sb_music.wasm`,
-//!   both beside the page), at full energy in a run and thinner in the menu
-//!   and the pause. A page without AudioWorklet (Safari over plain http: it
-//!   is for secure pages only) plays the same player on the main thread
-//!   through a ScriptProcessorNode instead.
+//! - **Music**: Ten-Eighty FM (`stations.json`, the game's one station:
+//!   fast and bright for riding, under Dani and Wren's commentary), the
+//!   shared music engine's station player running as its own wasm in an
+//!   AudioWorklet (`music-worklet.js`, `music.wasm`, both beside the
+//!   page), at full energy in a run and thinner in the menu and the
+//!   pause. A page without AudioWorklet (Safari over plain http: it is for
+//!   secure pages only) plays the same player on the main thread through a
+//!   ScriptProcessorNode instead.
 //! - **Voices**: the announcers' clips (`audio/announcers/<clip>.mp3`,
 //!   listed in its `index.json`), fetched in the background once sound
 //!   starts, decoded when a bit is about to be said, and played one at a
@@ -102,9 +104,11 @@ mod web_audio {
     /// The worklet's files, beside the page (relative: the game may be
     /// served under a sub-path).
     const WORKLET_URL: &str = "music-worklet.js";
-    const MUSIC_WASM_URL: &str = "sb_music.wasm";
+    const MUSIC_WASM_URL: &str = "music.wasm";
     const CLIPS_URL: &str = "audio/announcers/";
     const MUSIC_SEED: u32 = 1080;
+    /// The station table the music engine plays (one station).
+    const STATIONS_JSON: &str = include_str!("../stations.json");
     const RADIO_KEY: &str = "sb.radio";
 
     struct Loop {
@@ -332,11 +336,14 @@ mod web_audio {
         let po = js_sys::Object::new();
         js_sys::Reflect::set(&po, &"module".into(), &module)?;
         js_sys::Reflect::set(&po, &"seed".into(), &JsValue::from(MUSIC_SEED))?;
+        // The station table, as bytes: a worklet scope has no TextEncoder.
+        let stations = js_sys::Uint8Array::from(STATIONS_JSON.as_bytes());
+        js_sys::Reflect::set(&po, &"stations".into(), &stations)?;
         let opts = AudioWorkletNodeOptions::new();
         opts.set_processor_options(Some(&po));
         opts.set_number_of_inputs(0);
         opts.set_output_channel_count(&js_sys::Array::of1(&JsValue::from(2)));
-        let node = AudioWorkletNode::new_with_options(&ctx, "sb-radio", &opts)?;
+        let node = AudioWorkletNode::new_with_options(&ctx, "music-radio", &opts)?;
         node.connect_with_audio_node(&out)?;
         node.connect_with_audio_node(&tap)?;
         // Tune in: the station as of now, on the wall clock (every
@@ -365,7 +372,7 @@ mod web_audio {
         out: &GainNode,
         tap: &web_sys::AnalyserNode,
     ) -> Result<ScriptMusic, JsValue> {
-        use sb_music::player::Player;
+        use music::player::Player;
         use wasm_bindgen::closure::Closure;
         const BLOCK: usize = 128;
         let node = ctx.create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(
@@ -374,7 +381,9 @@ mod web_audio {
             2,
         )?;
         let rate = ctx.sample_rate();
-        let mut player = Player::new(MUSIC_SEED, rate as f64);
+        let stations =
+            music::radio::Station::parse_list(STATIONS_JSON).map_err(|e| JsValue::from_str(&e))?;
+        let mut player = Player::new(MUSIC_SEED, rate as f64, stations);
         let now = js_sys::Date::now() / 1000.0;
         let day = (now / 86400.0).floor();
         let (day, sec) = (day as f32, (now - day * 86400.0) as f32);

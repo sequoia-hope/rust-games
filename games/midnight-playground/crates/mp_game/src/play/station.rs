@@ -9,7 +9,8 @@
 //! own radio.
 
 use mp_audio::game::GameAudio;
-use mp_music::radio::{STATIONS, Station, cue, level_station, station};
+use mp_audio::stations::{STATIONS, level_station, station};
+use music::radio::{Station, cue};
 
 /// Seconds between two DJ breaks at the least.
 const BREAK_GAP: f64 = 150.0;
@@ -221,7 +222,7 @@ impl StationState {
             }
         }
         let st = &STATIONS[i];
-        let Some(dj) = st.dj else { return };
+        let Some(dj) = st.dj.as_deref() else { return };
         self.prefetch(audio, dj);
         if !scene.racing {
             // The menus are music only: a break due now is dropped, not
@@ -337,7 +338,7 @@ mod tests {
     #[test]
     fn a_tune_flashes_the_station_and_refreshes_once_a_second() {
         let mut s = StationState::new();
-        let wall = mp_music::radio::EPOCH + 1000.0;
+        let wall = music::radio::EPOCH + 1000.0;
         s.tuned(Some(0), wall);
         assert!(s.flash.take().unwrap().starts_with("The Tide 88.1 · "));
         assert!(s.text.contains(" · "));

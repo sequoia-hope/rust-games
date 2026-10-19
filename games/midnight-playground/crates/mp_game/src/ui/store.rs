@@ -101,7 +101,7 @@ pub struct Settings {
     /// wavetable voice instead of the physical exhaust model (D1110).
     pub classic_engine: bool,
     /// `mr.station` (Rust only, D1151): what plays. `auto` (the level's
-    /// station), a station key (`mp_music::radio::STATIONS`), or
+    /// station), a station key (`mp_audio::stations::STATIONS`), or
     /// `playlist` (the seven arranged songs, as the JS game plays them):
     /// the radio off, the default (D1160).
     pub station: String,
@@ -118,7 +118,7 @@ pub struct Settings {
 
 /// Whether a station setting is one the menu offers.
 pub fn station_ok(v: &str) -> bool {
-    v == "auto" || v == "playlist" || mp_music::radio::station(v).is_some()
+    v == "auto" || v == "playlist" || mp_audio::stations::station(v).is_some()
 }
 
 impl Settings {

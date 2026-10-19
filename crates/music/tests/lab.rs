@@ -2,14 +2,14 @@
 //! (`tools/music-lab/test/lab.test.js`), ported. The ones that need the JS
 //! game's `tracks.js` use a generated track instead.
 
-use mp_music::compose::Item::{Deg as D, Ext as X};
-use mp_music::compose::{
+use music::compose::Item::{Deg as D, Ext as X};
+use music::compose::{
     MINOR, Motif, MotifOpts, R, Realise, SCALES, chord_on, chord_pcs, euclid, expand, motif,
     progression, realise, thin,
 };
-use mp_music::genres::{GENRES, chicha, country, genre, house, trance};
-use mp_music::seq::{DRUM_LANES, Event, Seq, compile_track, is_drum_lane, note_to_midi};
-use mp_music::track::{Part, Section, Track, lookup};
+use music::genres::{GENRES, chicha, country, genre, house, trance};
+use music::seq::{DRUM_LANES, Event, Seq, compile_track, is_drum_lane, note_to_midi};
+use music::track::{Part, Section, Track, lookup};
 
 fn pc_of(tok: &str) -> i32 {
     note_to_midi(tok.trim_end_matches('!')).expect("a note") as i32 % 12
@@ -422,7 +422,7 @@ fn chicha_the_cumbia_bass_the_guiros_stroke_a_pentatonic_lead_twin_guitars_and_t
         &mut R::new(3, 0),
         MotifOpts {
             bars: 2,
-            density: mp_music::compose::Density::Dense,
+            density: music::compose::Density::Dense,
             ..Default::default()
         },
     );

@@ -16,8 +16,9 @@ worktrees, `scripts/land.sh`, `status/`) override anything here. Paths below
 are relative to this folder unless they start at the repo root
 (`crates/engine/…`, `crates/music/…`). The GitHub repo and Pages are frozen
 at the move until the owner decides where rust-games is pushed. The music
-engine (`mp_music`) moved to `crates/music/`, its goldens to
-`crates/music/tests/golden/`.
+engine (package `music`, once `mp_music`) moved to `crates/music/`, its
+goldens to `crates/music/tests/golden/`; this game's radio stations are
+`crates/mp_audio/stations.json`.
 
 Two games live in this folder:
 

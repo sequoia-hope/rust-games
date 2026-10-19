@@ -2,8 +2,8 @@
 //! entry, hashed, is the lab's (`node tools/music-lab/test/dump-tables.mjs`
 //! prints it).
 
-use mp_music::json::{Val, canon};
-use mp_music::patches::{LAB_SHA256, all};
+use music::json::{Val, canon};
+use music::patches::{LAB_SHA256, all};
 use sha2::{Digest, Sha256};
 
 #[test]

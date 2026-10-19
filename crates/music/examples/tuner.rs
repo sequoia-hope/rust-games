@@ -1,10 +1,10 @@
 //! Renders the dial turning round the stations, to hear the tuner:
-//! `cargo run --release -p mp_music --example tuner -- out.wav [turns]`.
+//! `cargo run --release -p music --example tuner -- out.wav [turns]`.
 //! Each turn tunes the next station, plays it for three seconds, and
 //! goes on; every turn is drawn afresh, so no two should sound alike.
 
-use mp_music::player::Player;
-use mp_music::radio::{EPOCH, STATIONS, wall_parts};
+use music::player::Player;
+use music::radio::{EPOCH, Station, wall_parts};
 
 const SR: f64 = 48000.0;
 const BLOCK: usize = 128;
@@ -13,14 +13,16 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let out = args.next().unwrap_or_else(|| "tuner.wav".into());
     let turns: usize = args.next().and_then(|n| n.parse().ok()).unwrap_or(8);
-    let mut p = Player::new(1, SR);
+    let stations = Station::parse_list(include_str!("stations.json")).expect("stations");
+    let n_stations = stations.len();
+    let mut p = Player::new(1, SR, stations);
     let wall = EPOCH + 40.0 * 86400.0 + 3333.0;
     let (day, sec) = wall_parts(wall);
     let mut data = Vec::new();
     let (mut l, mut r) = (vec![0.0f32; BLOCK], vec![0.0f32; BLOCK]);
     let mut t = 0.0;
     for k in 0..turns {
-        let st = (k % STATIONS.len()) as f32;
+        let st = (k % n_stations) as f32;
         let n = (3.5 * SR) as usize / BLOCK;
         for _ in 0..n {
             p.set_params(st, day as f32, (sec + t) as f32, k as f32, 0.8);

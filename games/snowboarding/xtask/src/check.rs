@@ -29,7 +29,7 @@ use std::process::Command;
 
 /// This game's crates, as `-p` arguments: the workspace holds other games.
 const PACKAGES: &[&str] = &[
-    "-p", "sb_sim", "-p", "sb_radio", "-p", "sb_music", "-p", "sb_game", "-p", "sb_xtask",
+    "-p", "sb_sim", "-p", "sb_radio", "-p", "sb_game", "-p", "sb_xtask",
 ];
 
 pub fn run(args: &[String]) -> Result {
