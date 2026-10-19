@@ -636,6 +636,8 @@ pub struct Reverb {
     k: u32,
     mod_: [f64; 8],
     pub rt: f64,
+    /// Pre-delay in seconds (18 ms; a gated reverb wants none).
+    pub pre_s: f64,
     g: [f64; 8],
     sr: f64,
 }
@@ -666,6 +668,7 @@ impl Reverb {
             k: 0,
             mod_: len,
             rt: 0.0,
+            pre_s: 0.018,
             g: [0.0; 8],
             sr,
         };
@@ -687,7 +690,7 @@ impl Reverb {
     pub fn run(&mut self, in_l: f64, in_r: f64, out: &mut [f64; 2]) {
         let sr = self.sr;
         self.pre.write((in_l + in_r) * 0.5);
-        let mut x = self.pre.read(0.018 * sr);
+        let mut x = self.pre.read(self.pre_s * sr);
         x = self.in_hp.hp(self.in_lp.lp(x));
         let y = &mut self.y;
         let mut sum = 0.0;
@@ -711,6 +714,58 @@ impl Reverb {
         }
         out[0] += (y[0] - y[2] + y[4] - y[6]) * 0.6;
         out[1] += (y[1] - y[3] + y[5] - y[7]) * 0.6;
+    }
+}
+
+/// Gated reverb, the 80s snare (research/RULES.md G8 `gatedVerb`): a
+/// hall with no pre-delay, cut by a gate that each dry hit opens
+/// ([`GatedVerb::key`]); it holds open, then closes in a few ms, so the
+/// room is big and stops dead.
+#[derive(Clone, Debug)]
+pub struct GatedVerb {
+    rev: Reverb,
+    /// Samples the gate stays open after a hit.
+    hold: f64,
+    /// Samples since the last hit.
+    t: f64,
+    g: f64,
+    k_open: f64,
+    k_close: f64,
+}
+
+impl GatedVerb {
+    /// `rt60` in seconds (1.5–2.5), `hold` in seconds (0.3–0.5 for a
+    /// snare, shorter for the kick).
+    pub fn new(seed: u32, rt60: f64, hold: f64, sr: f64) -> GatedVerb {
+        let mut rev = Reverb::new(seed, sr);
+        rev.pre_s = 0.0;
+        rev.set(rt60, 0.6);
+        GatedVerb {
+            rev,
+            hold: hold * sr,
+            t: f64::INFINITY,
+            g: 0.0,
+            // Opens in about 1 ms; closes in about 10 ms (release < 20 ms).
+            k_open: 1.0 - (-1.0 / (0.0003 * sr)).exp(),
+            k_close: 1.0 - (-1.0 / (0.0025 * sr)).exp(),
+        }
+    }
+
+    /// A dry hit: opens the gate for `hold`.
+    pub fn key(&mut self) {
+        self.t = 0.0;
+    }
+
+    /// Adds into `out`.
+    pub fn run(&mut self, in_l: f64, in_r: f64, out: &mut [f64; 2]) {
+        let mut y = [0.0; 2];
+        self.rev.run(in_l, in_r, &mut y);
+        let open = self.t < self.hold;
+        self.t += 1.0;
+        self.g += ((if open { 1.0 } else { 0.0 }) - self.g)
+            * if open { self.k_open } else { self.k_close };
+        out[0] += y[0] * self.g;
+        out[1] += y[1] * self.g;
     }
 }
 
@@ -837,12 +892,17 @@ impl Limiter {
 
 /// Juno-style BBD chorus: two delay taps swept by one triangle LFO in
 /// opposite directions, wet only on the sides (mode I 0.51 Hz, II 0.86 Hz).
+/// Both modes sweep ±1.7 ms through a 9 kHz low-pass unless
+/// [`Chorus::model`] sets the measured ±0.5 ms (I), ±1.1 ms (II) and
+/// 15 kHz (research/sound-design.md §6).
 #[derive(Clone, Debug)]
 pub struct Chorus {
     d: Delay,
     ph: f64,
     rate: f64,
     depth: f64,
+    /// The sweep at depth 1, in seconds.
+    sweep: f64,
     lp: OnePole,
     /// Unset (false) until `set`, as the JS's `this.on` is undefined.
     pub on: bool,
@@ -856,6 +916,7 @@ impl Chorus {
             ph: 0.0,
             rate: 0.513,
             depth: 1.0,
+            sweep: 0.0017,
             lp: OnePole::new(9000.0, sr),
             on: false,
             sr,
@@ -874,6 +935,13 @@ impl Chorus {
         };
         self.depth = if mode == 3.0 { 0.25 } else { 1.0 };
         self.on = mode > 0.0;
+    }
+
+    /// The sweep (± ms at depth 1) and the low-pass before the delay (Hz);
+    /// `None` keeps the classic ±1.7 ms and 9 kHz.
+    pub fn model(&mut self, ms: Option<f64>, lp: Option<f64>) {
+        self.sweep = ms.map_or(0.0017, |ms| ms / 1000.0);
+        self.lp.set_hz(lp.unwrap_or(9000.0));
     }
 
     /// Adds into `out`. The JS default is `gain = 1`.
@@ -896,7 +964,7 @@ impl Chorus {
             3.0 - self.ph * 4.0
         };
         let base = 0.0035 * sr;
-        let sw = 0.0017 * sr * self.depth;
+        let sw = self.sweep * sr * self.depth;
         let a = self.d.read(base + sw * tri);
         let b = self.d.read(base - sw * tri);
         out[0] += (x * 0.7 + a * 0.7) * gain;

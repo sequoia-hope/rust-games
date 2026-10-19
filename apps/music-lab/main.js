@@ -199,7 +199,7 @@ function buildParts() {
   const tb = $('parts');
   tb.innerHTML = '<tr><th>Part</th><th>Plays</th><th>Instrument</th><th></th></tr>';
   const rows = Object.entries(cur.track.parts).map(([name, p]) => [name, p.type, `${p.lab.kind} · ${p.lab.name ?? ''}`]);
-  if (cur.song) for (const l of cur.song.layers) if (!l.lab) rows.push([l.name, l.role, l.sound]);
+  if (cur.song) for (const l of cur.song.layers) if (!l.lab) rows.push([l.name, l.role, l.sound + (l.gated ? ' · gated reverb' : '')]);
   rows.push(['drums', 'drums', cur.song ? 'every drum layer' : KIT_NAME[cur.kit] ?? cur.kit]);
   for (const [name, type, inst] of rows) {
     const tr = document.createElement('tr');

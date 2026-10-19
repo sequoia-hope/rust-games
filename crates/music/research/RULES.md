@@ -2057,9 +2057,10 @@ median in the research).
   Reverbs: hall ≥ 3 s for dreamwave; compress after delay and reverb; darksynth
   and Kavinsky: hard bus compression, light saturation or bit reduction;
   detune the whole track 0–35 cents flat with p = 0.1 (*Drive*'s "flat tape").
-  [synthwave#38][synthwave#39][synthwave#41][synthwave#50] Missing: gated
-  reverb, sax/guitar-like lead with bend, vocoder, CS-80-style aftertouch swell,
-  osc sync, Linn/DrumTraks sample character, whole-mix detune.
+  [synthwave#38][synthwave#39][synthwave#41][synthwave#50] Missing:
+  sax/guitar-like lead with bend, vocoder, CS-80-style aftertouch swell,
+  osc sync, a Linn/DrumTraks kit (the sample stage exists: `bits`),
+  whole-mix detune. (Gated reverb: done 2026-10-19.)
 - **arrangement** (instrumental/DJ form: drums only (kick + snare) first,
   hats at 9, bass at 17, one element in or out every 4 or 8 bars, FX sweep at
   each 8- or 16-bar boundary [synthwave#2][synthwave#11]; section order from
@@ -2580,7 +2581,7 @@ clip timeline itself (PLAN.md Phase 3's score model) is assumed.
 | # | Feature | Why | Profiles | Source |
 |---|---|---|---|---|
 | 9 | **Integrated-LUFS meter, per-genre loudness target, true-peak limiter** (the current limiter is a sample-peak ceiling at 0.95 ≈ −0.45 dBFS) | genre loudness spans −6 (dubstep) to −10.5 LUFS (deep/melodic); ≤ −1 dBTP | all | [sound-design#34][sound-design#35] |
-| 10 | **Gated reverb** (gate keyed by the dry hit, hold 0.3–0.5 s, release < 20–50 ms) | the 80s snare and tom; synthwave kick | P18, P19, P20 (and 80s revival anywhere) | [sound-design#33][synthwave#25][synthwave#26] |
+| 10 | **Gated reverb** (gate keyed by the dry hit, hold 0.3–0.5 s, release < 20–50 ms). *Done 2026-10-19:* `dsp::GatedVerb`, `Layer::gated`; not yet the compressor before it | the 80s snare and tom; synthwave kick | P18, P19, P20 (and 80s revival anywhere) | [sound-design#33][synthwave#25][synthwave#26] |
 | 11 | **Tape stage** (wow, flutter, saturation, high cut) and a **long tape echo** with filtered feedback (2.8–5.65 s, fb 0.7–0.9; RE-201-style 264 ms at 85 %) | lo-fi, BoC, downtempo, dub techno echoes, Eno's *Discreet Music* | P9, P21, P22, P23 | [ambient#5][ambient#14][ambient#29][techno#16] |
 | 12 | **Phaser, flanger, band-pass mode** in the poly chain; **stereo delay with a 1/16-offset copy** panned opposite | French house filter + phaser; dub chord BP ≈ 450 Hz; jungle filter-and-flange fills; Moroder's bass | P3, P9, P11, P20 | [house#3][techno#15][arrangement#20][synthwave#4][synthwave#8] |
 | 13 | Glue attack up to 30 ms; 4:1 ratio preset | punchier techno and big-room buses | P6, survey big room | [sound-design#31][sound-design#32] |
@@ -2589,11 +2590,11 @@ clip timeline itself (PLAN.md Phase 3's score model) is assumed.
 
 | # | Feature | Why | Profiles | Source |
 |---|---|---|---|---|
-| 14 | **Sample-character stage:** requantise to 6–12 bits at 22–35 kHz with no anti-alias, decay applied after the "DAC" | 909 hats/ride/crash are 6-bit samples (the engine's square-cluster hat sounds like an 808); TR-707/727, LM-1/LinnDrum; MPC60 12-bit (Detroit); SP-1200 6-bit/22 kHz (industrial); S950 grit (jungle); lo-fi 8-bit drop | P1, P5, P6, P8, P11, P18–P20, P23 | [sound-design#5][sound-design#6][sound-design#37]–[sound-design#40][techno#11][techno#13][dnb#48] |
+| 14 | **Sample-character stage:** requantise to 6–12 bits at 22–35 kHz with no anti-alias, decay applied after the "DAC". *Done 2026-10-19 for the metal and cymbal voices* (`bits`, `clock`, `dacLp`), quantised at the output rate: a 30 kHz hold inside 48 kHz folds images into the 2–6 kHz band, which the machine's analogue output never had | 909 hats/ride/crash are 6-bit samples (the engine's square-cluster hat sounds like an 808); TR-707/727, LM-1/LinnDrum; MPC60 12-bit (Detroit); SP-1200 6-bit/22 kHz (industrial); S950 grit (jungle); lo-fi 8-bit drop | P1, P5, P6, P8, P11, P18–P20, P23 | [sound-design#5][sound-design#6][sound-design#37]–[sound-design#40][techno#11][techno#13][dnb#48] |
 | 15 | **Tempo-synced LFO routable to cutoff, volume or drive**, with LFO delay and division switching; **sample & hold**; delayed vibrato/filter-LFO fade-in (the poly LFO reaches only PWM and vowel) | dubstep wobble; jump-up and neuro movement; future bass chords; psy "fractal" S&H; Nightcall's 5.29 Hz delayed LFO | P13, P15, P18, P24 | [sound-design#43][dnb#47][trance#23][synthwave#38] |
 | 16 | **Supersaw fixes:** mix law (centre linear, sides parabolic), HP tracking the fundamental, measured asymmetric spread, random phase per note | the trance lead and pads | P14, P16, survey big room | [sound-design#13][trance#5][trance#8] |
 | 17 | **TB-303 fixes:** 4-pole diode ladder with a 24 dB asymptote and soft knee (the engine header says 18 dB); ~10 Hz HP in the resonance loop; accent capacitor τ ≈ 150 ms charge / 100 ms discharge (the engine's ≈ 24 ms may be too fast and peaky); 4 ms gate delay + 3 ms attack; base cutoff topping out near 2.5 kHz | acid's "wow" and squelch | P8, P15 (Goa), P19, P20 | [sound-design#9][sound-design#10][sound-design#11][sound-design#41] |
-| 18 | **Juno fixes:** chorus I ±0.5 ms and II ±1.1 ms (the engine sweeps ±1.7 ms, ~3× too deep for I); offer Juno-60 I+II (1 Hz, 8 %) beside the Juno-6 (8 Hz, 25 %); the 4-position HPF (+10 dB < 150 Hz / flat / 240 Hz / 720 Hz); 15 kHz pre/post LPF | deep-house bass and pads, synthwave chorus "on everything" | P2, P5, P18, P22 | [sound-design#15][sound-design#44] |
+| 18 | **Juno fixes:** chorus I ±0.5 ms and II ±1.1 ms (the engine sweeps ±1.7 ms, ~3× too deep for I; *done 2026-10-19 as `chorusMs`, `chorusLp`, which the new generator sets*); offer Juno-60 I+II (1 Hz, 8 %) beside the Juno-6 (8 Hz, 25 %); the 4-position HPF (+10 dB < 150 Hz / flat / 240 Hz / 720 Hz); 15 kHz pre/post LPF | deep-house bass and pads, synthwave chorus "on everything" | P2, P5, P18, P22 | [sound-design#15][sound-design#44] |
 | 19 | **FM additions:** a fixed-frequency operator; check the EP preset uses the 14:1 tine pair; a bass algorithm (carrier 0.5, modulators 5.0 and 9.0, fast decays) | bells (3.5:1, 3.18:1), DX bass, the octave FM bass of eurobeat/Hi-NRG | P2, P12, P17, P18, P21, P23 | [sound-design#23][sound-design#24][trance#36] |
 | 20 | **Drum accuracy:** 808 kick's abrupt ×2 jump for 6 ms then a separate slow sag; 808 cymbal in three bands; 909 kick from a waveshaped saw with LP-noise + pulse click; 909 snare noise split into two paths | the two kits most profiles use | all 808/909 profiles | [sound-design#1]–[sound-design#4] |
 

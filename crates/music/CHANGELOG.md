@@ -6,6 +6,32 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Sound accuracy for synthwave and house (2026-10-19)
+
+Additions, all opt-in: with none of the new parameters set, every sound is
+bit-for-bit what it was (the golden renders pass unchanged), so the games'
+stations sound the same. From `research/RULES.md`, "What the engine
+lacks" #10, #14 and #18.
+
+- **Gated reverb:** `dsp::GatedVerb` (a hall with no pre-delay, cut a
+  hold after each keyed hit); `score::Gated` and `Layer::gated` give a
+  layer its own, keyed by its hits, in `SongPlayer`. `dsp::Reverb` has a
+  `pre_s` field (18 ms, as before).
+- **Sampled cymbals:** kit voices take `bits`, `clock` and `dacLp`: the
+  metal and cymbal voices requantised (the 909's and 707's 6-bit
+  cymbals), the envelope after the converter, then a low-pass the clock
+  also bounds.
+- **Juno chorus depth:** patches take `chorusMs` (the sweep, ± ms) and
+  `chorusLp` (Hz); `dsp::Chorus::model`. Unset, the chorus keeps its
+  ±1.7 ms and 9 kHz.
+- **The new generator** uses them: synthwave and outrun put the snare
+  wholly into a gated room and the kick a little into its own
+  (`Profile::gated`); 909 kits get sampled hats, ride and crash
+  (`profile::kit_tweak`); every chorus runs at the measured ±0.5 ms (I)
+  or ±1.1 ms (II) through 15 kHz.
+- Struct literals of `Layer`, `Profile` and `KitVoice` need the new
+  fields (`Layer::new` and `KitVoice::NONE` fill them).
+
 ### The new generator (2026-10-19)
 
 Additions only; the classic generator, the radio and the worklet's radio

@@ -125,6 +125,9 @@ pub struct Profile {
     pub tape: f64,
     pub glue: f64,
     pub reverb: f64,
+    /// Gated-reverb sends on the snare or clap layer and on the kick layer
+    /// (0: none; RULES.md G8 `gatedVerb`).
+    pub gated: (f64, f64),
     /// Short, sourced notes on why it sounds as it does.
     pub notes: &'static [&'static str],
 }
@@ -233,10 +236,10 @@ const SYNTH_TEMPLATE: &[(&str, &str)] = &[
 
 const SYNTH_NOTES: &[&str] = &[
     "Synthwave grew from 1980s film and TV scores (John Carpenter, Tangerine Dream, Vangelis, Jan Hammer) and Italo disco into a 2000s internet genre: Kavinsky, College, Lazerhawk, Perturbator [synthwave#1][synthwave#23].",
-    "The Juno-style poly with its chorus is the default voice on pads, arps and leads; tape saturation sits on drums, bass and synths [synthwave#29][synthwave#38][synthwave#47].",
+    "The Juno-style poly with its chorus is the default voice on pads, arps and leads, the chorus at the measured depth (±0.5 ms for I, ±1.1 ms for II); tape saturation sits on drums, bass and synths [synthwave#29][synthwave#38][synthwave#47][sound-design#44].",
     "The VI–VII ascent resolving to i is the family's cadence, one chord a bar over 4-bar loops [synthwave#23][synthwave#38].",
     "The arpeggio is the hook: eight notes a bar spelling the chord, as in Kavinsky's \"Nightcall\" [synthwave#38].",
-    "Drums are hard-quantised, with no swing [synthwave#3]; the gated-reverb snare is the 80s sound the engine still lacks (RULES.md, \"What the engine lacks\" #10).",
+    "Drums are hard-quantised, with no swing [synthwave#3]. The snare goes wholly into a gated reverb (a 2 s hall cut 0.45 s after each hit), the kick a little into one of its own, as the 80s records had [synthwave#3][synthwave#25][synthwave#26].",
 ];
 
 pub const SYNTHWAVE: Profile = Profile {
@@ -275,6 +278,8 @@ pub const SYNTHWAVE: Profile = Profile {
     tape: 0.4,
     glue: 0.5,
     reverb: 1.2,
+    // 100 % on the snare; 5–15 % on the kick [synthwave#3][synthwave#26].
+    gated: (1.0, 0.1),
     notes: SYNTH_NOTES,
 };
 
@@ -446,6 +451,7 @@ const HOUSE_NOTES: &[&str] = &[
     "Swing is the MPC's: 50 % straight, 54 % loose, 66 % a triplet feel; house sits at 55–60 % [house#11][house#12].",
     "Minor-seventh vamps of one to three chords carry the harmony, keeping the 7th in every voicing [house#15][house#48].",
     "Tracks are built for DJs: 16 or 32 bars of drums to mix in and out, layers entering every 8 or 16 bars [arrangement#13][arrangement#33].",
+    "The 909's hats, ride and crash are 6-bit samples of real cymbals, not the 808's square-wave cluster: the kit's metal voices are requantised to 6 bits, the envelope after the converter [sound-design#5][sound-design#6].",
 ];
 
 pub const CHICAGO: Profile = Profile {
@@ -479,6 +485,7 @@ pub const CHICAGO: Profile = Profile {
     tape: 0.25,
     glue: 0.55,
     reverb: 0.9,
+    gated: (0.0, 0.0),
     notes: HOUSE_NOTES,
 };
 
@@ -505,6 +512,33 @@ pub const DEEP: Profile = Profile {
     reverb: 1.3,
     ..CHICAGO
 };
+
+/// What the generator changes in a kit, per lane, as the research has it:
+/// the 909's hats, ride and crash are 6-bit samples read at about 30 kHz,
+/// with a low-pass after the VCA, and a denser source than the 808's six
+/// squares (sound-design.md §1.2, §6) [sound-design#5][sound-design#6].
+pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
+    match kit {
+        "tr909" => ["hat", "ohat", "ride", "crash"]
+            .iter()
+            .map(|lane| {
+                (
+                    (*lane).to_owned(),
+                    [
+                        ("bits", 6.0),
+                        ("clock", 30000.0),
+                        ("dacLp", 12000.0),
+                        ("noise", 0.6),
+                    ]
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), *v))
+                    .collect(),
+                )
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
 
 /// The new generator's genres, in the lab's order.
 pub const PROFILES: &[Profile] = &[SYNTHWAVE, OUTRUN, CHICAGO, DEEP];
