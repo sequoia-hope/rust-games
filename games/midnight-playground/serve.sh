@@ -24,9 +24,16 @@ tailscale serve --bg --set-path /midnight-playground "http://127.0.0.1:$PORT" >/
 # plus the multiplayer lobby and races over a WebSocket at …/ws (roadmap
 # WP 10.5). Built on demand; the Python server stays the default until it
 # has been lived with.
+# Cargo's build directory: the rust-games workspace's target/ (or
+# $CARGO_TARGET_DIR), not this folder's.
+target_dir() {
+  cargo metadata --no-deps --format-version 1 \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])'
+}
+
 if [ "${MP_HOST:-}" = 1 ]; then
   cargo build --release -q -p mp_host
-  exec target/release/mp-host --port "$PORT" --bind 0.0.0.0
+  exec "$(target_dir)/release/mp-host" --port "$PORT" --bind 0.0.0.0
 fi
 
 # tools/serve.py is http.server with cache headers, so phones never mix old

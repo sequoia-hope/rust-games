@@ -31,5 +31,12 @@ sys.exit("signal.sh: no web_extra entry named \"signal\" for this directory in t
 PY
 )}}"
 
+# Cargo's build directory: the rust-games workspace's target/ (or
+# $CARGO_TARGET_DIR), not this folder's.
+target_dir() {
+  cargo metadata --no-deps --format-version 1 \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])'
+}
+
 cargo build --release -q -p mp_host
-exec target/release/mp-signal --port "$SIGNAL_PORT" --bind 127.0.0.1
+exec "$(target_dir)/release/mp-signal" --port "$SIGNAL_PORT" --bind 127.0.0.1
