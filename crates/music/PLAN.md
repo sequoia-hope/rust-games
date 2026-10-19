@@ -218,6 +218,9 @@ refactor does, since they touch different files.
   expectation model, and the first profiles (the owner's picks: synthwave,
   outrun, Chicago house, deep house), playable in the lab with the layer
   viewer and notes.
+- **2026-10-19, sound accuracy for the first genres:** gated reverb,
+  sampled 909 cymbals, the Juno chorus at its measured depth (RULES.md
+  engine gaps #10, #14, #18), opt-in so the classic sound is unchanged.
 
 ## The owner's answers (2026-10-19)
 

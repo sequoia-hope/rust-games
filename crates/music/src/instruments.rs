@@ -7,7 +7,8 @@
 //!          slide (no retrigger, fixed-time portamento).
 //!   juno   a Juno-style polysynth: DCO saw + PWM pulse + square sub + noise
 //!          per voice, a high-pass, a saturating 4-pole ladder, ADSRs, then
-//!          the BBD chorus (I, II, I+II) on the whole instrument. `unison`
+//!          the BBD chorus (I, II, I+II; `chorusMs` and `chorusLp` set
+//!          the measured sweep and low-pass) on the whole instrument. `unison`
 //!          up to 7 detuned oscillators per voice (the JP-8000 supersaw,
 //!          with its spread: the outer pairs further apart than the inner),
 //!          and `vowel` a formant bank after the voices (a choir).
@@ -1429,6 +1430,7 @@ impl Poly {
             .collect();
         let mut ch = Chorus::new(sr);
         ch.set(patch.chorus.unwrap_or(0.0));
+        ch.model(patch.chorus_ms, patch.chorus_lp);
         Poly {
             p: patch,
             kind: k,
@@ -1447,6 +1449,7 @@ impl Poly {
 
     pub fn set_patch(&mut self, p: Lab) {
         self.ch.set(p.chorus.unwrap_or(0.0));
+        self.ch.model(p.chorus_ms, p.chorus_lp);
         self.p = p;
     }
 
@@ -1770,7 +1773,7 @@ kit_nums! {
     nhp: "nhp", nlp: "nlp", bp: "bp", tail: "tail", bursts: "bursts", spacing: "spacing",
     q: "q", hp: "hp", noise: "noise", bp2: "bp2", decay2: "decay2", f1: "f1", f2: "f2",
     attack: "attack", pan: "pan", gate: "gate", len: "len", rate0: "rate0", rate1: "rate1",
-    slap: "slap",
+    slap: "slap", bits: "bits", clock: "clock", dac_lp: "dacLp",
 }
 
 /// The tweak keys that replace the base value instead of scaling it.
@@ -1837,6 +1840,8 @@ pub struct Hit {
     /// The güiro's scalar `this.ph`.
     ph1: f64,
     ex: i64,
+    /// The sample stage's low-pass after the VCA (`bits`).
+    dac: Svf,
     sr: f64,
 }
 
@@ -1883,6 +1888,7 @@ impl Hit {
             nbp: Svf::new(),
             ph1: 0.0,
             ex: 0,
+            dac: Svf::new(),
             sr,
         };
         h.amp.hit(1.0);
@@ -1918,6 +1924,13 @@ impl Hit {
                 }
                 if truthy(k.attack) {
                     h.att = 0.0;
+                }
+                if truthy(k.bits) {
+                    let hz = k
+                        .dac_lp
+                        .unwrap_or(12000.0)
+                        .min(k.clock.unwrap_or(30000.0) * rate * 0.5);
+                    h.dac = Svf::with(hz.min(sr * 0.45), 0.7, sr);
                 }
             }
             HitType::Rim => {
@@ -2060,7 +2073,26 @@ impl Hit {
                     e *= self.att;
                 }
                 self.bp.run(s);
-                if self.ty == HitType::Cowbell {
+                if let Some(bits) = tru(k.bits) {
+                    // A sampled cymbal (the 909's, the 707's): the source
+                    // stands for the recording, stored at `bits`; the VCA
+                    // comes after the DAC, then a low-pass, which the
+                    // playback `clock` (Hz) also bounds (sound-design.md
+                    // §1.2). The quantising runs at the output rate: a
+                    // 30 kHz hold inside 48 kHz would fold its images down
+                    // to a few kHz, which the machine's analogue output
+                    // never did.
+                    self.hp.run(self.bp.bp);
+                    // The recording filled the converter's range: about 3×
+                    // the synthesised level.
+                    let steps = 2f64.powf(bits - 1.0);
+                    let q = |x: f64| ((x * 3.0).clamp(-1.0, 1.0) * steps).round() / steps / 3.0;
+                    y = q(self.hp.hp * 2.5) * e;
+                    if self.ty == HitType::Cymbal {
+                        y += q(self.lo.run(s) * 0.6) * self.amp2.run();
+                    }
+                    y = self.dac.run(y);
+                } else if self.ty == HitType::Cowbell {
                     y = self.bp.bp * e * 3.0;
                 } else {
                     self.hp.run(self.bp.bp);

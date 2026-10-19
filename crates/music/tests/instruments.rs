@@ -9,7 +9,7 @@
 // The lab's index loops stay index loops, as in the crate.
 #![allow(clippy::needless_range_loop)]
 
-use music::dsp::{Adsr, Ladder, Osc, Rng};
+use music::dsp::{Adsr, Chorus, GatedVerb, Ladder, Osc, Reverb, Rng};
 use music::instruments::{Drums, Instrument, TriggerOpt, kit_voice, make_instrument};
 use music::js_round;
 use music::kits::{KITS, kit};
@@ -194,6 +194,72 @@ fn adsr_attacks_sustains_and_releases_to_silence() {
         e.run();
     }
     assert!(e.done());
+}
+
+#[test]
+fn the_gated_reverb_rings_while_the_gate_holds_then_stops_dead() {
+    // A snare-like burst into a 2 s hall, gated 0.45 s after the hit
+    // (RULES.md G8 `gatedVerb`); the same hall ungated rings on.
+    let mut g = GatedVerb::new(5, 2.0, 0.45, RATE);
+    let mut r = Reverb::new(5, RATE);
+    r.pre_s = 0.0;
+    r.set(2.0, 0.6);
+    let mut noise = Rng::new(1);
+    let (mut gated, mut open) = (vec![0f32; at(1.0)], vec![0f32; at(1.0)]);
+    g.key();
+    for i in 0..gated.len() {
+        let x = if i < at(0.08) {
+            (noise.next() * 2.0 - 1.0) * (1.0 - i as f64 / at(0.08) as f64)
+        } else {
+            0.0
+        };
+        let (mut a, mut b) = ([0.0; 2], [0.0; 2]);
+        g.run(x, x, &mut a);
+        r.run(x, x, &mut b);
+        gated[i] = a[0] as f32;
+        open[i] = b[0] as f32;
+    }
+    let during = rms(&gated[at(0.2)..at(0.4)]);
+    assert!(
+        during > 0.01,
+        "the room is heard while the gate holds: {during}"
+    );
+    assert!(
+        (during / rms(&open[at(0.2)..at(0.4)]) - 1.0).abs() < 0.01,
+        "open, the gate passes the hall untouched"
+    );
+    let after = rms(&gated[at(0.5)..at(0.8)]);
+    let ungated = rms(&open[at(0.5)..at(0.8)]);
+    assert!(
+        after < ungated * 1e-3,
+        "closed within 50 ms: {after} against {ungated} ungated"
+    );
+}
+
+#[test]
+fn the_measured_juno_chorus_sweeps_less_than_the_classic_one() {
+    // ±0.5 ms for chorus I against the classic ±1.7 ms (sound-design.md
+    // §6): the two taps part less, so a low tone differs less between
+    // the sides.
+    let side = |ms: Option<f64>| {
+        let mut c = Chorus::new(RATE);
+        c.set(1.0);
+        c.model(ms, None);
+        let mut s = 0.0;
+        for i in 0..at(2.0) {
+            let x = (i as f64 * 2.0 * std::f64::consts::PI * 100.0 / RATE).sin();
+            let mut o = [0.0; 2];
+            c.run(x, &mut o, 1.0);
+            s += (o[0] - o[1]).powi(2);
+        }
+        s
+    };
+    let classic = side(None);
+    let measured = side(Some(0.5));
+    assert!(
+        measured < classic * 0.5,
+        "{measured} against {classic}: a shallower sweep"
+    );
 }
 
 #[test]
@@ -514,4 +580,41 @@ fn an_instrument_reads_its_patch_live() {
     inst.set_patch(bpatch("superPad").unwrap());
     assert!(matches!(inst, Instrument::Tb303(_)));
     assert_eq!(inst.lab().kind, "juno");
+}
+
+#[test]
+fn sampled_cymbals_keep_their_level_add_grit_and_still_decay() {
+    // The 909's hats and cymbals are 6-bit samples (sound-design.md §1.2):
+    // `bits` requantises the metal voice, the VCA after the converter.
+    let render = |k: &music::instruments::KitVoice, lane: &str| {
+        let mut d = Drums::new(3, RATE);
+        let h = d.hit(lane, k, 1.0, 1.0, 0);
+        let mut x = vec![0f32; at(5.0)];
+        for v in x.iter_mut() {
+            let mut y = 0.0;
+            d.run(|_, s| y += s);
+            *v = y as f32;
+        }
+        (x, d.hits()[h].done)
+    };
+    for lane in ["hat", "ohat", "ride", "crash"] {
+        let base = kit_voice("tr909", lane, None).expect("a lane");
+        let mut s = base;
+        s.set("bits", 6.0);
+        s.set("clock", 30000.0);
+        s.set("noise", 0.6);
+        let (a, _) = render(&base, lane);
+        let (b, done) = render(&s, lane);
+        assert!(finite(&b) && done, "{lane} ends");
+        let db = 20.0 * (rms(&b[..4800]) / rms(&a[..4800])).log10();
+        assert!(
+            db.abs() < 4.0,
+            "{lane}: {db:.1} dB from the synthesised one"
+        );
+        let grit = |x: &[f32]| band_power(x, 2000.0, 6000.0) / band_power(x, 6000.0, 20000.0);
+        assert!(
+            grit(&b[..4800]) > grit(&a[..4800]),
+            "{lane}: the quantising adds broadband grit"
+        );
+    }
 }

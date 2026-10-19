@@ -4,10 +4,12 @@
 //! lacks"): a sidechain depth per layer, keyed by the layers that key it
 //! (#6); automation of any patch parameter, a layer's level and filters,
 //! and the music bus's filters (#2); notes at fractional 16ths with their
-//! own velocity (#1, #3); swing per layer.
+//! own velocity (#1, #3); swing per layer; a gated reverb per layer,
+//! keyed by its own hits (#10).
 //!
 //! ```text
 //!   layer: instrument or drum machine ─ channel ─ [hp, lp] ─ × level × energy × pump ─┐
+//!          ├ its gated reverb ───────────────────────────────────────────────────────┤
 //!          └ reverb and delay sends                                                  ├─ bus hp/lp ─┐
 //!   delay return ────────────────────────────────────────────────────────────────────┘             │
 //!   risers, downlifters, reverb return ────────────────────────────────────────────────────────────┤
@@ -17,7 +19,7 @@
 //! Every note is laid out in samples when the song is set (no allocation
 //! while it plays), in time order; playing walks that list.
 
-use crate::dsp::{Compressor, Limiter, PingPong, Reverb, Rng, Svf, Tape};
+use crate::dsp::{Compressor, GatedVerb, Limiter, PingPong, Reverb, Rng, Svf, Tape};
 use crate::engine::{Channel, DRUM_LEVEL, EngineEvent, Mix, Position, Sweep, lane_rev};
 use crate::instruments::{Drums, Instrument, KitVoice, TriggerOpt, kit_voice, make_instrument};
 use crate::score::{Automation, Fx, Song, Sound};
@@ -58,7 +60,12 @@ struct LayerState {
     /// The energy gate's gain, eased.
     gate: f64,
     muted: bool,
+    gverb: Option<GatedVerb>,
 }
+
+/// The gated reverbs' return level: the room about as loud as the dry hit
+/// while the gate holds, as on the records.
+const GATED_RETURN: f64 = 1.5;
 
 /// Plays one song.
 pub struct SongPlayer {
@@ -202,6 +209,14 @@ impl SongPlayer {
                         0.0
                     },
                     muted: false,
+                    gverb: l.gated.map(|g| {
+                        GatedVerb::new(
+                            to_u32(self.seed as f64 + 17.0 + i as f64),
+                            g.rt60,
+                            g.hold,
+                            sr,
+                        )
+                    }),
                 }
             })
             .collect();
@@ -374,6 +389,11 @@ impl SongPlayer {
                 }
             }
         }
+        if e.vel > 0.3
+            && let Some(g) = &mut st.gverb
+        {
+            g.key();
+        }
         if layer.keys_pump && e.vel > 0.3 {
             self.duck_t = 0;
             self.duck_on = true;
@@ -512,6 +532,7 @@ impl SongPlayer {
             let mut ml = 0.0;
             let mut mr = 0.0;
             let mut rv = [0.0f64; 2];
+            let mut gw = [0.0f64; 2];
             let mut dl = 0.0;
             let Some(song) = &self.song else {
                 l[i] = 0.0;
@@ -564,6 +585,9 @@ impl SongPlayer {
                 let (a, b) = (o[0] * g, o[1] * g);
                 ml += a;
                 mr += b;
+                if let (Some(gv), Some(gd)) = (&mut st.gverb, ly.gated) {
+                    gv.run(a * gd.send, b * gd.send, &mut gw);
+                }
                 rv[0] += a * st.ch.rev;
                 rv[1] += b * st.ch.rev;
                 dl += (a + b) * 0.5 * st.ch.dly;
@@ -571,8 +595,8 @@ impl SongPlayer {
             s[0] = 0.0;
             s[1] = 0.0;
             self.delay.run(dl, &mut s);
-            ml += s[0];
-            mr += s[1];
+            ml += s[0] + gw[0] * GATED_RETURN;
+            mr += s[1] + gw[1] * GATED_RETURN;
             if self.bus_hz.0 > 20.0 {
                 self.bus_hp[0].run(ml);
                 self.bus_hp[1].run(mr);
@@ -693,7 +717,7 @@ fn lay_out(song: &Song, sr: f64) -> Vec<Ev> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::score::{Layer, Mark, Note, Pattern, Role};
+    use crate::score::{Gated, Layer, Mark, Note, Pattern, Role};
 
     fn little_song() -> Song {
         let mut s = Song::new("test", 1, 120.0, 8);
@@ -814,6 +838,56 @@ mod tests {
         assert!(
             high > low * 10.0,
             "the bass drops out at low energy: {low} vs {high}"
+        );
+    }
+
+    #[test]
+    fn a_gated_snare_rings_then_stops_with_the_gate() {
+        // One snare a bar (2 s at 120 BPM) into its own gated room.
+        let song = |gated: Option<Gated>| {
+            let mut s = Song::new("test", 1, 120.0, 2);
+            let mut c = Layer::new(
+                "clap",
+                Role::Clap,
+                Sound::Drums {
+                    kit: "tr909".into(),
+                    tweak: Vec::new(),
+                },
+            );
+            c.gated = gated;
+            let p = c.pattern(Pattern {
+                name: "1".into(),
+                len: 16.0,
+                notes: vec![Note::hit(0.0, "snare", 1.0)],
+            });
+            c.clip(0, 2, p, Mark::Core);
+            s.layers = vec![c];
+            s
+        };
+        let windows = |gated| {
+            let mut p = SongPlayer::new(5, 48000.0);
+            p.set_song(song(gated));
+            p.play(0, 0.0);
+            // The dry hit, then the hold after it, then the gate shut.
+            rms(&mut p, 0.15);
+            let held = rms(&mut p, 0.25);
+            rms(&mut p, 0.1);
+            let late = rms(&mut p, 1.0);
+            (held, late)
+        };
+        let (dry_early, dry_late) = windows(None);
+        let (wet_early, wet_late) = windows(Some(Gated {
+            send: 1.0,
+            hold: 0.45,
+            rt60: 2.0,
+        }));
+        assert!(
+            wet_early > dry_early * 3.0,
+            "the room while the gate holds: {wet_early} against {dry_early} dry"
+        );
+        assert!(
+            (wet_late / dry_late - 1.0).abs() < 0.02,
+            "after it, only the dry snare's own reverb: {wet_late} against {dry_late}"
         );
     }
 }

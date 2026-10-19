@@ -246,6 +246,8 @@ pub struct Layer {
     pub swing: Option<f64>,
     /// Whether its hits key the sidechain (the kick).
     pub keys_pump: bool,
+    /// Its own gated reverb, keyed by its hits.
+    pub gated: Option<Gated>,
     pub patterns: Vec<Pattern>,
     pub clips: Vec<Clip>,
     pub autos: Vec<Automation>,
@@ -262,6 +264,7 @@ impl Layer {
             min_energy: 0.0,
             swing: None,
             keys_pump: false,
+            gated: None,
             patterns: Vec::new(),
             clips: Vec::new(),
             autos: Vec::new(),
@@ -284,6 +287,20 @@ impl Layer {
             gain: 1.0,
         });
     }
+}
+
+/// A gated reverb on one layer (RULES.md G8 `gatedVerb`): a hall the
+/// layer sends to, cut off `hold` seconds after each of its hits. One per
+/// drum, as the records had: a long hold on the snare, a short one and a
+/// little send on the kick [synthwave#3][synthwave#25][synthwave#26].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Gated {
+    /// The send, 0..1 (1: the whole dry signal).
+    pub send: f64,
+    /// Seconds the gate holds open after a hit (0.3–0.5).
+    pub hold: f64,
+    /// The hall's decay time, seconds (1.5–2.5).
+    pub rt60: f64,
 }
 
 /// A transition sound that is not a note (G4).
@@ -397,6 +414,16 @@ impl Song {
                     ),
                     ("pump", Val::num(l.pump)),
                     ("minEnergy", Val::num(l.min_energy)),
+                    (
+                        "gated",
+                        l.gated.map(|g| {
+                            Val::obj(vec![
+                                ("send", Val::num(g.send)),
+                                ("hold", Val::num(g.hold)),
+                                ("rt60", Val::num(g.rt60)),
+                            ])
+                        }),
+                    ),
                     (
                         "clips",
                         Some(Val::Arr(

@@ -19,7 +19,9 @@ pub mod surprise;
 pub mod theory;
 
 use crate::patches::bpatch;
-use crate::score::{Automation, Clip, Curve, Fx, Layer, Mark, Pattern, Role, Section, Song, Sound};
+use crate::score::{
+    Automation, Clip, Curve, Fx, Gated, Layer, Mark, Pattern, Role, Section, Song, Sound,
+};
 use crate::track::Ch;
 use parts::Dice;
 use profile::{PROFILES, Profile};
@@ -243,7 +245,7 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     let mut dd = dice.fork("drums");
     let kit = |kit: &str| Sound::Drums {
         kit: kit.to_owned(),
-        tweak: Vec::new(),
+        tweak: profile::kit_tweak(kit),
     };
     for (rk, cells) in p.template {
         let Some((role, min_energy, pumped)) = role_of(rk) else {
@@ -260,7 +262,19 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                     _ => p.lead_sounds,
                 };
                 let name = *dice.fork(&format!("sound {rk}")).pick(sounds);
-                let Some(lab) = bpatch(name) else { continue };
+                let Some(mut lab) = bpatch(name) else {
+                    continue;
+                };
+                // The Juno chorus at its measured depth: ±0.5 ms (I),
+                // ±1.1 ms (II), through 15 kHz (sound-design.md §6).
+                match lab.chorus {
+                    Some(1.0) => lab.chorus_ms = Some(0.5),
+                    Some(2.0) => lab.chorus_ms = Some(1.1),
+                    _ => {}
+                }
+                if lab.chorus.is_some_and(|c| c > 0.0) {
+                    lab.chorus_lp = Some(15000.0);
+                }
                 Layer::new(
                     match *rk {
                         "B" => "bass",
@@ -312,6 +326,20 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         };
         if *rk == "K" {
             layer.keys_pump = true;
+        }
+        let gated = |send: f64, hold: f64| {
+            (send > 0.0).then_some(Gated {
+                send,
+                hold,
+                rt60: 2.0,
+            })
+        };
+        match *rk {
+            // A long hold on the snare, a short one on the kick: under the
+            // next beat [synthwave#26].
+            "C" => layer.gated = gated(p.gated.0, 0.45),
+            "K" => layer.gated = gated(p.gated.1, 0.25),
+            _ => {}
         }
 
         // The layer's patterns.
