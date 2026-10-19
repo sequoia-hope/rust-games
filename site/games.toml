@@ -1,0 +1,20 @@
+# What the public site, https://sequoia-hope.github.io/rust-games/, serves,
+# in the order its front page lists it: the games, and later anything else
+# with a page of its own (a music player, say). `path` is the folder, which
+# has a `pages.sh` that builds it and writes its part of the site into the
+# folder it is given; the site serves that at /rust-games/<name>/.
+# `.github/workflows/pages.yml` builds each entry on a runner of its own and
+# `scripts/pages.py` writes the front page from this list. Adding something
+# to the site is a `pages.sh` and an entry here.
+
+[[game]]
+name = "midnight-playground"
+path = "games/midnight-playground"
+title = "Midnight Playground"
+blurb = "A street racer: sprints from mountain switchbacks to neon downtown, an endless night-city cruise, rivals, traffic and Hot Pursuit police."
+
+[[game]]
+name = "snowboarding"
+path = "games/snowboarding"
+title = "Snowboarding"
+blurb = "Race a CPU rider down the mountain, or ride alone against the clock or for trick points. Carve, ollie, spin, flip and grab, but land it."

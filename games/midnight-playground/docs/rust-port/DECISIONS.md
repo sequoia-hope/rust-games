@@ -11644,3 +11644,24 @@ configuration:
   pixel-identical on the four levels, `web-console.mjs` on both backends,
   the native smoke test, and the e2e suites that touch what moved; the
   results are in the carve's report.
+
+## D1235 (2026-10-19): published on rust-games' site
+
+The game moved into the rust-games monorepo (2026-10-18), whose GitHub
+Pages site, https://sequoia-hope.github.io/rust-games/, lists its games
+(`site/games.toml`) and serves each under its folder. This game is at
+`/rust-games/midnight-playground/`, laid out by `pages.sh` exactly as the
+old site's root was (D1112): the Rust build, the tools beside it, the JS
+game under `legacy/`. The `dist/next/` forward is dropped, since no link
+ever pointed into the new site. The root `.github/workflows/pages.yml`
+replaces this folder's, which GitHub never ran from a subfolder.
+
+- **Links.** `link::PAGES` (a native host's invitations), `mp_host`'s
+  `PAGES` (the link `--room` prints) and the link-preview tags (both
+  pages, through `tools/parity/gen-index.py`) name the new address.
+- **The old site** at https://sequoia-hope.github.io/midnight-playground/
+  stays up, frozen with the old repository; it was rebuilt once more
+  after the history rewrite (`docs/history-rewrite.md` at the root).
+- **Signalling.** The repository variable `MP_SIGNAL_URL` on rust-games
+  builds in the relay (D1124), the Cloudflare Worker (D1222), which
+  accepts pages from the owner's Pages origin only.
