@@ -2,7 +2,7 @@
 
 ## Current state
 
-- `main` is clean and pushed (`75679ca`, "Run the tests under nextest").
+- `main` is clean and pushed (`2ff90be`, "Run the tests under nextest").
   CI and Pages are green on it. Pages serves the Rust game at
   https://sequoia-hope.github.io/midnight-playground/ with the JS game
   under `legacy/`.

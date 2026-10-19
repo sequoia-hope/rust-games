@@ -3462,7 +3462,7 @@ sets them from the sky's frame each frame, as it does its own fog.
 `beach/atlas.js` is `beach::atlas`, `beach/parts.js` is `beach::parts`;
 `beach/ColorBuilder.js` stayed `color_builder` (WP 3.3). Desert uses the
 atlas and three of the parts; they landed first, in a commit of their own
-(7e1ecda), so WP 7.3 could take them. A parts function's options object
+(2971c9e), so WP 7.3 could take them. A parts function's options object
 whose defaults draw from the stream (`twoStory = rng() < 0.4`, `wall =
 rpick(rng, WALLS)`, `w = rrange(rng, 9, 13)`, ...) is a struct of
 `Option`s drawn in the JS destructuring order when `None`; a value drawn
@@ -3883,7 +3883,7 @@ Gate, the web build at 1280 × 800 through the registered server
 interception limit): 67 stations, 3 over the limits (13 before), median
 0.26 / 0.62. The three are the beach at sunrise from the chase camera
 (04000, 04250, 04500: worst 5.1 / 30.2). They predate WP 3.9's client: a
-web build of 1bb2dd6 gives the same three numbers (5.16 / 30.216, 3.975 /
+web build of a83f6c1 gives the same three numbers (5.16 / 30.216, 3.975 /
 23.59, 2.717 / 22.243). The difference map shows the cause: the beach
 road's lamp pools (`Beach.js`, additive) are lit in the client and dark in
 the JS. Their `opacity` is `0.42 × smoothstep(0.08, 0.5, night)`, set by
@@ -4994,7 +4994,7 @@ level's whole export behind the loading screen, as the JS rebuilds the
 world, and on a phone Coast is 210 MB; the menu could show each level's
 download size on its tab or card, or a tab could only select and Race
 load. Raised with the owner; until they answer, a tab loads its level, as
-in the JS. Merged with main at a60cb88 (race audio, world build): main measures
+in the JS. Merged with main at daf4da3 (race audio, world build): main measures
 WebGPU 10.00 and WebGL2 10.48 MB gzip, already over the budget, and the
 screens bring them to 10.14 and 10.61 MB (+0.14, +0.13). Raised, not
 decided here.
@@ -5118,7 +5118,7 @@ version's `default_plugins.rs`.
 ## D673. The web-release profile and wasm-opt stay as they are
 
 2026-10-04. D4 left `wasm-opt -Oz` against `-O3` to be measured once
-there were frames. Measured on a60cb88 with D670 to D672 (`BASELINE.md`,
+there were frames. Measured on daf4da3 with D670 to D672 (`BASELINE.md`,
 "Wasm size: where the bytes go"): `-O3` and `-O4` are 0.14 to 0.18 MB
 larger after gzip and no faster on any of the four flights (Sierra and
 Seaside, WebGPU and WebGL2); `-Oz --converge` saves 4 to 5 KB for six
@@ -5189,7 +5189,7 @@ details and frame times in `BASELINE.md`.
 2026-10-04, the owner's answer to D674's first option ("opt s sounds
 fine but i also dont care if we raise it. seems tight if we do bigger
 levels"). The web-release profile takes `opt-level = "s"`; native release
-builds keep `opt-level = 3`. Measured on b68d5ad with the change, gzip -9:
+builds keep `opt-level = 3`. Measured on 92579be with the change, gzip -9:
 WebGPU 9.29 → 8.09 MB, WebGL2 9.76 → 8.47 MB (raw 24.36 and 25.30 MB). The
 costs are D674's: Sierra ready 0.5 to 0.6 s later, median frames 0.1 to
 0.2 ms longer where they are CPU-bound, pictures identical.
@@ -5593,7 +5593,7 @@ happens on Coast's flights or race.
   0.504, worst 0.748 / 2.747 (07000-high). The build's canvas textures are
   `mp_canvas`'s, hence the small difference.
 - The three sunrise stations that waited for the lamp-pool updater (D499,
-  commit 46b2e64): 04000-chase 5.16 / 30.22 → 0.554 / 0.723, 04250-chase
+  commit 776185a): 04000-chase 5.16 / 30.22 → 0.554 / 0.723, 04250-chase
   3.98 / 23.59 → 0.303 / 0.597, 04500-chase 2.72 / 22.24 → 0.247 / 0.470
   (`?world=gen`; the export path 0.538 / 0.726, 0.287 / 0.595, 0.229 /
   0.445).
@@ -6004,7 +6004,7 @@ so behind the menu no tile job holds a frame long.
 (1280 × 800), `tools/parity/e2e/sections.test.mjs`; the machine shared
 (load averages given; other runs holding GPU memory).
 - **Wasm size**: 8.12 MB (WebGPU) and 8.50 MB (WebGL2) after gzip, +0.03
-  MB over b367862 (D675's 8.09 / 8.47).
+  MB over 26a9e28 (D675's 8.09 / 8.47).
 - **Time to the menu** (navigation to the menu up, every pipeline
   compiled): 4.59 and 4.65 s at load 1.8 to 8.5 (first frame 1.9 s, the
   Sierra section built in 1.3 s and spawned in 0.1 s); the JS game reaches
@@ -6062,7 +6062,7 @@ the JS's 3.2 s) or a worker (a second wasm instance and its memory). (3)
 The camera's 500 m run and the radii (D741) are a first choice; phone
 checks of the time to the menu and of memory are owed.
 
-## D747. With every level built in the client (main 01e660c)
+## D747. With every level built in the client (main e7c8897)
 
 2026-10-04, after merging main, where `animate::generated` names all six
 levels. D744's notes are done: `section_build` calls `new_build(level,
@@ -6096,7 +6096,7 @@ WebGL2 (`MP_BACKEND=webgl2`, new), as does `sections.test.mjs` on both.
 Wasm 8.42 MB (WebGPU) and 8.80 MB (WebGL2) after gzip with every level's
 world generation linked.
 
-With D678 merged (main 7bcdb89: the client builds every level by default),
+With D678 merged (main 9b7bcca: the client builds every level by default),
 Race from the menu builds the level in the client, nothing downloaded.
 The same suite then (load 45 to 49, so the times are long):
 
@@ -7995,7 +7995,7 @@ bar, the penalty under the clock, the critical damage bar, the
 cooldown toast and the dispatch pill, on desktop, a phone held sideways
 and upright: the same places, sizes and colours, but for D962's
 approximations (and the radio's text, whose event lines are WP 8.4's).
-With WP 8.4 merged (1995b38): 6 of 7 pass, dispatch included, and the
+With WP 8.4 merged (31cb403): 6 of 7 pass, dispatch included, and the
 wreck picture's dispatch line is the JS's ("Suspect vehicle is totalled.
 Tow it back onto the road."); the police chase waits only for WP 8.1's
 `PoliceDrawn`. The whole Rust run before the merge: as D908's table but
@@ -10290,7 +10290,7 @@ harness bug: `centerRust` (D1196) opened and closed Settings with a bare
 `__mp.stage`, past the bridge's count of what it sent, so `__mp.staged`
 ran ahead and every later eval returned before the frame that applied
 its own commands (the menu suite read the track picker's choice before it
-was stored). The switch now goes through the bridge (2562e56).
+was stored). The switch now goes through the bridge (188bb1e).
 
 Seven were the suites still expecting what the owner has since changed;
 they now expect the Rust game's behaviour on the Rust target, and the
@@ -11255,7 +11255,7 @@ a garage in Half Moon Bay).
   `free_port` in a test running beside listens for a moment on whatever
   port it is given, which can be one a server was told and has not bound
   yet; the poll met that and the test went on to a refused connection
-  (CI's only failure on beeb471, and about one run in three here). The
+  (CI's only failure on d4d31be, and about one run in three here). The
   tests now wait for the server's own "listening" line, and take another
   port if it couldn't bind (`tests/common`).
 
