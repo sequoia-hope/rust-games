@@ -9,8 +9,9 @@ follows a task into the shared crates, branches and worktrees,
 0.19 idiom, its `crates/mp_game` is the best reference, and so is
 `~/.cargo/registry/src/*/bevy_*-0.19.1`. The shared engine (Playground
 Kit) is `crates/engine/` at the repo root; adopting its `pk_shell`
-(`crates/engine/docs/handoff-snowboarding.md`) is open work. The radio is the shared music engine (`crates/music`)
-playing this game's station table, `crates/sb_game/stations.json`.
+(`crates/engine/docs/handoff-snowboarding.md`) is open work. The radio is
+the shared music engine (`crates/music`) playing this game's station
+table, `crates/sb_game/stations.json`.
 
 ## Principles
 

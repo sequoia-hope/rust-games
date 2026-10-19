@@ -43,6 +43,7 @@ pub mod genres;
 pub mod instruments;
 pub mod json;
 pub mod kits;
+pub mod lab;
 pub mod patches;
 pub mod player;
 pub mod radio;

@@ -36,6 +36,18 @@ impl OscSpec {
             ("pw", Val::onum(self.pw)),
         ])
     }
+
+    /// From the JSON [`OscSpec::to_val`] writes.
+    pub fn from_val(v: &Val) -> OscSpec {
+        let n = |k| v.get(k).and_then(Val::as_f64);
+        OscSpec {
+            w: v.get("w").and_then(Val::as_str).unwrap_or("saw").to_owned(),
+            det: n("det"),
+            oct: n("oct"),
+            lvl: n("lvl"),
+            pw: n("pw"),
+        }
+    }
 }
 
 /// An FM operator (`p.ops[i]`): `r` its ratio, `rel` its release (one key
@@ -69,6 +81,23 @@ impl Op {
             ("fix", Val::onum(self.fix)),
             ("rs", Val::onum(self.rs)),
         ])
+    }
+
+    /// From the JSON [`Op::to_val`] writes.
+    pub fn from_val(v: &Val) -> Op {
+        let n = |k| v.get(k).and_then(Val::as_f64);
+        Op {
+            r: n("r"),
+            rel: n("rel"),
+            l: n("l"),
+            a: n("a"),
+            d: n("d"),
+            s: n("s"),
+            v: n("v"),
+            det: n("det"),
+            fix: n("fix"),
+            rs: n("rs"),
+        }
     }
 }
 
@@ -132,6 +161,26 @@ macro_rules! lab_nums {
                 ];
                 $( pairs.push(($js, Val::onum(self.$field))); )*
                 Val::obj(pairs)
+            }
+
+            /// From the JSON [`Lab::to_val`] writes (the lab page's patch
+            /// edits); unknown keys are ignored.
+            pub fn from_val(v: &Val) -> Lab {
+                let s = |k| v.get(k).and_then(Val::as_str).map(str::to_owned);
+                Lab {
+                    kind: s("kind").unwrap_or_default(),
+                    name: s("name"),
+                    wave: s("wave"),
+                    algo: s("algo"),
+                    vowel: s("vowel"),
+                    osc: v.get("osc").and_then(Val::as_arr).map(|a| a.iter().map(OscSpec::from_val).collect()),
+                    ops: v.get("ops").and_then(Val::as_arr).map(|a| {
+                        a.iter()
+                            .map(|o| if matches!(o, Val::Null) { None } else { Some(Op::from_val(o)) })
+                            .collect()
+                    }),
+                    $( $field: v.get($js).and_then(Val::as_f64), )*
+                }
             }
         }
     };

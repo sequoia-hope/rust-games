@@ -18,3 +18,9 @@ name = "snowboarding"
 path = "games/snowboarding"
 title = "Snowboarding"
 blurb = "Race a CPU rider down the mountain, or ride alone against the clock or for trick points. Carve, ollie, spin, flip and grab, but land it."
+
+[[game]]
+name = "music-lab"
+path = "apps/music-lab"
+title = "Music Lab"
+blurb = "The games' music engine on its own: make a house, techno, trance or drum & bass track from a seed, then take it apart, part by part and knob by knob."

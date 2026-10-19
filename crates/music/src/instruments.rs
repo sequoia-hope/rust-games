@@ -1325,6 +1325,21 @@ impl Voice {
         }
     }
 
+    /// The lab keyboard's `noteOff`: a voice holding `midi` ends its note
+    /// on the next sample (`if (v.midi === midi && v.left > 1) v.left = 1`).
+    fn release(&mut self, midi: f64) {
+        let (m, left) = match self {
+            Voice::Juno(v) => (v.midi, &mut v.left),
+            Voice::Mono(v) => (v.midi, &mut v.left),
+            Voice::Fm(v) => (v.midi, &mut v.left),
+            Voice::Str(v) => (v.midi, &mut v.left),
+            Voice::Bowed(v) => (v.midi, &mut v.left),
+        };
+        if m == midi && *left > 1 {
+            *left = 1;
+        }
+    }
+
     fn set_age(&mut self, t: u64) {
         match self {
             Voice::Juno(v) => v.age = t,
@@ -2235,6 +2250,23 @@ impl Instrument {
         match self {
             Instrument::Tb303(i) => i.active(),
             Instrument::Poly(i) => i.active(),
+        }
+    }
+
+    /// Ends a held note early (the lab keyboard's key up): a poly's voices
+    /// on `midi`, or the 303's note whatever its pitch.
+    pub fn release(&mut self, midi: f64) {
+        match self {
+            Instrument::Tb303(i) => {
+                if i.left > 1 {
+                    i.left = 1;
+                }
+            }
+            Instrument::Poly(i) => {
+                for v in &mut i.voices {
+                    v.release(midi);
+                }
+            }
         }
     }
 
