@@ -6,6 +6,24 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### The lab on this engine (2026-10-19)
+
+Additions only.
+
+- **`lab`**: a [`lab::Session`] is an engine driven by the Music Lab page's
+  messages (JSON: track, play, stop, patch, kit, audition, on, off, hit,
+  energy, mix, mute, solo); `lab::generate(genre, seed, dejavu)` and
+  `lab::tables_json()` serve the page. The page is `apps/music-lab/`.
+- **`Engine`**: the lab keyboard and pads, which the port had left out:
+  `set_audition`, `note_on`, `note_off`, `hit`, and `set_kit_tweak`
+  (per-lane kit voice edits). A game that never calls them renders as
+  before.
+- `Instrument::release(midi)`; `Lab::from_val`, `OscSpec::from_val`,
+  `Op::from_val` (a patch from its JSON).
+- **Worklet ABI:** `music_tables`, `music_generate`, and the lab node's
+  `music_lab_new`, `music_lab_msg`, `music_lab_process`, `music_lab_poll`,
+  `music_lab_free`.
+
 ### Renamed `music`; stations come from the game (2026-10-19)
 
 Breaking, for every consumer; the first step of the redesign (`PLAN.md`).

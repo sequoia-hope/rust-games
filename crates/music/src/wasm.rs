@@ -189,3 +189,93 @@ pub extern "C" fn music_free(w: *mut Worklet) {
         drop(unsafe { Box::from_raw(w) });
     }
 }
+
+// ── The lab (`crate::lab`; the page is `apps/music-lab/`) ──────────────
+
+/// Takes back bytes from [`music_alloc`] as text.
+fn take_text(ptr: *mut u8, len: usize) -> Result<String, String> {
+    // SAFETY: `ptr` and `len` came from `music_alloc` and are freed once.
+    let bytes = unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(ptr, len)) };
+    String::from_utf8(bytes.into_vec()).map_err(|e| e.to_string())
+}
+
+/// The lab's tables as JSON ([`crate::lab::tables_json`]), at the returned
+/// address, [`music_text_len`] bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn music_tables() -> *const u8 {
+    give(crate::lab::tables_json())
+}
+
+/// A genre's track as JSON (`Track::to_val`; `"null"` for an unknown
+/// genre): the genre's key is the text at `ptr` (`len` bytes from
+/// [`music_alloc`], freed here); `dejavu` below zero is the grammar's
+/// default.
+#[unsafe(no_mangle)]
+pub extern "C" fn music_generate(ptr: *mut u8, len: usize, seed: u32, dejavu: f64) -> *const u8 {
+    let genre = take_text(ptr, len).unwrap_or_default();
+    let dejavu = (dejavu >= 0.0).then_some(dejavu);
+    match crate::lab::generate(&genre, seed, dejavu) {
+        Some(t) => give(t.canon()),
+        None => give("null".to_owned()),
+    }
+}
+
+pub struct LabNode {
+    session: crate::lab::Session,
+    buf: [f32; 2 * BLOCK],
+}
+
+/// A lab node's session at `sample_rate`.
+#[unsafe(no_mangle)]
+pub extern "C" fn music_lab_new(sample_rate: f64, seed: u32) -> *mut LabNode {
+    Box::into_raw(Box::new(LabNode {
+        session: crate::lab::Session::new(seed, sample_rate),
+        buf: [0.0; 2 * BLOCK],
+    }))
+}
+
+/// One message from the page, the JSON at `ptr` (`len` bytes from
+/// [`music_alloc`], freed here). Returns 0, or -1 with the error as the
+/// text ([`music_text`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn music_lab_msg(w: *mut LabNode, ptr: *mut u8, len: usize) -> i32 {
+    // SAFETY: `w` came from `music_lab_new` and has not been freed; the
+    // worklet calls these from one thread, one at a time.
+    let w = unsafe { &mut *w };
+    match take_text(ptr, len).and_then(|m| w.session.message(&m)) {
+        Ok(()) => 0,
+        Err(e) => {
+            give(e);
+            -1
+        }
+    }
+}
+
+/// Renders one block; returns the address of 2 × [`BLOCK`] `f32`s (left,
+/// then right).
+#[unsafe(no_mangle)]
+pub extern "C" fn music_lab_process(w: *mut LabNode) -> *const f32 {
+    // SAFETY: as above.
+    let w = unsafe { &mut *w };
+    let (l, r) = w.buf.split_at_mut(BLOCK);
+    w.session.process(l, r);
+    w.buf.as_ptr()
+}
+
+/// Where the song is, the glue's gain reduction and the events since the
+/// last call, as JSON ([`crate::lab::Session::poll`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn music_lab_poll(w: *mut LabNode) -> *const u8 {
+    // SAFETY: as above.
+    let w = unsafe { &mut *w };
+    give(w.session.poll())
+}
+
+/// Frees a node made by [`music_lab_new`].
+#[unsafe(no_mangle)]
+pub extern "C" fn music_lab_free(w: *mut LabNode) {
+    if !w.is_null() {
+        // SAFETY: `w` came from `music_lab_new` and is freed once.
+        drop(unsafe { Box::from_raw(w) });
+    }
+}
