@@ -7,10 +7,10 @@
 use mp_net::rtc::RtcStatus;
 use mp_net::signal::{JoinLink, query_escape};
 
-/// Where the game is published (the site root since the cutover, D1112),
+/// Where the game is published (on rust-games' site since D1235),
 /// for an invitation made natively
 /// (a native host has no page of its own to point at).
-pub const PAGES: &str = "https://sequoia-hope.github.io/midnight-playground/";
+pub const PAGES: &str = "https://sequoia-hope.github.io/rust-games/midnight-playground/";
 
 /// The signalling server built into this build (`MP_SIGNAL_URL` when it was
 /// compiled; Pages' workflow passes the repository variable), if any.
