@@ -148,7 +148,7 @@ Import order: kit, then Midnight Playground, then Snowboarding. After that, `git
 
 ## 5. The music crate
 
-The kickoff calls for minimal changes now and a redesign later by its own agent (`docs/music-engine-kickoff.md`, **which doesn't exist yet**: you'll provide it, or I can start a stub). Options:
+The kickoff calls for minimal changes now and a redesign later by its own agent (`docs/music-engine-kickoff.md`, **which didn't exist yet** (the owner added it on 2026-10-18): you'll provide it, or I can start a stub). Options:
 
 - **A. Move `mp_music` as is, and leave `sb_music` as a fork** (recommended for this reorg).
   - `crates/music` becomes package `music`.
