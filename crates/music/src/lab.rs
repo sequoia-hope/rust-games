@@ -6,7 +6,8 @@
 //!
 //! | `type` | fields | does |
 //! |---|---|---|
-//! | `track` | `genre`, `seed`, `dejavu?`, `kit?` | makes the genre's track and loads it (every part with its lab patch) |
+//! | `track` | `genre`, `seed`, `dejavu?`, `kit?` | makes a classic genre's track and loads it (every part with its lab patch) |
+//! | `song` | `genre`, `seed`, `bpm?`, `key?` | makes a song with the new generator ([`crate::generator`]) and loads it |
 //! | `play` | `bar?`, `delay?` (s) | starts at a bar |
 //! | `stop` | | stops |
 //! | `patch` | `part`, `lab` | replaces a part's patch members (live knob edits) |
@@ -19,13 +20,17 @@
 //! | `mute` / `solo` | `names` / `name` | per part or drum lane (`drums`: all of them) |
 //!
 //! The song is made here from its genre and seed, not sent: the page makes
-//! the same track with [`generate`] to show it, and both are the grammar's
-//! output, so what the lab plays is what a game's radio plays.
+//! the same track with [`generate`] (or the same song with [`song_json`])
+//! to show it, so what the lab plays is what a game's radio plays.
+//! A new generator's song plays on a [`SongPlayer`]; the keyboard and pads
+//! stay on the classic engine beside it.
 
 use crate::engine::{Engine, EngineEvent, Mix};
+use crate::generator::Settings;
 use crate::genres::GENRES;
 use crate::instruments::TriggerOpt;
 use crate::json::{Val, canon, parse};
+use crate::song::SongPlayer;
 use crate::track::{Lab, Track};
 
 /// A genre's track for `seed` (`dejavu`: how often a block replays its core,
@@ -37,7 +42,15 @@ pub fn generate(genre: &str, seed: u32, dejavu: Option<f64>) -> Option<Track> {
         .map(|g| (g.make)(seed, dejavu))
 }
 
+/// A song of the new generator as the page shows it
+/// ([`crate::score::Song::summary`]: sections, layers and their clips, the
+/// notes), as JSON; `None` for an unknown genre.
+pub fn song_json(genre: &str, seed: u32, settings: &Settings) -> Option<String> {
+    crate::generator::generate(genre, seed, settings).map(|s| canon(&s.summary()))
+}
+
 /// The lab's tables as JSON, for the page: `{genres: [[key, name]],
+/// generators: [[key, name]] (the new generator's),
 /// patches: [[name, lab]], kits: [[name, [[lane, voice]]]], lanes: [..]}`
 /// (pairs, in the tables' order).
 pub fn tables_json() -> String {
@@ -56,6 +69,15 @@ pub fn tables_json() -> String {
                 GENRES
                     .iter()
                     .map(|g| (g.key.to_owned(), Val::Str(g.name.to_owned())))
+                    .collect(),
+            )),
+        ),
+        (
+            "generators",
+            Some(pairs(
+                crate::generator::genres()
+                    .into_iter()
+                    .map(|(k, n)| (k.to_owned(), Val::Str(n.to_owned())))
                     .collect(),
             )),
         ),
@@ -99,6 +121,13 @@ pub fn tables_json() -> String {
 /// One lab node: an engine and the page's messages.
 pub struct Session {
     engine: Engine,
+    /// The new generator's song, when one is loaded.
+    song: Option<SongPlayer>,
+    /// Whether the song (not the classic engine's track) is the one
+    /// playing.
+    on_song: bool,
+    scratch: (Vec<f32>, Vec<f32>),
+    seed: u32,
     sr: f64,
     /// Section and end events since the last [`Session::poll`].
     events: Vec<Val>,
@@ -108,6 +137,10 @@ impl Session {
     pub fn new(seed: u32, sr: f64) -> Session {
         Session {
             engine: Engine::new(seed, sr),
+            song: None,
+            on_song: false,
+            scratch: (Vec::new(), Vec::new()),
+            seed,
             sr,
             events: Vec::new(),
         }
@@ -122,9 +155,31 @@ impl Session {
         let d = parse(json)?;
         let s = |k: &str| d.get(k).and_then(Val::as_str);
         let n = |k: &str| d.get(k).and_then(Val::as_f64);
+        let ty = s("type").ok_or("a message needs a type")?;
+        if let ("song" | "play" | "stop" | "patch" | "energy" | "mix" | "mute" | "solo", Some(sp)) = (
+            ty,
+            self.song.as_mut().filter(|_| self.on_song || ty == "song"),
+        ) {
+            return Self::song_message(sp, ty, &d, &mut self.engine).map(|()| {
+                if ty == "song" {
+                    self.on_song = true;
+                }
+            });
+        }
+        if ty == "song" {
+            let mut sp = SongPlayer::new(self.seed, self.sr);
+            Self::song_message(&mut sp, ty, &d, &mut self.engine)?;
+            self.song = Some(sp);
+            self.on_song = true;
+            return Ok(());
+        }
         let e = &mut self.engine;
-        match s("type").ok_or("a message needs a type")? {
+        match ty {
             "track" => {
+                self.on_song = false;
+                if let Some(sp) = &mut self.song {
+                    sp.stop();
+                }
                 let genre = s("genre").ok_or("track: no genre")?;
                 let seed = n("seed").unwrap_or(1.0).max(1.0) as u32;
                 let t = generate(genre, seed, n("dejavu"))
@@ -219,9 +274,98 @@ impl Session {
         Ok(())
     }
 
+    /// The messages a new generator's song takes (the classic engine
+    /// keeps the keyboard, the pads and the mix in step).
+    fn song_message(sp: &mut SongPlayer, ty: &str, d: &Val, e: &mut Engine) -> Result<(), String> {
+        let s = |k: &str| d.get(k).and_then(Val::as_str);
+        let n = |k: &str| d.get(k).and_then(Val::as_f64);
+        match ty {
+            "song" => {
+                let genre = s("genre").ok_or("song: no genre")?;
+                let seed = n("seed").unwrap_or(1.0).max(1.0) as u32;
+                let settings = Settings {
+                    bpm: n("bpm"),
+                    key: n("key").map(|k| k as i32),
+                };
+                let song = crate::generator::generate(genre, seed, &settings)
+                    .ok_or_else(|| format!("song: no genre {genre}"))?;
+                e.stop();
+                sp.set_mix(e.mix());
+                sp.set_energy(e.energy());
+                sp.set_song(song);
+            }
+            "play" => sp.play(
+                n("bar").unwrap_or(0.0).max(0.0) as u32,
+                n("delay").unwrap_or(0.02),
+            ),
+            "stop" => sp.stop(),
+            "patch" => {
+                let part = s("part").ok_or("patch: no part")?;
+                let lab = d.get("lab").ok_or("patch: no lab")?;
+                sp.set_patch(part, Lab::from_val(lab));
+            }
+            "energy" => {
+                let v = n("value").unwrap_or(1.0).clamp(0.0, 1.0);
+                sp.set_energy(v);
+                e.set_energy(v);
+            }
+            "mix" => {
+                let m = sp.mix();
+                let m = Mix {
+                    glue: n("glue").unwrap_or(m.glue),
+                    tape: n("tape").unwrap_or(m.tape),
+                    reverb: n("reverb").unwrap_or(m.reverb),
+                    rev_size: n("revSize").unwrap_or(m.rev_size),
+                    rev_tone: n("revTone").unwrap_or(m.rev_tone),
+                    master: n("master").unwrap_or(m.master),
+                };
+                sp.set_mix(m);
+                e.set_mix(m);
+            }
+            "mute" => {
+                let names: Vec<String> = d
+                    .get("names")
+                    .and_then(Val::as_arr)
+                    .unwrap_or(&[])
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect();
+                sp.set_mute(&names);
+            }
+            "solo" => sp.set_solo(s("name").filter(|n| !n.is_empty()).map(str::to_owned)),
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Renders `l.len()` frames.
     pub fn process(&mut self, l: &mut [f32], r: &mut [f32]) {
-        self.engine.process(l, r);
+        match (&mut self.song, self.on_song) {
+            (Some(sp), true) => {
+                sp.process(l, r);
+                // The keyboard and pads, from the classic engine.
+                let n = l.len();
+                self.scratch.0.resize(n, 0.0);
+                self.scratch.1.resize(n, 0.0);
+                self.engine
+                    .process(&mut self.scratch.0[..n], &mut self.scratch.1[..n]);
+                for i in 0..n {
+                    l[i] += self.scratch.0[i];
+                    r[i] += self.scratch.1[i];
+                }
+                for ev in sp.take_events() {
+                    self.events.push(match ev {
+                        EngineEvent::Section(i) => Val::obj(vec![
+                            ("type", Val::str("section")),
+                            ("sec", Val::num(i as f64)),
+                        ]),
+                        EngineEvent::End => Val::obj(vec![("type", Val::str("end"))]),
+                    });
+                }
+                return;
+            }
+            _ => self.engine.process(l, r),
+        }
         for ev in self.engine.take_events() {
             self.events.push(match ev {
                 EngineEvent::Section(i) => Val::obj(vec![
@@ -237,7 +381,11 @@ impl Session {
     /// bars, playing} | null, gr, events: [..]}`; `gr` is the glue's mean
     /// gain since the last poll, and the events are taken.
     pub fn poll(&mut self) -> String {
-        let pos = self.engine.position().map(|p| {
+        let (pos, gr) = match (&mut self.song, self.on_song) {
+            (Some(sp), true) => (sp.position(), sp.take_gr()),
+            _ => (self.engine.position(), self.engine.take_gr()),
+        };
+        let pos = pos.map(|p| {
             Val::obj(vec![
                 ("sec", Val::num(p.sec as f64)),
                 ("bar", Val::num(p.bar as f64)),
@@ -249,7 +397,7 @@ impl Session {
         });
         let v = Val::obj(vec![
             ("pos", Some(pos.unwrap_or(Val::Null))),
-            ("gr", Val::num(self.engine.take_gr())),
+            ("gr", Val::num(gr)),
             ("events", Some(Val::Arr(std::mem::take(&mut self.events)))),
         ]);
         canon(&v)
@@ -310,6 +458,38 @@ mod tests {
         s.message(r#"{"type":"hit","lane":"kick"}"#).unwrap();
         let hit = rms(&mut s, 40);
         assert!(hit > 3.0 * floor, "the pad sounds: {hit}");
+    }
+
+    #[test]
+    fn a_new_generator_song_plays_beside_the_keyboard() {
+        let mut s = Session::new(5, 48000.0);
+        s.message(r#"{"type":"song","genre":"chicago","seed":4}"#)
+            .unwrap();
+        s.message(r#"{"type":"play","bar":32}"#).unwrap();
+        assert!(rms(&mut s, 600) > 0.01, "the song is heard");
+        let p = parse(&s.poll()).unwrap();
+        let bar = p
+            .get("pos")
+            .and_then(|p| p.get("barIndex"))
+            .and_then(Val::as_f64)
+            .unwrap();
+        assert!((32.0..36.0).contains(&bar), "at bar {bar}");
+        s.message(r#"{"type":"mute","names":["drums","bass","chords","lead"]}"#)
+            .unwrap();
+        s.message(r#"{"type":"solo","name":"k"}"#).unwrap();
+        s.message(r#"{"type":"energy","value":0.5}"#).unwrap();
+        // Back to a classic track.
+        s.message(r#"{"type":"track","genre":"house","seed":2}"#)
+            .unwrap();
+        s.message(r#"{"type":"play"}"#).unwrap();
+        assert!(rms(&mut s, 400) > 0.005);
+        let summary = parse(&song_json("synthwave", 3, &Settings::default()).unwrap()).unwrap();
+        assert!(
+            summary
+                .get("layers")
+                .and_then(Val::as_arr)
+                .is_some_and(|l| l.len() >= 6)
+        );
     }
 
     #[test]

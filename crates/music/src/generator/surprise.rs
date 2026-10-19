@@ -192,8 +192,11 @@ impl Score {
 
     /// The fitness against a target band for mean z(IC) (G9.7: melody −1.0
     /// to 0.0) and mean z(H) (−0.75 to −0.25): placement, minus the squared
-    /// distance outside each band. Below `reject` or above `ceiling` mean IC
-    /// is a hard no (`-inf`).
+    /// distance outside the entropy band; a candidate outside the IC band
+    /// ranks below every one inside it, by how far (G9.5 leaves the weights
+    /// to tuning: at equal weights the placement term, which grows with
+    /// surprise, pulled every pick above the band). Mean IC outside
+    /// `reject` is a hard no (`-inf`).
     pub fn fitness(&self, ic_band: (f64, f64), h_band: (f64, f64), reject: (f64, f64)) -> f64 {
         if self.ic < reject.0 || self.ic > reject.1 {
             return f64::NEG_INFINITY;
@@ -207,7 +210,12 @@ impl Score {
                 0.0
             }
         };
-        self.placement - out(self.ic, ic_band).powi(2) - out(self.h, h_band).powi(2)
+        let miss = out(self.ic, ic_band);
+        if miss > 0.0 {
+            // Outside the band: only how far, below every candidate inside.
+            return -100.0 - miss;
+        }
+        self.placement - out(self.h, h_band).powi(2)
     }
 }
 

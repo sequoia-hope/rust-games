@@ -388,6 +388,13 @@ impl Song {
                     ("name", Val::str(&l.name)),
                     ("role", Val::str(l.role.key())),
                     ("sound", Val::str(&sound)),
+                    (
+                        "lab",
+                        match &l.sound {
+                            Sound::Synth(lab) => Some(lab.to_val()),
+                            Sound::Drums { .. } => None,
+                        },
+                    ),
                     ("pump", Val::num(l.pump)),
                     ("minEnergy", Val::num(l.min_energy)),
                     (

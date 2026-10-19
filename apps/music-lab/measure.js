@@ -17,12 +17,13 @@ export function fullBar(T) {
   return best;
 }
 
-// `song`: { genre, seed, dejavu, kit }; `module`: the compiled music.wasm.
-export async function render(module, song, { bar = 0, secs = 12, rate = 48000, mix, seed = 5 } = {}) {
+// `load`: the message that loads the song (a 'track' or a 'song');
+// `module`: the compiled music.wasm.
+export async function render(module, load, { bar = 0, secs = 12, rate = 48000, mix, seed = 5 } = {}) {
   const oc = new OfflineAudioContext(2, Math.ceil(secs * rate), rate);
   await oc.audioWorklet.addModule(WORKLET_URL);
   const messages = [
-    { type: 'track', genre: song.genre, seed: song.seed, dejavu: song.dejavu, kit: song.kit },
+    load,
     ...(mix ? [{ type: 'mix', ...mix }] : []),
     { type: 'play', bar, delay: 0 },
   ];

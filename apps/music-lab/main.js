@@ -1,7 +1,10 @@
 // Music Lab page: make a track from a genre and a seed, play it, and take
 // it apart: its sections, its parts (mute, solo, live patch edits), every
 // instrument on a keyboard, the drum machine on pads, the mix, a spectrum
-// and offline measurements. Everything audible is the music engine
+// and offline measurements. Two generators: the new one (crates/music
+// generator: per-instrument layers, research-backed profiles, surprise
+// scoring), whose songs show their layers over time and the notes behind
+// them, and the classic one (the games' radio today). Everything audible is the music engine
 // (crates/music, Rust) in an AudioWorklet (lab-worklet.js, music.wasm); the
 // page runs a second copy of the wasm on the main thread for the tables and
 // to make the same track the worklet plays, to show it.
@@ -26,7 +29,9 @@ function passText(s) {
   return [ptr, b.length];
 }
 const tables = JSON.parse(text(wasm.music_tables()));
-const GENRES = Object.fromEntries(tables.genres);
+const CLASSIC = Object.fromEntries(tables.genres);
+const NEW = Object.fromEntries(tables.generators);
+const GENRES = { ...NEW, ...CLASSIC };
 const BPATCH = Object.fromEntries(tables.patches);
 const KITS = Object.fromEntries(tables.kits.map(([k, lanes]) => [k, Object.fromEntries(lanes)]));
 const KIT_NAME = { tr808: 'TR-808', tr909: 'TR-909', latin: 'Latin', country: 'Country' };
@@ -34,6 +39,22 @@ const KIT_NAME = { tr808: 'TR-808', tr909: 'TR-909', latin: 'Latin', country: 'C
 function generate(genre, seed, dejavu) {
   const [ptr, len] = passText(genre);
   return JSON.parse(text(wasm.music_generate(ptr, len, seed, dejavu ?? -1)));
+}
+// A new generator's song (its summary: sections, layers, clips, notes).
+function makeSong(genre, seed) {
+  const [ptr, len] = passText(genre);
+  return JSON.parse(text(wasm.music_song(ptr, len, seed, -1, -1)));
+}
+// A song shown with the classic track's fields, so the sections and parts
+// tables serve both.
+function asTrack(song) {
+  const parts = {};
+  for (const l of song.layers) if (l.lab) parts[l.name] = { type: l.role, lab: l.lab };
+  return {
+    title: song.title, style: song.style, bpm: song.bpm,
+    sections: song.sections.map((s) => ({ bars: s.bars, drums: s.name, p: Object.fromEntries(song.layers.filter((l) => l.clips.some((c) => c.bar < s.bar + s.bars && c.bar + c.bars > s.bar)).map((l) => [l.name, 1])) })),
+    parts,
+  };
 }
 
 // A song is what makes it: (genre, seed, déjà vu), and the kit it plays on.
@@ -89,20 +110,30 @@ function setKit(name) {
 $('kit').onchange = () => setKit($('kit').value);
 $('kit2').onchange = () => setKit($('kit2').value);
 
-for (const [k, v] of Object.entries(GENRES)) $('genre').append(new Option(v, k));
+for (const [label, list] of [['New generator', NEW], ['Classic (the radio today)', CLASSIC]]) {
+  const g = document.createElement('optgroup'); g.label = label;
+  for (const [k, v] of Object.entries(list)) g.append(new Option(v, k));
+  $('genre').append(g);
+}
 $('dice').onclick = () => { $('seed').value = 1 + Math.floor(Math.random() * 99999); makeTrack(true); };
 $('make').onclick = () => makeTrack(true);
 function makeTrack(autoplay) {
   const genre = $('genre').value, seed = Math.max(1, Number($('seed').value) | 0), dejavu = Number($('dejavu').value);
-  const track = generate(genre, seed, dejavu);
-  const S = { genre, seed, dejavu, track, kit: track.kitName ?? 'tr909' };
+  let S;
+  if (genre in NEW) {
+    const song = makeSong(genre, seed);
+    S = { genre, seed, song, track: asTrack(song), kit: 'tr909' };
+  } else {
+    const track = generate(genre, seed, dejavu);
+    S = { genre, seed, dejavu, track, kit: track.kitName ?? 'tr909' };
+  }
   made.unshift(S);
   if (made.length > 30) made.pop();
   selectSong(S, autoplay);
 }
 
 // ── Song ─────────────────────────────────────────────────────────
-const trackMsg = (S) => ({ type: 'track', genre: S.genre, seed: S.seed, dejavu: S.dejavu, kit: S.kit });
+const trackMsg = (S) => (S.song ? { type: 'song', genre: S.genre, seed: S.seed } : { type: 'track', genre: S.genre, seed: S.seed, dejavu: S.dejavu, kit: S.kit });
 function selectSong(S, autoplay = false) {
   cur = S;
   fillSongs();
@@ -110,7 +141,7 @@ function selectSong(S, autoplay = false) {
   $('songNote').textContent = `${GENRES[S.genre]}, seed ${S.seed}: ${T.bpm} bpm, ${T.sections.reduce((a, s) => a + s.bars, 0)} bars.`;
   $('kit').value = S.kit; $('kit2').value = S.kit;
   mute.clear(); solo = null; editing = null; $('partEdit').hidden = true;
-  buildSections(); buildParts(); buildPads();
+  buildSections(); buildParts(); buildPads(); buildNotes(); drawLayers();
   if (lab) {
     post(trackMsg(S));
     post({ type: 'kit', name: S.kit, tweak: kitTweak });
@@ -168,7 +199,8 @@ function buildParts() {
   const tb = $('parts');
   tb.innerHTML = '<tr><th>Part</th><th>Plays</th><th>Instrument</th><th></th></tr>';
   const rows = Object.entries(cur.track.parts).map(([name, p]) => [name, p.type, `${p.lab.kind} · ${p.lab.name ?? ''}`]);
-  rows.push(['drums', 'drums', KIT_NAME[cur.kit] ?? cur.kit]);
+  if (cur.song) for (const l of cur.song.layers) if (!l.lab) rows.push([l.name, l.role, l.sound]);
+  rows.push(['drums', 'drums', cur.song ? 'every drum layer' : KIT_NAME[cur.kit] ?? cur.kit]);
   for (const [name, type, inst] of rows) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td>${name}</td><td>${type}</td><td>${inst}</td><td></td>`;
@@ -214,7 +246,9 @@ $('partCopy').onclick = () => copyJson(editing && { [editing]: cur.track.parts[e
 $('partReset').onclick = () => {
   if (!editing) return;
   // The patch as the grammar made it.
-  const base = generate(cur.genre, cur.seed, cur.dejavu).parts[editing].lab;
+  const base = cur.song
+    ? makeSong(cur.genre, cur.seed).layers.find((l) => l.name === editing).lab
+    : generate(cur.genre, cur.seed, cur.dejavu).parts[editing].lab;
   cur.track.parts[editing].lab = base;
   post({ type: 'patch', part: editing, lab: structuredClone(base) });
   const n = editing; editing = null; editPart(n);
@@ -405,16 +439,82 @@ function onLab(d) {
     }
     [...$('sections').children].forEach((b, i) => b.classList.toggle('cur', i === p.sec && p.playing));
     window.musicLab.pos = p;
+    posAt = { bar: p.barIndex + p.step / 16, t: performance.now(), playing: p.playing };
   } else if (d.type === 'error') {
     status(`The engine refused a message: ${d.message}`, true);
     console.error(d);
   }
 }
 
+// ── Layers over time (a new generator's song) ────────────────────
+// One row per layer, its clips drawn where they play (filled: the core;
+// outlined: a variation; faint: filtered or sparse; a tick: a hit), the
+// sections above, a playhead. Click to play from that bar.
+let posAt = null;
+const MARK = { x: 1, v: 0.65, f: 0.3, s: 0.4, r: 0.85, 1: 1 };
+const ROLE_COLOR = { K: '#ff3d7f', C: '#ff7a59', H: '#ffb84d', P: '#d6c94d', B: '#4dff8a', Sub: '#2fd16a', Pd: '#6fb7ff', A: '#9f8cff', L: '#e07cff', Atm: '#5ad6d6', X: '#cfd6e2', V: '#ffd0e0' };
+function drawLayers() {
+  const card = $('layersCard');
+  card.hidden = !cur?.song;
+  if (!cur?.song) return;
+  const c = $('layers'), g = c.getContext('2d');
+  const song = cur.song, rows = song.layers.length;
+  const W = c.clientWidth * devicePixelRatio, rowH = 22 * devicePixelRatio, top = 26 * devicePixelRatio, left = 70 * devicePixelRatio;
+  c.width = W; c.height = top + rows * rowH + 4;
+  c.style.height = c.height / devicePixelRatio + 'px';
+  const bx = (bar) => left + (bar / song.bars) * (W - left - 4);
+  g.fillStyle = '#0a0c10'; g.fillRect(0, 0, c.width, c.height);
+  g.font = `${11 * devicePixelRatio}px system-ui`; g.textBaseline = 'middle';
+  for (const s of song.sections) {
+    const x0 = bx(s.bar), x1 = bx(s.bar + s.bars);
+    g.fillStyle = `rgba(111,183,255,${0.06 + 0.18 * s.energy})`; g.fillRect(x0, 0, x1 - x0, top - 4);
+    g.strokeStyle = '#262c36'; g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0, c.height); g.stroke();
+    g.fillStyle = '#8b94a3'; g.fillText(s.name, x0 + 3, (top - 4) / 2, Math.max(0, x1 - x0 - 6));
+  }
+  song.layers.forEach((l, i) => {
+    const y = top + i * rowH;
+    g.fillStyle = '#8b94a3'; g.fillText(l.name, 4, y + rowH / 2, left - 8);
+    const col = ROLE_COLOR[l.role] ?? '#cfd6e2';
+    for (const k of l.clips) {
+      const x0 = bx(k.bar), x1 = Math.max(bx(k.bar + k.bars), x0 + 2);
+      g.globalAlpha = MARK[k.mark] ?? 1;
+      g.fillStyle = col;
+      if (k.mark === 'v') { g.strokeStyle = col; g.lineWidth = 2; g.strokeRect(x0 + 1, y + 3, x1 - x0 - 2, rowH - 6); }
+      else g.fillRect(x0 + 1, y + 3, x1 - x0 - 2, rowH - 6);
+      g.globalAlpha = 1;
+    }
+  });
+  for (const f of song.fx) {
+    g.fillStyle = 'rgba(255,255,255,0.12)';
+    g.fillRect(bx(f.bar), top - 4, bx(f.bar + f.bars) - bx(f.bar), 3);
+  }
+  if (posAt) {
+    const bar = posAt.playing ? posAt.bar + ((performance.now() - posAt.t) / 1000) * (cur.song.bpm / 240) : posAt.bar;
+    g.fillStyle = '#4dff8a'; g.fillRect(bx(Math.min(bar, song.bars)), 0, 2 * devicePixelRatio, c.height);
+  }
+  c.onclick = (e) => {
+    const x = (e.offsetX * devicePixelRatio - left) / (W - left - 4);
+    if (x >= 0) startAt(Math.floor(x * song.bars / 4) * 4);
+  };
+}
+function buildNotes() {
+  const el = $('notes');
+  $('notesCard').hidden = !cur?.song;
+  if (!cur?.song) return;
+  el.innerHTML = '';
+  for (const n of cur.song.notes) {
+    const li = document.createElement('li');
+    li.textContent = n;
+    el.append(li);
+  }
+}
+addEventListener('resize', () => drawLayers());
+
 // ── Spectrum ─────────────────────────────────────────────────────
 const freq = new Float32Array(4096);
 function frame() {
   requestAnimationFrame(frame);
+  if (cur?.song && posAt?.playing) drawLayers();
   if (!ctx) return;
   const c = $('spec'), g = c.getContext('2d');
   const W = c.width, H = c.height, sr = ctx.sampleRate;
@@ -447,7 +547,7 @@ $('measure').onclick = async () => {
   let n = 0;
   try {
     for (const S of made) {
-      const r = analyse(await render(module, S, { bar: fullBar(S.track), mix: mixNow() }));
+      const r = analyse(await render(module, trackMsg(S), { bar: fullBar(S.track), mix: mixNow() }));
       n++; $('mNote').textContent = `${n} / ${made.length}…`;
       tb.insertAdjacentHTML('beforeend', `<tr><td>${S.track.title}</td><td>${GENRES[S.genre]}</td><td>${r.rmsDb}</td><td>${r.peak}</td><td>${r.crestDb}</td><td>${r.width}</td>${['sub', 'low', 'lowmid', 'mid', 'high', 'air'].map((b) => `<td>${r.bandsDb[b]}</td>`).join('')}</tr>`);
     }
@@ -456,7 +556,7 @@ $('measure').onclick = async () => {
   $('measure').disabled = false;
 };
 
-window.musicLab = { GENRES, BPATCH, KITS, made, generate, selectSong, togglePlay, startAt, get cur() { return cur; }, get playing() { return playing; } };
+window.musicLab = { GENRES, BPATCH, KITS, made, generate, makeSong, selectSong, togglePlay, startAt, get cur() { return cur; }, get playing() { return playing; } };
 const q = new URLSearchParams(location.search);
 if (q.get('genre') in GENRES) $('genre').value = q.get('genre');
 if (q.get('seed')) $('seed').value = q.get('seed');
