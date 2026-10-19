@@ -6,6 +6,28 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### The new generator (2026-10-19)
+
+Additions only; the classic generator, the radio and the worklet's radio
+exports are unchanged.
+
+- **`score`**: a song as per-instrument layers (`Song`, `Layer`, `Clip`,
+  `Pattern`, `Note`, `Automation`, `Fx`, `Section`): clips on phrase
+  boundaries, patterns of any length, notes at fractional 16ths with their
+  own velocity, automation lanes, a sidechain depth and an energy
+  threshold per layer. `Song::summary()` is its JSON for a page.
+- **`song::SongPlayer`**: plays a `Song` on the lab's instruments, kits and
+  mix (per-layer pump, bus filters, risers).
+- **`generator`**: `generate(genre, seed, &Settings)` for the profiles in
+  `generator::profile` (`synthwave`, `outrun`, `chicago`, `deep`), built
+  from `research/RULES.md`; `generator::theory` (modes, numerals,
+  voicings) and `generator::surprise` (the PPM expectation model, IC and
+  entropy scores, the LHL and Witek syncopation indices).
+- **Lab:** the `song` message and `lab::song_json`; worklet export
+  `music_song`; `music_tables` lists the new generator's genres as
+  `generators`.
+- **`examples/render.rs`:** any song, new or classic, to a WAV file.
+
 ### The lab on this engine (2026-10-19)
 
 Additions only.
