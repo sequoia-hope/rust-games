@@ -17,8 +17,12 @@ class_name = "Room"
 tag = "v1"
 new_sqlite_classes = ["Room"]
 
-# Set to a comma-separated list of origins (e.g.
-# "https://sequoia-hope.github.io") to turn away pages from anywhere else;
-# unset, any page may use the relay. Native clients send no Origin.
-# [vars]
-# ALLOWED_ORIGINS = ""
+# A comma-separated list of origins; pages from anywhere else are turned
+# away (unset, any page may use the relay). Native clients send no Origin
+# and always get in. This is the owner's GitHub Pages origin, which every
+# one of their Pages sites shares (rust-games and the frozen
+# midnight-playground site alike: an origin carries no path). Testing
+# `?signal=` from the local server needs its tailnet origin added here;
+# pages served by mp-host don't use this relay at all.
+[vars]
+ALLOWED_ORIGINS = "https://sequoia-hope.github.io"
