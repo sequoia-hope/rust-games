@@ -1,13 +1,18 @@
 ---
 name: music-genre
-description: Add a music genre grammar to the Playground Kit composer (today Midnight Playground's mp_music and the JS Music Lab): specify the vocabulary (kit, progressions, motif cells, form, energy mapping), build it in the lab first, port it, regenerate the goldens, give a radio station its weights, and listen on the Radio page. Use when asked to add a genre, a station's sound, a new instrument for a grammar, or to fix a grammar bug reported from a Reject note.
+description: Add a music genre grammar to the Playground Kit composer (the music engine, crates/music, and the JS Music Lab): specify the vocabulary (kit, progressions, motif cells, form, energy mapping), build it in the lab first, port it, regenerate the goldens, give a radio station its weights, and listen on the Radio page. Use when asked to add a genre, a station's sound, a new instrument for a grammar, or to fix a grammar bug reported from a Reject note.
 ---
 
 # Music genre: a grammar on the composer
 
-Today's code is Midnight Playground's (`~/Software/midnight-playground`;
-paths relative to it). `mp_music` becomes `pk_music` in kit phase 4, the
-procedure unchanged.
+**Being replaced.** The music engine is being redesigned
+(`crates/music/PLAN.md`, rust-games root): Rust leads and the JS lab's
+engine is frozen, so the lab-first steps below no longer apply; until the
+new generator lands, a grammar goes straight into `crates/music`'s Rust.
+The engine is `crates/music` (package `music`, once `mp_music`); the
+stations, favourites, Radio page and `serve.py` are Midnight Playground's
+(`games/midnight-playground/`). Paths below are relative to that game's
+folder unless they start with `crates/music/`.
 
 ## Read first
 
@@ -15,12 +20,12 @@ procedure unchanged.
   generated track grab: the composer's answers), 3.5 (three genres
   specified; 3.5.1 country and 3.5.3 chicha are the worked examples: the
   spec shape, then what was built and what was deferred).
-- `crates/mp_music/src/lib.rs` (the port rules), `compose.rs` (keys,
+- `crates/music/src/lib.rs` (the port rules), `compose.rs` (keys,
   Euclid, motifs, pickups, déjà vu, arrangement), `genres.rs` (one grammar
   end to end: read `chicha` or `country` whole), `seq.rs` (the song format
   and the lab extensions: `auto`, `lay`, `'n'`, `'p'`, `swing8`),
-  `engine.rs` (the mix), `radio.rs` (`Station`, `STATIONS`, blocks on the
-  wall clock, favourites).
+  `engine.rs` (the mix), `radio.rs` (`Station`, blocks on the wall clock);
+  the game's table is `crates/mp_audio/stations.json`.
 - `tools/music-lab/{compose.js,gen.js,seq.js,engine.js,instruments.js}`:
   the lab is the oracle. `tools/music-lab/test/golden.mjs` writes
   `crates/music/tests/golden/{tracks,events,renders}.json`.
@@ -82,29 +87,29 @@ exactly on tracks and events, and to a tolerance on renders.
 
    ```bash
    node tools/music-lab/test/dump-tables.mjs | python3 tools/music-lab/test/gen-rust-tables.py
-   cargo test -p mp_music            # golden_tracks, golden_events, golden_renders
-   cargo xtask check-deps            # mp_music: no clock, no rand, no engine
+   cargo test -p music               # golden_tracks, golden_events, golden_renders
+   cargo xtask check-deps            # music: no clock, no rand, no engine
    ```
 
-   Audio is not simulation: `mp_music` uses the platform's `f64` math, so
+   Audio is not simulation: `music` uses the platform's `f64` math, so
    renders agree to a tolerance; tracks and events must be exact.
-5. **A station's weights**: add or edit a `Station` in
-   `crates/mp_music/src/radio.rs` (`key`, `name`, `freq`, `dj`, `genres`
-   as `(key, weight)`, `seed`), in dial order; the index is the radio
+5. **A station's weights**: add or edit a station in the game's
+   `crates/mp_audio/stations.json` (`key`, `name`, `freq`, `dj`, `genres`
+   as `[key, weight]`, `seed`), in dial order; the index is the radio
    node's `station` param, so appending at the end keeps the dial stable.
-   Map levels to it in `level_station`. A DJ is the `voice-cast` skill.
+   Map levels to it in `mp_audio::stations::level_station`. A DJ is the `voice-cast` skill.
 6. **Listen on the Radio page** through the registered server:
    `/tools/radio.html?station=<key>` plays the live schedule; **Skip song**
    (S) runs the clock ahead; **Keep** (K) and **Reject** (J) with a note
-   POST to `crates/mp_music/favourites.json` only where the GET carries
+   POST to `crates/mp_audio/favourites.json` only where the GET carries
    `X-Favourites: writable` (the dev server, not Pages). A song's link
    carries `wall=` so a note can be checked later. The tuner renders with
-   `cargo run --release -p mp_music --example tuner -- out.wav`.
+   `cargo run --release -p music --example tuner -- out.wav`.
 7. **Rejects are the backlog.** A Reject with a reason ("the bass fights
    the kick", "the chorus never arrives") is a grammar bug; fix it in the
    lab by numbers first (D1153: render offline, check every note against
    the chord under it), then port, then goldens.
-8. **Verify** before claiming done: `cargo test -p mp_music`, `npm run
+8. **Verify** before claiming done: `cargo test -p music`, `npm run
    test:lab`, `cargo xtask check-deps`, the page plays the new genre on
    its station. **DECISIONS** entry: the spec, what was built, what was
    deferred and why (D1183's shape).
@@ -123,7 +128,7 @@ exactly on tracks and events, and to a tolerance on renders.
 - A JS object literal that writes a key twice (D1153: the `r` ratio and
   release). The Rust port copies the evaluated object, so a bug in the
   oracle ports faithfully; fix the oracle, regenerate, then port.
-- `HashMap` anywhere in `mp_music`: iteration order is the song. Pairs in
+- `HashMap` anywhere in `music`: iteration order is the song. Pairs in
   insertion order (`track::Pairs`).
 - Starting a second server to hear the page, or writing a port anywhere.
 - Hand-editing `favourites.json`'s shape: the page and `serve.py` upsert

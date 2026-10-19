@@ -1,5 +1,5 @@
 [package]
-name = "mp_music"
+name = "music"
 description = "The Music Lab ported: instruments, sequencer, composer, genre grammars and mix, per sample; the radio's music"
 version.workspace = true
 edition.workspace = true

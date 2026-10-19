@@ -17,7 +17,8 @@
 //!   pause and unlock, the engine for every car, turbo, electric, damage,
 //!   the environment voices, the one-shots and the pursuit sounds; with
 //!   [`music`] and [`tracks`] (the sequencer and the songs), [`radio`] (the
-//!   recorded radio voice), [`session`] (the iPhone audio session) and
+//!   recorded radio voice), [`stations`] (the radio's station table, played
+//!   by the shared music engine), [`session`] (the iPhone audio session) and
 //!   [`timers`] (its `setTimeout`s).
 
 #![forbid(unsafe_code)]
@@ -35,6 +36,7 @@ pub mod reference;
 pub mod samples;
 pub mod session;
 pub mod shapes;
+pub mod stations;
 pub mod timers;
 pub mod tracks;
 pub mod wa;

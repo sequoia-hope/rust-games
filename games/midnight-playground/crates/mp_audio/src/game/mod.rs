@@ -382,7 +382,7 @@ pub struct GameAudio {
     /// Exhaust nodes made (one per graph, whatever the car changes).
     ex_made: u32,
     /// The car radio ([`station`]): the node's state, the station asked for
-    /// (an index in `mp_music::radio::STATIONS`) and the wall time it was
+    /// (an index in [`crate::stations::STATIONS`]) and the wall time it was
     /// asked at, whether that request still waits on the node, the `tune`
     /// serial, the energy, and nodes made (one per graph).
     station: station::StState,

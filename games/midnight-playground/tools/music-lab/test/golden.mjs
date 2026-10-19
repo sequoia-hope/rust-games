@@ -1,5 +1,5 @@
 // Writes crates/music/tests/golden/ (the music crate's goldens): the Music Lab run offline under Node, for the
-// Rust port in crates/mp_music to be checked against (its golden tests).
+// Rust port in ../../crates/music to be checked against (its golden tests).
 // Run with `node tools/music-lab/test/golden.mjs`; regenerating must give
 // identical files.
 //

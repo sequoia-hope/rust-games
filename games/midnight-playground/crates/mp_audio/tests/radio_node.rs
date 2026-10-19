@@ -1,4 +1,4 @@
-//! The radio node (`create_radio`): `mp_music`'s station player behind the
+//! The radio node (`create_radio`): `music`'s station player behind the
 //! facade (DECISIONS D1151). On the null backend it is logged and validated
 //! like any node; on the native backend it renders the station.
 //!

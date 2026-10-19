@@ -6,8 +6,8 @@
 //! far below anything audible. A run that differs by much more is a port
 //! bug: find the first differing window sample and work back.
 
-use mp_music::engine::Engine;
-use mp_music::genres::genre;
+use music::engine::Engine;
+use music::genres::genre;
 use serde_json::Value;
 use std::path::PathBuf;
 

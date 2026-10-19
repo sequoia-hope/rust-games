@@ -1,15 +1,15 @@
-//! The radio node's processor on the native backend: [`mp_music`]'s
-//! station player in an AudioWorklet processor, as `web/music-worklet.js`
-//! runs it in a browser (the same calls in the same order, so both render
-//! the same samples; DECISIONS D1151).
+//! The radio node's processor on the native backend: [`music`]'s
+//! station player in an AudioWorklet processor, as the engine's
+//! `music-worklet.js` runs it in a browser (the same calls in the same
+//! order, so both render the same samples; DECISIONS D1151).
 //!
 //! The params are read once per 128-frame block and handed to the player
-//! whole: `station` (an index in `mp_music::radio::STATIONS`, -1 off),
+//! whole: `station` (an index in [`crate::stations::STATIONS`], -1 off),
 //! `wallDay` and `wallSec` (the wall time at tuning), `tune` (a serial; a
 //! change re-syncs) and `energy`. The player is built on the first block,
 //! where the sample rate is known.
 
-use mp_music::player::Player;
+use music::player::Player;
 use web_audio_api::worklet::{AudioParamValues, AudioWorkletGlobalScope, AudioWorkletProcessor};
 use web_audio_api::{AudioParamDescriptor, AutomationRate};
 
@@ -69,7 +69,7 @@ impl AudioWorkletProcessor for RadioProcessor {
         let sr = scope.sample_rate as f64;
         let p = self
             .player
-            .get_or_insert_with(|| Player::new(self.seed, sr));
+            .get_or_insert_with(|| Player::new(self.seed, sr, crate::stations::STATIONS.clone()));
         p.set_params(station, wall_day, wall_sec, tune, energy);
         let [out, ..] = outputs else {
             return true;

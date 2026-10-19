@@ -1,9 +1,11 @@
-// Radio page: the station player (mp_music.wasm in music-worklet.js, the
-// game's own) behind a dial, with what is on and the block's programme
-// from a second copy of the wasm on the main thread (mpm_stations,
-// mpm_schedule), and the DJ's clips between songs as the game plays them.
+// Radio page: the station player (the music engine's music.wasm in
+// music-worklet.js, the game's own) playing the game's stations
+// (crates/mp_audio/stations.json) behind a dial, with what is on and the
+// block's programme from a second copy of the wasm on the main thread
+// (music_stations, music_schedule), and the DJ's clips between songs as
+// the game plays them.
 //
-//   music-worklet (mp-radio) ─ gain ─ analyser ─ media stream ─ <audio>
+//   music-worklet (music-radio) ─ gain ─ analyser ─ media stream ─ <audio>
 //   dj clip (AudioBufferSource) ─ gain ──┘   (ducks the station)
 //
 // It plays like a music app (radio.md 7): the graph ends in an <audio>
@@ -19,7 +21,7 @@
 // skipping ahead (the page's clock runs ahead of the stations' by `skew`,
 // so the player stays a pure function of (station, time) and "Live" is
 // skew 0), and keep / reject with a note on the song playing, written to
-// crates/mp_music/favourites.json by tools/serve.py; the controls appear
+// crates/mp_audio/favourites.json by tools/serve.py; the controls appear
 // only where that file's GET says X-Favourites: writable, so on a clone
 // and not on GitHub Pages.
 
@@ -37,16 +39,33 @@ async function find(file) {
   throw new Error(`${file} not found: run cargo xtask web --release`);
 }
 
+// The game's station table, which the wasm is given (the game's copy:
+// beside the Rust that reads it, at the same place on Pages).
+const STATIONS_URL = new URL('../../crates/mp_audio/stations.json', import.meta.url);
+let stationBytes = null;
+async function loadStations() {
+  if (!stationBytes) {
+    const r = await fetch(STATIONS_URL);
+    if (!r.ok) throw new Error(`${STATIONS_URL.pathname}: ${r.status}`);
+    stationBytes = new Uint8Array(await r.arrayBuffer());
+  }
+  return stationBytes;
+}
+
 // ── The wasm on the main thread: the stations and the schedule ──
 let info = null;
 async function loadInfo() {
-  const url = await find('mp_music.wasm');
+  const url = await find('music.wasm');
   const { instance } = await WebAssembly.instantiateStreaming(fetch(url), {});
   const x = instance.exports;
-  const text = (ptr) => new TextDecoder().decode(new Uint8Array(x.memory.buffer, ptr, x.mpm_text_len()));
+  const text = (ptr) => new TextDecoder().decode(new Uint8Array(x.memory.buffer, ptr, x.music_text_len()));
+  const bytes = await loadStations();
+  const ptr = x.music_alloc(bytes.length);
+  new Uint8Array(x.memory.buffer, ptr, bytes.length).set(bytes);
+  if (x.music_set_stations(ptr, bytes.length) < 0) throw new Error(text(x.music_text()));
   info = {
-    stations: JSON.parse(text(x.mpm_stations())),
-    schedule: (station, wall) => { const day = Math.floor(wall / 86400); return JSON.parse(text(x.mpm_schedule(station, day, wall - day * 86400))); },
+    stations: JSON.parse(text(x.music_stations())),
+    schedule: (station, wall) => { const day = Math.floor(wall / 86400); return JSON.parse(text(x.music_schedule(station, day, wall - day * 86400))); },
   };
   return info;
 }
@@ -66,8 +85,8 @@ async function ensureAudio() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older Safari */ }
   const ac = new AC({ latencyHint: 'playback' });
   await ac.audioWorklet.addModule(await find('music-worklet.js'));
-  module = await WebAssembly.compileStreaming(fetch(await find('mp_music.wasm')));
-  node = new AudioWorkletNode(ac, 'mp-radio', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { module, seed: 2026 } });
+  module = await WebAssembly.compileStreaming(fetch(await find('music.wasm')));
+  node = new AudioWorkletNode(ac, 'music-radio', { numberOfInputs: 0, outputChannelCount: [2], processorOptions: { module, seed: 2026, stations: await loadStations() } });
   stationGain = ac.createGain(); // the DJ ducks this one
   gain = ac.createGain(); gain.gain.value = Number($('vol').value);
   analyser = ac.createAnalyser(); analyser.fftSize = 1024;
@@ -192,7 +211,7 @@ document.addEventListener('keydown', (e) => {
 // ── Favourites: keep and reject (radio.md 8) ─────────────────────
 // The file the verdicts live in, beside the stations' Rust; the same path
 // is read and written. `fav.songs` is keyed by the pair, `genre:seed`.
-const FAV_URL = new URL('../../crates/mp_music/favourites.json', import.meta.url);
+const FAV_URL = new URL('../../crates/mp_audio/favourites.json', import.meta.url);
 let fav = null;     // { writable, songs: Map }
 let current = null; // the song playing, as a favourites entry (verdict from the file, if any)
 const pairKey = (s) => `${s.genre}:${s.seed}`;

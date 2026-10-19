@@ -1,9 +1,9 @@
 """Turns the Music Lab's evaluated tables (the JSON of
 `node tools/music-lab/test/dump-tables.mjs`) into the Rust port's generated
-tables: crates/mp_music/src/patches.rs (BPATCH) and kits.rs (KITS and
+tables: ../../crates/music/src/patches.rs (BPATCH) and kits.rs (KITS and
 SAMPLE_TWEAK). Generated from the evaluated objects, not the source, so a key
 written twice in a literal (the FM operators' `r`) carries the value the lab
-plays with (DECISIONS D1150). Run from the repo root, then `cargo fmt`:
+plays with (DECISIONS D1150). Run from games/midnight-playground/, then `cargo fmt`:
 
     node tools/music-lab/test/dump-tables.mjs | python3 tools/music-lab/test/gen-rust-tables.py
 """
@@ -147,6 +147,6 @@ for name, tw in TWEAK.items():
     pairs = ", ".join(f'("{k}", {num(v)})' for k, v in tw.items())
     out.append(f'    ("{name}", &[{pairs}]),')
 out.append("];")
-open("crates/mp_music/src/kits.rs", "w").write("\n".join(out) + "\n")
-open("crates/mp_music/src/patches.rs", "w").write(gen_patches(d))
-print("wrote crates/mp_music/src/kits.rs and patches.rs")
+open("../../crates/music/src/kits.rs", "w").write("\n".join(out) + "\n")
+open("../../crates/music/src/patches.rs", "w").write(gen_patches(d))
+print("wrote ../../crates/music/src/kits.rs and patches.rs")

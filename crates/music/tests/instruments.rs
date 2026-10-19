@@ -9,12 +9,12 @@
 // The lab's index loops stay index loops, as in the crate.
 #![allow(clippy::needless_range_loop)]
 
-use mp_music::dsp::{Adsr, Ladder, Osc, Rng};
-use mp_music::instruments::{Drums, Instrument, TriggerOpt, kit_voice, make_instrument};
-use mp_music::js_round;
-use mp_music::kits::{KITS, kit};
-use mp_music::patches::{all, bpatch};
-use mp_music::track::{Lab, Op};
+use music::dsp::{Adsr, Ladder, Osc, Rng};
+use music::instruments::{Drums, Instrument, TriggerOpt, kit_voice, make_instrument};
+use music::js_round;
+use music::kits::{KITS, kit};
+use music::patches::{all, bpatch};
+use music::track::{Lab, Op};
 
 const RATE: f64 = 48000.0;
 

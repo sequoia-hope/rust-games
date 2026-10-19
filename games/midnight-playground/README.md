@@ -447,7 +447,8 @@ Engine Sound Lab: a listening prototype of the physical exhaust model in
 A/B against the current game engine and offline measurements.
 
 `tools/radio.html` (the same way) is the Radio: the game's stations on a
-dial, played by the game's own station player (`mp_music.wasm`), with what
+dial, played by the game's own station player (the music engine's `music.wasm`,
+with the stations of `crates/mp_audio/stations.json`), with what
 is on, the block's programme and the DJ between songs (`docs/vision/radio.md`
 7). It plays like a music app: on a phone it keeps playing with the screen
 locked, shows the station and song on the lock screen with play, pause and
@@ -455,7 +456,7 @@ next, and installs from "Add to Home Screen". It needs the Rust web build
 (`cargo xtask web --release`). For listening with intent it has what a
 radio lacks: Skip song (the page's clock runs ahead of the station's until
 Live), and Keep / Reject with a note on the song playing, which the dev
-server writes to `crates/mp_music/favourites.json` in the working tree
+server writes to `crates/mp_audio/favourites.json` in the working tree
 (`docs/vision/radio.md` 8); those controls show on a clone served by
 `serve.sh`, not on GitHub Pages.
 
@@ -468,7 +469,9 @@ UK garage and chicha tracks made from a seed (one hook each,
 with live knobs, an A/B against the game's music in step, and offline
 measurements. `npm run test:lab` runs both labs' tests;
 `node tools/music-lab/test/golden.mjs` writes `crates/music/tests/golden/` (repo root), the
-reference the Rust port (`crates/mp_music`) is checked against.
+reference the Rust port (`crates/music`, repo root) is checked against. The
+lab's engine is frozen: the music engine's Rust leads now, and the lab's UI
+is moving onto it (`crates/music/PLAN.md`).
 
 ## Music player
 

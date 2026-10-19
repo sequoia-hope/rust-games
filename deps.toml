@@ -58,7 +58,7 @@ banned = []
 
 # The Music Lab's port: no dependencies at all (it also builds as the
 # radio's standalone worklet wasm); the game's generated music.
-[crates.mp_music]
+[crates.music]
 allowed = []
 banned = "sim"
 
@@ -126,7 +126,7 @@ allowed = ["mp_track", "mp_levels", "mp_scene", "mp_worldgen"]
 banned = "world"
 
 [crates.mp_audio]
-allowed = ["mp_exhaust", "mp_music", "pk_math"]
+allowed = ["mp_exhaust", "music", "pk_math"]
 banned = "no_bevy"
 
 [crates.mp_net]
@@ -138,7 +138,7 @@ allowed = ["mp_track", "mp_levels", "mp_sim", "mp_net"]
 banned = "no_bevy"
 
 [crates.mp_game]
-allowed = ["mp_track", "mp_levels", "mp_sim", "mp_net", "mp_scene", "mp_worldgen", "mp_audio", "mp_music", "pk_math", "pk_canvas", "pk_shell"]
+allowed = ["mp_track", "mp_levels", "mp_sim", "mp_net", "mp_scene", "mp_worldgen", "mp_audio", "music", "pk_math", "pk_canvas", "pk_shell"]
 banned = []
 
 # The kernel's wasm build for the JS oracle (WP 0.3): pk_math only.
@@ -165,14 +165,8 @@ banned = "no_engine"
 allowed = ["sb_sim"]
 banned = "no_engine"
 
-# Its fork of the music engine (crates/music/CLAUDE.md): no dependencies at
-# all, as it also builds as the standalone worklet wasm.
-[crates.sb_music]
-allowed = []
-banned = "sim"
-
 [crates.sb_game]
-allowed = ["sb_sim", "sb_radio", "sb_music"]
+allowed = ["sb_sim", "sb_radio", "music"]
 banned = []
 
 [crates.sb_xtask]

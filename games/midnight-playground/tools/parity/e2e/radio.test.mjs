@@ -2,7 +2,7 @@
 // node comes up once the sound is woken, the level's station is tuned by
 // default, T steps round the dial (the stations, then the playlist) and the
 // choice is remembered. `__mp.audio.tuned` is the station the node plays
-// (an index in mp_music::radio::STATIONS, -1 none), `radioReady` whether
+// (an index in mp_audio::stations::STATIONS, -1 none), `radioReady` whether
 // the node is built and tuned, `station` the setting.
 //
 //   cargo xtask web --release && node --test tools/parity/e2e/radio.test.mjs

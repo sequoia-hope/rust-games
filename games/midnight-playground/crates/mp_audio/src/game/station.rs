@@ -1,5 +1,5 @@
 //! The car radio's stations (docs/vision/radio.md 7, DECISIONS D1151): the
-//! radio node (`mp_music`'s station player in an AudioWorklet) playing into
+//! radio node (`music`'s station player in an AudioWorklet) playing into
 //! the music bus, so the bus's compressor, gate, duck, mood filter and
 //! volume apply to a station exactly as to the old music. While a station
 //! plays, the old `Music` (the playlist) is stopped; tuning off brings it
@@ -11,8 +11,9 @@
 //! `GameAudio` never does.
 
 use super::{GameAudio, clamp};
+use crate::stations::STATIONS;
 use crate::wa::{GainNode, Pending, RadioNode};
-use mp_music::radio::{STATIONS, wall_parts};
+use music::radio::wall_parts;
 
 pub(crate) struct StationNode {
     node: RadioNode,

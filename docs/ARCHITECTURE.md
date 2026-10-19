@@ -11,7 +11,7 @@ games/midnight-playground (mp_*)      games/snowboarding (sb_*)
         │        │                            │
         │        └──────────────┐             │ (patches only, today;
         ▼                       ▼             ▼  pk_shell adoption planned)
- crates/music (mp_music)   crates/engine (pk_*) ──► crates/engine/patches
+ crates/music (music)      crates/engine (pk_*) ──► crates/engine/patches
                                                     (wgpu, wgpu-hal,
                                                      bevy_ui_render)
 ```
@@ -37,10 +37,11 @@ Midnight Playground uses all of them. Snowboarding uses the patches today;
 its adoption of `pk_shell` is planned (`crates/engine/docs/handoff-snowboarding.md`,
 now simply a task for whichever session does it).
 
-**crates/music — the music engine** (package `mp_music`): procedural music
+**crates/music — the music engine** (package `music`): procedural music
 from the Music Lab, per sample, also built as a standalone AudioWorklet
-wasm. Midnight Playground's radio uses it; Snowboarding has a fork
-(`sb_music`) awaiting the redesign (`crates/music/CLAUDE.md`).
+wasm (`music.wasm` and its shim `crates/music/web/music-worklet.js`). Both
+games' radios play it, each with its own station table (a JSON file the
+game passes in); its redesign is `crates/music/PLAN.md`.
 
 ## The games
 
@@ -51,8 +52,8 @@ wasm. Midnight Playground's radio uses it; Snowboarding has a fork
   client `mp_game`; also the legacy JS game (frozen). Docs:
   `docs/rust-port/SPEC.md`, `ROADMAP.md`, `DECISIONS.md` there.
 - **games/snowboarding** — the 1080°-style snowboarding game: `sb_sim`
-  (simulation), `sb_radio` (announcers), `sb_music` (music fork), `sb_game`
-  (Bevy client).
+  (simulation), `sb_radio` (announcers), `sb_game` (Bevy client; its radio is the
+  shared music engine).
 
 ## One workspace
 

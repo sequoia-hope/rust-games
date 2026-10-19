@@ -1,8 +1,8 @@
 //! How loud the station plays (RMS and peak, dBFS) at a few energies and
 //! wall times: for setting the music's level under the announcers.
-//! `cargo run --release -p sb_music --example levels`
-use sb_music::player::Player;
-use sb_music::radio::{EPOCH, wall_parts};
+//! `cargo run --release -p sb_game --example levels`
+use music::player::Player;
+use music::radio::{EPOCH, Station, wall_parts};
 
 fn main() {
     let sr = 48000.0;
@@ -10,7 +10,8 @@ fn main() {
         for k in 0..4 {
             let wall = EPOCH + 9.0 * 86400.0 + 1000.0 + k as f64 * 3600.0;
             let (day, sec) = wall_parts(wall);
-            let mut p = Player::new(2026, sr);
+            let stations = Station::parse_list(include_str!("../stations.json")).expect("stations");
+            let mut p = Player::new(2026, sr, stations);
             p.set_params(0.0, day as f32, sec as f32, 1.0, energy);
             let (mut l, mut r) = (vec![0f32; 128], vec![0f32; 128]);
             let (mut sum, mut n, mut peak) = (0f64, 0usize, 0f32);

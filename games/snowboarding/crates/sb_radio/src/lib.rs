@@ -1,7 +1,7 @@
 //! The game's commentary: the two television announcers who call the runs
 //! of the Ten-Eighty Mountain Series ([`script`]), and the [`director`]
 //! that decides when they speak and what they say, from the run's events.
-//! The music under them is `sb_music`'s station; the client plays both
+//! The music under them is `music`'s station; the client plays both
 //! (`sb_game::audio`).
 //!
 //! Engine-free and clock-free like the simulation: the client feeds the

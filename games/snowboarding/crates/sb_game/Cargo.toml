@@ -69,7 +69,7 @@ bevy = { version = "=0.19.1", default-features = false, features = ["web", "webg
 bevy = { version = "=0.19.1", default-features = false, features = ["web", "webgl2"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-sb_music.workspace = true
+music.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures = "0.4"
 js-sys.workspace = true
@@ -87,3 +87,8 @@ log = { version = "0.4", default-features = false, features = ["release_max_leve
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(sb_webgl2)"] }
+
+# The `levels` example measures the station natively (the game links the
+# music engine only on the web).
+[dev-dependencies]
+music.workspace = true

@@ -1,7 +1,7 @@
 // Music Lab: prints the evaluated instrument and sequencer tables as JSON
 // (BPATCH, KITS, SAMPLE_TWEAK, FILLS, DRUM_LANES, with the SHA-256 of the
 // canonical BPATCH and KITS), for the Rust port's generated tables
-// (crates/mp_music/src/patches.rs, kits.rs). Run: node tools/music-lab/test/dump-tables.mjs
+// (../../crates/music/src/patches.rs, kits.rs). Run: node tools/music-lab/test/dump-tables.mjs
 import { BPATCH, KITS, SAMPLE_TWEAK } from '../instruments.js';
 import { FILLS, DRUM_LANES } from '../seq.js';
 import { createHash } from 'node:crypto';

@@ -9,8 +9,8 @@ follows a task into the shared crates, branches and worktrees,
 0.19 idiom, its `crates/mp_game` is the best reference, and so is
 `~/.cargo/registry/src/*/bevy_*-0.19.1`. The shared engine (Playground
 Kit) is `crates/engine/` at the repo root; adopting its `pk_shell`
-(`crates/engine/docs/handoff-snowboarding.md`) is open work. `sb_music` is
-a fork of the shared music engine (`crates/music/CLAUDE.md`).
+(`crates/engine/docs/handoff-snowboarding.md`) is open work. The radio is the shared music engine (`crates/music`)
+playing this game's station table, `crates/sb_game/stations.json`.
 
 ## Principles
 
@@ -26,8 +26,8 @@ a fork of the shared music engine (`crates/music/CLAUDE.md`).
 
 | What | Command |
 |---|---|
-| Tests (this game's crates; the whole workspace: root `CLAUDE.md`) | `cargo nextest run -p sb_sim -p sb_radio -p sb_music -p sb_game` |
-| Lints | `cargo clippy -p sb_sim -p sb_radio -p sb_music -p sb_game --all-targets` |
+| Tests (this game's crates; the whole workspace: root `CLAUDE.md`) | `cargo nextest run -p sb_sim -p sb_radio -p sb_game` |
+| Lints | `cargo clippy -p sb_sim -p sb_radio -p sb_game --all-targets` |
 | Web build into `dist/web/` | `cargo xtask web --release` (`--only webgpu\|webgl2`) |
 | Wasm sizes | `cargo xtask size` |
 | Headless CPU race, for tuning physics | `cargo run --release -p sb_sim --bin sb-sim -- <course> <mode>` |

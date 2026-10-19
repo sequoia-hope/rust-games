@@ -35,7 +35,7 @@ enum WebNode {
     Analyser(ws::AnalyserNode),
     /// `web/exhaust-worklet.js` running `mp_exhaust.wasm`.
     Exhaust(ws::AudioWorkletNode),
-    /// `web/music-worklet.js` running `mp_music.wasm`.
+    /// the music engine's `music-worklet.js` running `music.wasm`.
     Radio(ws::AudioWorkletNode),
 }
 
@@ -124,7 +124,7 @@ const EXHAUST_WASM_URL: &str = "mp_exhaust.wasm";
 const EXHAUST_SEED: u32 = 12345;
 /// The radio worklet's files (D1151), beside the page too.
 const RADIO_WORKLET_URL: &str = "music-worklet.js";
-const RADIO_WASM_URL: &str = "mp_music.wasm";
+const RADIO_WASM_URL: &str = "music.wasm";
 /// The station player's seed (the native processor's too).
 const RADIO_SEED: u32 = 2026;
 
@@ -319,13 +319,19 @@ impl WebBackend {
                 let po = js_sys::Object::new();
                 js_sys::Reflect::set(&po, &"module".into(), &module)?;
                 js_sys::Reflect::set(&po, &"seed".into(), &RADIO_SEED.into())?;
+                // The station table, as bytes: a worklet scope has no
+                // TextEncoder.
+                let stations = js_sys::Uint8Array::from(crate::stations::STATIONS_JSON.as_bytes());
+                js_sys::Reflect::set(&po, &"stations".into(), &stations)?;
                 let opts = ws::AudioWorkletNodeOptions::new();
                 opts.set_number_of_inputs(0);
                 opts.set_number_of_outputs(1);
                 opts.set_output_channel_count(&js_sys::Array::of1(&2.into()));
                 opts.set_processor_options(Some(&po));
                 WebNode::Radio(ws::AudioWorkletNode::new_with_options(
-                    c, "mp-radio", &opts,
+                    c,
+                    "music-radio",
+                    &opts,
                 )?)
             }
         })

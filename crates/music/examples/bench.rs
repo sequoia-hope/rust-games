@@ -1,13 +1,14 @@
-//! `cargo run --release -p mp_music --example bench`: the station player's
+//! `cargo run --release -p music --example bench`: the station player's
 //! cost, as seconds of audio rendered per second of CPU, per station.
-use mp_music::player::Player;
-use mp_music::radio::{EPOCH, STATIONS, wall_parts};
+use music::player::Player;
+use music::radio::{EPOCH, Station, wall_parts};
 use std::time::Instant;
 
 fn main() {
     let sr = 48000.0;
-    for (i, st) in STATIONS.iter().enumerate() {
-        let mut p = Player::new(2026, sr);
+    let stations = Station::parse_list(include_str!("stations.json")).expect("stations");
+    for (i, st) in stations.iter().enumerate() {
+        let mut p = Player::new(2026, sr, stations.clone());
         let (day, sec) = wall_parts(EPOCH + 86400.0 * 11.0 + 300.0);
         p.set_params(i as f32, day as f32, sec as f32, 1.0, 1.0);
         let mut l = vec![0.0f32; 128];

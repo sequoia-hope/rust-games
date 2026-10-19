@@ -8,10 +8,10 @@
 // The lab's index loops stay index loops, as in the crate.
 #![allow(clippy::needless_range_loop)]
 
-use mp_music::engine::{Engine, EngineEvent};
-use mp_music::genres::genre;
-use mp_music::js_round;
-use mp_music::track::{Track, lookup};
+use music::engine::{Engine, EngineEvent};
+use music::genres::genre;
+use music::js_round;
+use music::track::{Track, lookup};
 
 const RATE: f64 = 48000.0;
 
