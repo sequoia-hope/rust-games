@@ -1,0 +1,35 @@
+{
+ "about": "Candidate voices for the two announcers. design.py speaks each announcer's ref_text in every candidate and saves voices/<candidate>.flac; render.py clones the 'chosen' one for every line, and the clone copies that clip's delivery as well as its voice, so the ref_text is written as live, high-energy television sports commentary. A candidate is a plain-English description for Qwen3-TTS VoiceDesign ('instruct'), or another candidate's voice cloned onto this announcer's ref_text ('clone', by the Base model). A candidate may speak its own 'ref_text' instead of the announcer's. 'seed' picks the take. History: the first voices (2026-10-16, dani-jersey and wren-light) were designed reading radio DJ copy, and every line came out that way. Redesigning from a description for an excited broadcaster (2026-10-18) gave lively voices, but nothing like the old ones and mostly close to midnight-playground's DJs (0.4 to 0.8 alike), so the chosen ones are the old voices cloned onto broadcast copy: as alike to the old as 0.57 (Dani) and 0.80 (Wren), and wider in pitch (Dani 16 semitones from 5 to 95 percent, was 13; Wren 12, was 10; Dani's excitement lifts her median pitch to about 283 Hz, and Wren's take is the one that keeps her old 264 Hz, where a livelier one fell to 229). The voices must stay unlike midnight-playground's DJs (Marisol, Kit, Teo, Tess, Dez; all West Coast American): check a new candidate with compare.py against ../midnight-playground/tools/dj-voice/voices. As chosen, Dani (New Jersey, booming) is at most 0.23 alike to any of them and Wren (New Zealand, light) at most 0.34, by Qwen3-TTS's speaker embedding centred on the pool of them and the first two voices. Candidates that came out close to Kit (Boston voices, above 0.35) were dropped.",
+ "announcers": {
+  "dani": {
+   "chosen": "dani-booth",
+   "ref_text": "Welcome back to the Ten-Eighty Mountain Series! I'm Dani Reyes, and folks, what a run we just saw! Big air, huge rotation, and she sticks the landing! The crowd is on its feet! Here comes the next rider out of the gate, let's see what she's got!",
+   "candidates": {
+    "dani-jersey": {
+     "instruct": "A woman around forty-five with a deep, full, round, resonant voice and a thick New Jersey accent, a play-by-play sports announcer with a big heart. Booming and low, great comic timing, stretches words out for drama, laughs from the belly.",
+     "ref_text": "Ten-Eighty FM, good morning, mountain. I'm Dani Reyes, and let me tell you something, that last run was really good. Big air, big landing, big heart. Alright, alright. Here comes the next rider. Let's see what you got, babe.",
+     "seed": 7
+    },
+    "dani-booth": {
+     "clone": "dani-jersey",
+     "seed": 2
+    }
+   }
+  },
+  "wren": {
+   "chosen": "wren-booth",
+   "ref_text": "Wren Halvorsen here in the booth! That was a clean landing, and a very tidy grab. Look at that line, that is textbook! And Dani is shouting again. We can all hear you, Dani! Next rider is in the gate. Here we go!",
+   "candidates": {
+    "wren-light": {
+     "instruct": "A small woman in her mid-twenties with a light, high, airy voice and a strong New Zealand accent, a retired racer turned sports commentator. Quick, clipped and deadpan, bone-dry humour, precise diction, a little breathy, never raises her voice.",
+     "ref_text": "This is Ten-Eighty FM. I'm Wren. That was a clean landing, and a very sloppy grab. I'll allow it. Dani is screaming again. We can all hear you, Dani. Next rider. Try to stay on your feet.",
+     "seed": 7
+    },
+    "wren-booth": {
+     "clone": "wren-light",
+     "seed": 7
+    }
+   }
+  }
+ }
+}

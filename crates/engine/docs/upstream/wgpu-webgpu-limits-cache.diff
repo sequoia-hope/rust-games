@@ -1,0 +1,42 @@
+--- a/src/backend/webgpu.rs
++++ b/src/backend/webgpu.rs
+@@ -979,6 +979,8 @@
+                     inner: device,
+                     ident: crate::cmp::Identifier::create(),
+                     error_scope_count: Rc::new(Cell::new(0)),
++                    limits: Rc::new(OnceCell::new()),
++                    features: Rc::new(OnceCell::new()),
+                 }
+                 .into(),
+                 WebQueue {
+@@ -1204,6 +1206,12 @@
+     ident: crate::cmp::Identifier,
+     /// Current number of error scopes that have been pushed on the device.
+     error_scope_count: Rc<Cell<u32>>,
++    /// The device's limits and features, read from the browser once:
++    /// neither changes after the device is made. Bevy asks for the limits
++    /// on every draw, and each read went through every field of
++    /// `GPUSupportedLimits` (Midnight Playground, DECISIONS D1182).
++    limits: Rc<OnceCell<crate::Limits>>,
++    features: Rc<OnceCell<crate::Features>>,
+ }
+ 
+ #[derive(Debug, Clone)]
+@@ -1758,11 +1766,15 @@
+ 
+ impl dispatch::DeviceInterface for WebDevice {
+     fn features(&self) -> crate::Features {
+-        map_wgt_features(self.inner.features())
++        *self
++            .features
++            .get_or_init(|| map_wgt_features(self.inner.features()))
+     }
+ 
+     fn limits(&self) -> crate::Limits {
+-        map_wgt_limits(self.inner.limits())
++        self.limits
++            .get_or_init(|| map_wgt_limits(self.inner.limits()))
++            .clone()
+     }
+ 
+     fn adapter_info(&self) -> crate::AdapterInfo {

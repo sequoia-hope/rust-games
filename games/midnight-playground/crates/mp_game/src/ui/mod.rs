@@ -1,0 +1,2673 @@
+//! The front end's screens (roadmap M6, WP 6.1 and 6.2; SPEC 8.1): the
+//! loading screen, the main menu, pause, results and the controller setup,
+//! as `index.html`, `hud.css` and `main.js` have them, in Bevy UI (D431).
+//!
+//! - [`store`]: the settings and records under the JS's `localStorage` keys.
+//! - [`widgets`]: tokens, breakpoints, the font and the controls.
+//! - `menu`: the main menu; `screens`: loading, pause, results, controller;
+//!   `settings`: the Settings screen (D1196), over the menu or pause.
+//!
+//! The session flow is `main.js`'s: the menu over the attract camera; Race
+//! loads the chosen level if it is not the one built (`loadLevel`), builds
+//! the field and holds the countdown until its pipelines are compiled
+//! (`startRace`'s `compileAsync`), then drives; pause, results, Restart,
+//! Race again and Main menu as there. A level tab only selects: the menu's
+//! attract camera shows that level's section (`crate::preview`, D676,
+//! D740 on), and Race builds or downloads the level whole. Opening the page with `?level=` still races straight
+//! away (DECISIONS D432); the menu is the default with no level given
+//! (D570).
+
+pub mod store;
+pub mod widgets;
+
+pub mod lobby;
+mod menu;
+pub(crate) mod nav;
+pub(crate) mod pad_setup;
+mod screens;
+mod settings;
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod web;
+
+use crate::options::Options;
+use crate::play::flow::{Mode, fmt_time, ordinal};
+use crate::play::{Play, PlayFrame};
+use crate::status::Status;
+use crate::{CameraState, Opts, TrackRes};
+use bevy::input::ButtonState;
+use bevy::input::keyboard::{KeyCode, KeyboardInput};
+use bevy::input::mouse::{MouseButtonInput, MouseScrollUnit, MouseWheel};
+use bevy::input::touch::{TouchInput, TouchPhase};
+use bevy::prelude::*;
+use bevy::ui::{ComputedNode, ScrollPosition, UiGlobalTransform};
+use bevy::window::{CursorMoved, PrimaryWindow};
+use mp_sim::race::{RaceStateKind, cruise_results, pursuit_stats};
+use store::{Settings, Store};
+use widgets::{Bp, Control, Icons, SliderTrack, Value};
+
+/// Which screen shows (`screenNow`; `None` while driving).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Screen {
+    Loading,
+    Menu,
+    Pause,
+    Results,
+    PadSetup,
+    /// Multiplayer's lobby (WP 10.7).
+    Lobby,
+    /// The options, over the menu or the pause screen (D1196).
+    Settings,
+    None,
+}
+
+impl Screen {
+    pub fn name(self) -> &'static str {
+        match self {
+            Screen::Loading => "loading",
+            Screen::Menu => "menu",
+            Screen::Pause => "pause",
+            Screen::Results => "results",
+            Screen::PadSetup => "padsetup",
+            Screen::Lobby => "lobby",
+            Screen::Settings => "settings",
+            Screen::None => "none",
+        }
+    }
+}
+
+/// The checkboxes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opt {
+    Mph,
+    Hq,
+    Flash,
+    Autogas,
+    Fullscreen,
+    Rumble,
+    ClassicEngine,
+    /// The radio on or off (D1160): not a stored bool of its own, it moves
+    /// `station` between the radio's station and the playlist.
+    Radio,
+}
+
+/// The range sliders.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sl {
+    Music,
+    Sfx,
+    TiltSens,
+}
+
+/// The selects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sel {
+    Track,
+    Steer,
+    Pedals,
+    /// The guide line (Rust only, D1083).
+    Guide,
+    /// The steering assist (Rust only, D1083).
+    Assist,
+    /// The radio station (Rust only, D1151).
+    Station,
+    /// The render scale (the web only, D1194).
+    Scale,
+    /// Handling: which cars the sim model moves (Rust only, D1202).
+    Physics,
+}
+
+/// What activating a control does.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Act {
+    Level(&'static str),
+    Car(&'static str),
+    Mode(&'static str),
+    Start,
+    Toggle(Opt),
+    Slide(Sl),
+    Open(Sel),
+    Choose(Sel, String),
+    CloseDropdown,
+    MusicLink,
+    /// The level viewer on the chosen level (SPEC 8.6).
+    Viewer,
+    PadSetup,
+    /// The Settings screen, from the menu or the pause screen (D1196),
+    /// and its Done.
+    Settings,
+    SettingsDone,
+    Resume,
+    EndRun,
+    /// From an event at a place's results back to the cruise.
+    Continue,
+    Restart,
+    Quit,
+    NextTrack,
+    Again,
+    Menu,
+    PadBind(&'static str),
+    PadDefaults,
+    PadDone,
+    /// Natively: leave the game, as Ctrl+Q does (D1002); the window state
+    /// is saved on the way out (D1060).
+    Exit,
+    /// Multiplayer: the lobby's buttons and the menu's way in (WP 10.7).
+    Mp(lobby::MpAct),
+}
+
+/// Frames between freeing the menu's views and asking for the level: the
+/// despawned assets are released over the next frames (D751).
+const FREE_FRAMES: u32 = 4;
+
+/// A Race tap in progress (`startRace`): waiting for the level to load,
+/// then for the field's pipelines (at most three seconds, as the JS's
+/// `compileAsync` race).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Starting {
+    /// The menu's views are being freed; the level is asked for once they
+    /// are (frames waited so far, D751).
+    Free(u32),
+    Level,
+    Build {
+        frames: u32,
+        quiet: u32,
+        t: f64,
+    },
+}
+
+/// One line of the results table.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResRow {
+    pub place: String,
+    pub name: String,
+    pub color: Option<u32>,
+    pub value: String,
+    pub me: bool,
+}
+
+/// One stat tile under the results (`.res-stat`): value, label, and stars
+/// drawn after the label (★ on the best lap) or as the value (top heat).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResTile {
+    pub value: String,
+    pub label: String,
+    pub label_star: bool,
+    pub stars: usize,
+}
+
+/// What `showResults` put on the screen.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct ResultsView {
+    pub title: String,
+    pub rows: Vec<ResRow>,
+    pub tiles: Vec<ResTile>,
+    pub best: String,
+    /// A multiplayer race: back to the lobby, not Race again.
+    pub online: bool,
+    /// An event at a place: back to the cruise, not Race again.
+    pub event: bool,
+}
+
+/// The front end's state.
+#[derive(Resource)]
+pub struct UiState {
+    pub settings: Settings,
+    /// Started without `?level=`: the menu comes first, and the race built
+    /// behind the loading screen is only a warm-up for the cars' pipelines.
+    pub menu_first: bool,
+    preview: bool,
+    pub screen: Screen,
+    pad_return: Screen,
+    /// Where the Settings screen goes back to (D1196).
+    settings_return: Screen,
+    starting: Option<Starting>,
+    /// Rebuild the screen's nodes.
+    dirty: bool,
+    bp: Option<Bp>,
+    built: Option<Screen>,
+    scroll: f32,
+    /// The control with the keyboard focus, by id; the focus order of the
+    /// last build.
+    focus: Option<String>,
+    focus_order: Vec<String>,
+    dropdown: Option<(Sel, (f32, f32, f32))>,
+    pub results: Option<ResultsView>,
+    /// A pointer down: where, on what, and whether it turned into a scroll
+    /// or a slider drag.
+    press: Option<Press>,
+    /// Races started (the test bridge's count).
+    pub races: u32,
+    /// `__mp.reveal(id)`: scroll that control to the middle.
+    pub reveal: Option<String>,
+    /// For the sound (`sync_audio`): the menu buttons' clicks, a level
+    /// tab's music, Next track, and `toMenu`.
+    clicks: Vec<&'static str>,
+    audio_level: Option<String>,
+    next_track: bool,
+    to_menu: bool,
+    /// Gamepads connected (`body.pad`): none until WP 6.4 reads them.
+    pub pads: bool,
+    /// The page's safe-area inset at the top, CSS px.
+    pub inset_top: f32,
+    /// How far the page's build line reaches up from the bottom, CSS px
+    /// (`__mp.footer`): the menu keeps clear of it.
+    pub footer: f32,
+    /// `#np-pause`: the track playing (`showNowPlaying`), empty until one does.
+    pub now_playing: String,
+    /// A radio station plays: the pause screen's button says "Next station".
+    pub on_station: bool,
+}
+
+impl UiState {
+    /// The screen under an overlay (Settings, or the Controller screen,
+    /// which may itself sit over Settings): where it goes back to.
+    fn under(&self) -> Option<Screen> {
+        match self.screen {
+            Screen::Settings => Some(self.settings_return),
+            Screen::PadSetup if self.pad_return == Screen::Settings => Some(self.settings_return),
+            Screen::PadSetup => Some(self.pad_return),
+            _ => None,
+        }
+    }
+
+    /// Opens the Settings screen over the menu or the pause screen.
+    fn open_settings(&mut self) {
+        if self.screen == Screen::Menu || self.screen == Screen::Pause {
+            self.settings_return = self.screen;
+            self.screen = Screen::Settings;
+            self.scroll = 0.0;
+            self.focus = None;
+            self.dropdown = None;
+            self.dirty = true;
+        }
+    }
+
+    /// Done, Esc or B on the Settings screen: back to where it was opened.
+    pub(crate) fn leave_settings(&mut self) {
+        if self.screen == Screen::Settings {
+            self.screen = self.settings_return;
+            self.scroll = 0.0;
+            self.focus = None;
+            self.dropdown = None;
+            self.dirty = true;
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Press {
+    id: u64,
+    at: Vec2,
+    last: Vec2,
+    target: Option<(Entity, String, Option<Act>)>,
+    scrolling: bool,
+    slider: Option<(Sl, f32, f32)>,
+}
+
+/// The root of the shown screen's nodes.
+#[derive(Component)]
+struct UiRoot;
+
+/// The screen's scrolling node.
+#[derive(Component)]
+struct Scroller;
+
+/// Whether this run opens on the menu, for a level that races. As in the
+/// JS, `?level=` only picks the menu's level (not saved) and `autostart`
+/// races at once; so do the Rust-only `race=1`, `car=` (D432) and the
+/// native `shots=` (D903).
+pub fn menu_first(o: &Options) -> bool {
+    o.race_on()
+        && o.param("autostart").is_none()
+        && o.param("race").is_none()
+        && o.param("car").is_none()
+        && o.param("shots").is_none()
+}
+
+/// Before the app is built: a menu-first run builds the saved level
+/// (`settings.level`) behind the menu, as `loadLevel(settings.level)` does
+/// at boot; and the high-quality setting is the saved one unless `?hq=`
+/// says, the render scale the saved one unless `?scale=` says (D1194).
+/// Returns `(hq, scale)`.
+pub fn prepare(o: &mut Options, touch: bool) -> (bool, f64) {
+    let store = store::platform();
+    let settings = Settings::load(&store, touch);
+    let level_given = o.param("level").is_some();
+    if !level_given && (menu_first(o) || o.param("autostart").is_some()) {
+        o.level = settings.level.clone();
+    }
+    (
+        o.hq.unwrap_or(settings.hq),
+        o.scale.unwrap_or_else(|| store::scale_of(&settings.scale)),
+    )
+}
+
+pub fn plugin(app: &mut App) {
+    if app.world().get_resource::<Play>().is_none() {
+        return;
+    }
+    let o = app.world().resource::<Opts>().o.clone();
+    // As the page decided it (play's own copy is set at Startup).
+    let touch = touch_ui(&o);
+    let store = store::platform();
+    let mut settings = Settings::load(&store, touch);
+    // `if (params.has('level')) settings.level = params.get('level')`.
+    if o.param("level").is_some() {
+        settings.level = o.level.clone();
+    }
+    let first = menu_first(&o);
+    {
+        let mut play = app.world_mut().resource_mut::<Play>();
+        // The car and the mode a race gets unless the address says
+        // (`car=`/`autostart=`, `pursuit=`): the saved ones (D570).
+        if o.param("car").is_none()
+            && let Some(k) = store::car_kinds().find(|k| *k == settings.car)
+            && o.param("autostart")
+                .is_none_or(|a| !store::car_kinds().any(|k| k == a))
+        {
+            play.params.car = k;
+        }
+        // `new PursuitView(race, { flash: settings.flash })`.
+        play.params.flash = settings.flash;
+        if !play.params.physics_forced {
+            play.params.physics =
+                mp_sim::model::Physics::parse(&settings.physics).unwrap_or_default();
+        }
+        {
+            let level = mp_levels::level_by_id(&o.level);
+            let mode = store::mode_for(&store, &level);
+            if o.param("pursuit").is_none() {
+                play.params.pursuit = mode == "pursuit";
+            }
+            if o.param("cruise").is_none() {
+                play.params.cruise = mode == "cruise";
+            }
+        }
+        // Over the menu's views no field is built at boot (D751): Race
+        // builds the level first, then the cars and the sound's graph.
+        if crate::preview::wanted(&o) {
+            play.armed = false;
+        }
+    }
+    app.insert_resource(store)
+        .insert_resource(UiState {
+            settings,
+            menu_first: first,
+            preview: first,
+            screen: Screen::Loading,
+            pad_return: Screen::Menu,
+            settings_return: Screen::Menu,
+            starting: None,
+            dirty: true,
+            bp: None,
+            built: None,
+            scroll: 0.0,
+            focus: None,
+            focus_order: Vec::new(),
+            dropdown: None,
+            results: None,
+            press: None,
+            races: 0,
+            reveal: None,
+            clicks: Vec::new(),
+            audio_level: None,
+            next_track: false,
+            to_menu: false,
+            pads: false,
+            inset_top: 0.0,
+            footer: 0.0,
+            now_playing: String::new(),
+            on_station: false,
+        })
+        .init_resource::<nav::MenuNav>()
+        .init_resource::<pad_setup::PadSetup>()
+        .add_systems(Startup, (widgets::load_fonts, widgets::make_icons))
+        .add_systems(
+            Update,
+            (
+                pointer,
+                keys,
+                sync_audio,
+                flow,
+                nav::update,
+                build,
+                after_layout,
+            )
+                .chain()
+                .before(PlayFrame),
+        );
+    crate::play::gamepad_io::pad_setup_frame(app, pad_setup::frame);
+    #[cfg(not(target_arch = "wasm32"))]
+    if o.param("uiscript").is_some() {
+        app.add_systems(Update, ui_script.before(pointer));
+    }
+    // Opened with an invitation (`#join=…`, or `--join <link>`): straight
+    // to the lobby once the menu is up (MULTIPLAYER 8.1, item 6).
+    if crate::net::page_link().is_some() || o.param("join").is_some_and(crate::net::link::is_link) {
+        app.add_systems(Update, auto_join.before(pointer));
+    }
+    #[cfg(target_arch = "wasm32")]
+    web::plugin(app);
+}
+
+/// The touch UI as the page decided it (`__mp.touch`), or `?touch=`.
+pub fn touch_ui(o: &Options) -> bool {
+    if let Some(t) = o.param("touch") {
+        return t == "1";
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web::page_touch().unwrap_or(false)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        false
+    }
+}
+
+/// The level the page downloads first (`start_level()` on the web).
+pub fn set_start_level(level: &str) {
+    #[cfg(target_arch = "wasm32")]
+    web::set_start_level(level);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = level;
+}
+
+/// Asks the platform for another level's scene (`loadLevel`): the page
+/// downloads it (`__mp.reload`), natively a thread reads it.
+fn request_level(level: &str) {
+    #[cfg(target_arch = "wasm32")]
+    web::reload(level);
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::native::reload(level);
+}
+
+/// The session's mode as `window.__game.mode` reads it.
+pub fn mode_name(ui: &UiState, play: &Play, status: &Status) -> &'static str {
+    if !status.ready || matches!(ui.starting, Some(Starting::Level | Starting::Free(_))) {
+        return "loading";
+    }
+    match (&play.race, ui.preview, ui.starting) {
+        (Some(r), false, None) => match r.mode {
+            Mode::Race => "race",
+            Mode::Paused => "paused",
+            Mode::Results => "results",
+        },
+        _ => "menu",
+    }
+}
+
+/// The session flow, once a frame: the warm-up race let go, a Race tap
+/// carried through, the screen that shows, and the results kept.
+#[allow(clippy::too_many_arguments)]
+fn flow(
+    mut ui: ResMut<UiState>,
+    mut play: ResMut<Play>,
+    mut store: ResMut<Store>,
+    status: Res<Status>,
+    opts: Res<Opts>,
+    time: Res<Time>,
+    tr: Res<TrackRes>,
+    mut cs: ResMut<CameraState>,
+    mut previews: ResMut<crate::preview::Previews>,
+    netv: Res<crate::net::NetView>,
+    mut cut_short: Local<f32>,
+) {
+    let ui = &mut *ui;
+    // Multiplayer: the host ended the race before this player's results
+    // (the leader's End race, or everyone else gone). A finish ends the
+    // race too, so give the results a moment to come up before going back
+    // to the lobby.
+    let unfinished = play
+        .race
+        .as_ref()
+        .is_some_and(|r| r.online_now() && r.results.is_none());
+    if netv.ended && netv.pending_level.is_none() && unfinished {
+        *cut_short += time.delta_secs();
+        if *cut_short > 1.5 {
+            *cut_short = 0.0;
+            play.stop = true;
+            play.armed = false;
+            to_attract(&mut cs, &tr);
+            ui.screen = Screen::Lobby;
+            ui.dirty = true;
+        }
+    } else {
+        *cut_short = 0.0;
+    }
+    // Multiplayer: the host started a race. Load its level as Race would,
+    // then the race is built online (`play::start`); a finished race still
+    // on screen goes first.
+    if let Some(level) = &netv.pending_level
+        && ui.starting.is_none()
+        && status.ready
+    {
+        if play.race.is_some() {
+            play.stop = true;
+            play.armed = false;
+        }
+        ui.settings.level = level.clone();
+        previews.free_sections();
+        ui.starting = Some(if previews.has_full(level) {
+            Starting::Level
+        } else {
+            crate::preview::cover();
+            Starting::Free(0)
+        });
+        ui.dirty = true;
+    }
+    // The race built behind the loading screen of a menu-first run warmed
+    // the cars' pipelines; the menu shows the attract camera.
+    if ui.preview && status.ready && play.race.is_some() {
+        ui.preview = false;
+        play.stop = true;
+        play.armed = false;
+        to_attract(&mut cs, &tr);
+    }
+    // With the menu's views no field is built behind the menu (D751): the
+    // race's cars come up after the level, as a race from the address.
+    if ui.preview && status.ready && (tr.none || crate::preview::active()) {
+        ui.preview = false;
+    }
+    // Race: the views freed, then the level, then the field and its
+    // pipelines (D751).
+    match ui.starting {
+        Some(Starting::Free(n)) => {
+            if n >= FREE_FRAMES {
+                request_level(&ui.settings.level.clone());
+                ui.starting = Some(Starting::Level);
+            } else {
+                ui.starting = Some(Starting::Free(n + 1));
+            }
+        }
+        Some(Starting::Level) => {
+            // The level drawn whole, not its menu section (D743).
+            if status.ready
+                && opts.o.level == ui.settings.level
+                && previews.has_full(&ui.settings.level)
+                && !ui.preview
+            {
+                arm(ui, &mut play, &store, &opts.o);
+                ui.starting = Some(Starting::Build {
+                    frames: 0,
+                    quiet: 0,
+                    t: time.elapsed_secs_f64(),
+                });
+            }
+        }
+        Some(Starting::Build { frames, quiet, t }) if play.race.is_some() => {
+            let quiet = if status.pipelines_waiting == 0 {
+                quiet + 1
+            } else {
+                0
+            };
+            let waited = time.elapsed_secs_f64() - t;
+            if (frames >= 3 && quiet >= 3) || waited > 3.0 {
+                play.hold = false;
+                ui.starting = None;
+                ui.races += 1;
+            } else {
+                ui.starting = Some(Starting::Build {
+                    frames: frames + 1,
+                    quiet,
+                    t,
+                });
+            }
+        }
+        _ => {}
+    }
+    // The screen.
+    let racing = play.race.is_some() && !ui.preview && ui.starting.is_none();
+    let mut screen =
+        if !status.ready || matches!(ui.starting, Some(Starting::Level | Starting::Free(_))) {
+            Screen::Loading
+        } else if racing {
+            match play.race.as_ref().map(|r| r.mode) {
+                Some(Mode::Paused) => Screen::Pause,
+                Some(Mode::Results) => Screen::Results,
+                _ => Screen::None,
+            }
+        } else if netv.active {
+            // Multiplayer between races.
+            Screen::Lobby
+        } else {
+            Screen::Menu
+        };
+    // The Settings and Controller screens sit over the menu or the pause
+    // screen they were opened from (the Controller screen over Settings
+    // too); an un-pause under them (Esc, which the race takes as one,
+    // unless `pad_setup::frame` caught it) leaves them and keeps the pause.
+    if let Some(under) = ui.under() {
+        if screen == under {
+            screen = ui.screen;
+        } else if under == Screen::Pause
+            && screen == Screen::None
+            && let Some(r) = play.race.as_mut()
+        {
+            r.pause(true);
+            screen = Screen::Pause;
+        }
+    }
+    if screen == Screen::Results && ui.screen != Screen::Results {
+        let id = opts.o.level.clone();
+        if let Some(r) = play.race.as_ref() {
+            ui.results = Some(show_results(&mut store, &ui.settings, &id, r, &netv));
+        }
+    }
+    if screen != ui.screen {
+        if screen == Screen::Menu {
+            ui.scroll = 0.0;
+        }
+        ui.screen = screen;
+        ui.dropdown = None;
+        ui.focus = None;
+        ui.dirty = true;
+    }
+}
+
+/// The menus and the race's sound (`play::audio`) share the volumes and the
+/// track choice (the same store keys): a change on the menus reaches the
+/// sound (`applyVolume`, `pickMusic`), and one the sound makes (M toggles
+/// the music) reaches the menus. Then the queued clicks, a level tab's
+/// music, Next track and `toMenu`.
+/// The sound's settings as last synced: music and SFX volumes, track,
+/// station, the radio's station.
+type SyncedAudio = (f64, f64, String, String, String);
+
+fn sync_audio(
+    mut ui: ResMut<UiState>,
+    shared: Option<NonSend<crate::play::audio::Shared>>,
+    mut last: Local<Option<SyncedAudio>>,
+) {
+    let Some(shared) = shared else { return };
+    let Ok(mut a) = shared.0.try_borrow_mut() else {
+        return;
+    };
+    let ours = (
+        ui.settings.music,
+        ui.settings.sfx,
+        ui.settings.track.clone(),
+        ui.settings.station.clone(),
+        ui.settings.radio_station.clone(),
+    );
+    let theirs = (
+        a.settings.music,
+        a.settings.sfx,
+        a.settings.track.clone(),
+        a.settings.station.clone(),
+        a.settings.radio_station.clone(),
+    );
+    if last.as_ref().is_some_and(|l| *l != theirs) {
+        ui.settings.music = theirs.0;
+        ui.settings.sfx = theirs.1;
+        ui.settings.track = theirs.2.clone();
+        ui.settings.station = theirs.3.clone();
+        ui.settings.radio_station = theirs.4.clone();
+        ui.dirty = true;
+    } else if last.as_ref() != Some(&ours) || theirs != ours {
+        let level = ui.settings.level.clone();
+        a.menu_settings(
+            crate::play::audio::Settings {
+                music: ours.0,
+                sfx: ours.1,
+                track: ours.2.clone(),
+                station: ours.3.clone(),
+                radio_station: ours.4.clone(),
+            },
+            &level,
+        );
+    }
+    *last = Some((
+        a.settings.music,
+        a.settings.sfx,
+        a.settings.track.clone(),
+        a.settings.station.clone(),
+        a.settings.radio_station.clone(),
+    ));
+    // The engine's voice (D1110): not a call the JS makes, so not logged.
+    a.audio.set_engine_model(!ui.settings.classic_engine);
+    // `audio.onTrackChange`: `#np-pause` names the new track; on a station,
+    // the station and its song (D1151).
+    let t = match a.station_text() {
+        Some(s) => Some(format!("♪ {s}")),
+        None => a
+            .audio
+            .track_info()
+            .map(|i| format!("♪ {} · {}", i.title, i.style)),
+    };
+    if let Some(t) = t
+        && t != ui.now_playing
+    {
+        ui.now_playing = t;
+        ui.on_station = a.on_station();
+        if ui.screen == Screen::Pause {
+            ui.dirty = true;
+        }
+    }
+    if std::mem::take(&mut ui.to_menu) {
+        a.to_menu();
+    }
+    if let Some(l) = ui.audio_level.take() {
+        a.menu_level(&l);
+    }
+    if ui.screen == Screen::Menu {
+        let level = ui.settings.level.clone();
+        a.menu_music(&level);
+    }
+    if std::mem::take(&mut ui.next_track) {
+        a.next_track();
+    }
+    for c in std::mem::take(&mut ui.clicks) {
+        if a.audio.ready() {
+            a.ui_click(c);
+        }
+    }
+}
+
+/// `attract.s = world.track.startS + 60`.
+fn to_attract(cs: &mut CameraState, tr: &TrackRes) {
+    if let Some(t) = &tr.track {
+        cs.attract.s = t.start_s + 60.0;
+    }
+}
+
+/// `startRace`'s setup of the field: the chosen car, the level's mode,
+/// `?heat=`; the countdown held until the cars' pipelines are compiled.
+fn arm(ui: &mut UiState, play: &mut Play, store: &Store, o: &Options) {
+    let s = &ui.settings;
+    if let Some(k) = store::car_kinds().find(|k| *k == s.car) {
+        play.params.car = k;
+    }
+    let level = mp_levels::level_by_id(&s.level);
+    // `?pursuit=1` / `0` forces it; `?cruise=1` / `0` the cruise.
+    let mode = store::mode_for(store, &level);
+    let forced = o.param("pursuit").map(|v| v == "1");
+    play.params.pursuit = level.police.is_some() && forced.unwrap_or(mode == "pursuit");
+    let forced = o.param("cruise").map(|v| v == "1");
+    play.params.cruise = level.open && forced.unwrap_or(mode == "cruise");
+    play.params.flash = s.flash;
+    if !play.params.physics_forced {
+        play.params.physics = mp_sim::model::Physics::parse(&s.physics).unwrap_or_default();
+    }
+    play.stop = true;
+    play.armed = true;
+    play.hold = true;
+}
+
+/// `showResults(res)`: the title, the table, the stat tiles and the best
+/// line, saving a new best time, score or lap record.
+fn show_results(
+    store: &mut Store,
+    settings: &Settings,
+    id: &str,
+    race: &crate::play::flow::Race,
+    net: &crate::net::NetView,
+) -> ResultsView {
+    let st = &race.session.curr;
+    let me_i = race.me();
+    let online = race.online_now();
+    // Online, the humans' names are the ones they chose in the lobby.
+    let name_of = |r: &mp_sim::race::ResultRow| -> String {
+        match r.human {
+            Some(h) if online => net
+                .humans
+                .get(h)
+                .map_or_else(|| r.name.to_string(), |p| p.name.clone()),
+            _ => r.name.to_string(),
+        }
+    };
+    let mut v = ResultsView::default();
+    if let Some(r) = &race.event_result {
+        return event_results(store, id, race, r);
+    }
+    if st.race.cruise {
+        let res = cruise_results(st);
+        let key = format!("bestScore.{id}");
+        let prev = store.num(&key, 0.0);
+        let is_best = res.score > prev;
+        if is_best {
+            store.set_num(&key, res.score);
+        }
+        v.title = if is_best { "New best!" } else { "Run over" }.into();
+        let km = res.dist / 1000.0;
+        let rows = [
+            ("Score", widgets::locale_int(res.score)),
+            (
+                "Distance",
+                if settings.mph {
+                    format!("{} mi", widgets::to_fixed(km / 1.60934, 2))
+                } else {
+                    format!("{} km", widgets::to_fixed(km, 2))
+                },
+            ),
+            (
+                "Top speed",
+                if settings.mph {
+                    format!("{} mph", pk_math::js::round(res.top * 2.23694))
+                } else {
+                    format!("{} km/h", pk_math::js::round(res.top * 3.6))
+                },
+            ),
+            ("Near misses", res.near_misses.to_string()),
+            ("Time", fmt_time(Some(res.time))),
+        ];
+        v.rows = rows
+            .into_iter()
+            .map(|(a, b)| ResRow {
+                place: String::new(),
+                name: a.into(),
+                color: None,
+                value: b,
+                me: false,
+            })
+            .collect();
+        v.best = format!("Best score: {}", widgets::locale_int(prev.max(res.score)));
+        return v;
+    }
+    let rows = race.results.clone().unwrap_or_default();
+    let Some(me) = rows.iter().find(|r| r.human == Some(me_i)).cloned() else {
+        return v;
+    };
+    v.title = if me.place == 1 {
+        "You win!".into()
+    } else {
+        format!("{} place", ordinal(me.place))
+    };
+    v.rows = rows
+        .iter()
+        .map(|r| ResRow {
+            place: r.place.to_string(),
+            name: name_of(r),
+            color: Some(r.color),
+            value: format!(
+                "{}{}",
+                if r.estimated { "~" } else { "" },
+                fmt_time(Some(r.time))
+            ),
+            me: r.human == Some(me_i),
+        })
+        .collect();
+    if online {
+        // A race with friends isn't a record attempt: no best times saved.
+        v.best = String::new();
+        v.online = true;
+        return v;
+    }
+    let pursuit = pursuit_stats(st);
+    let key = store::best_key(id, pursuit.is_some());
+    let best = store.num_or_null(&key);
+    if me.place == 1 && best.is_none_or(|b| b == 0.0 || me.time < b) {
+        store.set_num(&key, me.time);
+    }
+    v.best = match store.num_or_null(&key) {
+        Some(b) if b != 0.0 => format!("Best winning time: {}", fmt_time(Some(b))),
+        _ => "Win the race to set a best time".into(),
+    };
+    // Hot Pursuit: what the police cost you (and what you cost them).
+    // Circuits: each lap's time, and the best lap you've ever done here.
+    if let Some(p) = pursuit {
+        v.tiles = vec![
+            tile(p.busts.to_string(), "Busted"),
+            tile(p.wrecks.to_string(), "Wrecked"),
+            tile(p.takedowns.to_string(), "Takedowns"),
+            tile(format!("+{} s", widgets::to_fixed(p.penalty, 1)), "Penalty"),
+            ResTile {
+                value: String::new(),
+                label: "Top heat".into(),
+                label_star: false,
+                stars: p.heat.max(0) as usize,
+            },
+        ];
+    } else if st.race.laps > 0 {
+        let times = &st.players[me_i].rules.lap_times;
+        if !times.is_empty() {
+            let best_lap = times.iter().cloned().fold(f64::INFINITY, f64::min);
+            let lkey = format!("bestLap.{id}");
+            let prev = store.num_or_null(&lkey);
+            if prev.is_none_or(|p| best_lap < p) {
+                store.set_num(&lkey, best_lap);
+            }
+            for (i, t) in times.iter().enumerate() {
+                v.tiles.push(ResTile {
+                    value: fmt_time(Some(*t)),
+                    label: format!("Lap {}", i + 1),
+                    label_star: *t == best_lap,
+                    stars: 0,
+                });
+            }
+            v.tiles.push(tile(
+                fmt_time(store.num_or_null(&lkey)),
+                if prev.is_none_or(|p| best_lap < p) {
+                    "New lap record"
+                } else {
+                    "Lap record"
+                },
+            ));
+        }
+    }
+    v
+}
+
+/// An event at a place's results (docs/vision/peninsula.md, stage 5): a
+/// race's table, a trial's time against the time to beat, a delivery's
+/// against the time it had; the best time kept per event.
+fn event_results(
+    store: &mut Store,
+    id: &str,
+    race: &crate::play::flow::Race,
+    r: &mp_sim::event::EventResult,
+) -> ResultsView {
+    use mp_track::EventKind;
+    let lr = &race.session.lr;
+    let e = &lr.level.events[r.index];
+    let mut v = ResultsView {
+        event: true,
+        ..ResultsView::default()
+    };
+    let line = |name: &str, value: String| ResRow {
+        place: String::new(),
+        name: name.into(),
+        color: None,
+        value,
+        me: false,
+    };
+    v.title = match (e.kind, r.made_it) {
+        (EventKind::Race, true) => "You win!".into(),
+        (EventKind::Race, false) => format!("{} place", ordinal(r.place)),
+        (EventKind::TimeTrial, true) => "Time beaten!".into(),
+        (EventKind::TimeTrial, false) => "Too slow".into(),
+        (EventKind::Delivery, true) => "Delivered!".into(),
+        (EventKind::Delivery, false) => "Out of time".into(),
+    };
+    match e.kind {
+        EventKind::Race => {
+            v.rows = r
+                .rows
+                .iter()
+                .map(|row| ResRow {
+                    place: row.place.to_string(),
+                    name: row.name.to_string(),
+                    color: Some(row.color),
+                    value: format!(
+                        "{}{}",
+                        if row.estimated { "~" } else { "" },
+                        fmt_time(Some(row.time))
+                    ),
+                    me: row.human == Some(0),
+                })
+                .collect();
+        }
+        EventKind::TimeTrial => {
+            v.rows = vec![
+                line("Your time", fmt_time(Some(r.time))),
+                line(
+                    "To beat",
+                    fmt_time(Some(mp_sim::event::time_of(&lr.track, e))),
+                ),
+            ];
+        }
+        EventKind::Delivery => {
+            v.rows = vec![
+                line("Your time", fmt_time(Some(r.time))),
+                line("Time allowed", fmt_time(Some(e.time))),
+            ];
+        }
+    }
+    // A best time per event, set by a race won, a trial beaten or a
+    // delivery made.
+    let key = format!("bestEvent.{id}.{}", e.id);
+    if r.made_it
+        && store
+            .num_or_null(&key)
+            .is_none_or(|b| b == 0.0 || r.time < b)
+    {
+        store.set_num(&key, r.time);
+    }
+    v.best = match store.num_or_null(&key) {
+        Some(b) if b != 0.0 => format!("{}: best {}", e.name, fmt_time(Some(b))),
+        _ => e.name.to_string(),
+    };
+    v
+}
+
+fn tile(value: String, label: &str) -> ResTile {
+    ResTile {
+        value,
+        label: label.into(),
+        label_star: false,
+        stars: 0,
+    }
+}
+
+pub use pk_shell::ui::{css_rect, css_shown, inside};
+
+type ControlQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static Control,
+        &'static ComputedNode,
+        &'static UiGlobalTransform,
+        &'static InheritedVisibility,
+        Option<&'static GlobalZIndex>,
+        Option<&'static CalculatedClip>,
+    ),
+>;
+
+/// The control under a point (CSS px): the dropdown's first, then the
+/// smallest box (the innermost control).
+fn hit(controls: &ControlQuery, css: f32, p: Vec2) -> Option<(Entity, String, Option<Act>)> {
+    let mut best: Option<(i32, f32, Entity, &Control)> = None;
+    for (e, c, n, t, vis, z, clip) in controls.iter() {
+        if !vis.get() || c.act.is_none() {
+            continue;
+        }
+        // Only where it shows: not through what clips it (the build line
+        // under the menu, D1204).
+        if !inside(css_shown(n, t, clip, css), p) {
+            continue;
+        }
+        let r = css_rect(n, t, css);
+        let z = z.map_or(0, |z| z.0);
+        let area = r.2 * r.3;
+        let better = match &best {
+            None => true,
+            Some((bz, ba, _, _)) => z > *bz || (z == *bz && area < *ba),
+        };
+        if better {
+            best = Some((z, area, e, c));
+        }
+    }
+    best.map(|(_, _, e, c)| (e, c.id.clone(), c.act.clone()))
+}
+
+/// How far a finger moves before a press becomes a scroll (CSS px).
+const SLOP: f32 = 10.0;
+
+/// Taps and clicks on the controls, drags on the sliders, scrolling by
+/// finger and by wheel.
+#[allow(clippy::too_many_arguments)]
+fn pointer(
+    mut ui: ResMut<UiState>,
+    mut touches: MessageReader<TouchInput>,
+    mut buttons: MessageReader<MouseButtonInput>,
+    mut cursor: MessageReader<CursorMoved>,
+    mut wheel: MessageReader<MouseWheel>,
+    mut last_cursor: Local<Option<Vec2>>,
+    controls: ControlQuery,
+    sliders: Query<(&SliderTrack, &ComputedNode, &UiGlobalTransform)>,
+    mut scroller: Query<&mut ScrollPosition, With<Scroller>>,
+    mut ctx: ActCtx,
+) {
+    let play_scale = ctx.play.touch_scale;
+    let css = ctx.play.css_scale.max(0.01);
+    // Pointer positions in CSS px.
+    let to_css = |p: Vec2| p * play_scale;
+    let mut events: Vec<(u64, TouchPhase, Vec2)> = Vec::new();
+    for t in touches.read() {
+        events.push((t.id, t.phase, to_css(t.position)));
+    }
+    for c in cursor.read() {
+        *last_cursor = Some(to_css(c.position));
+        if ui.press.as_ref().is_some_and(|p| p.id == MOUSE) {
+            events.push((MOUSE, TouchPhase::Moved, to_css(c.position)));
+        }
+    }
+    for b in buttons.read() {
+        if b.button != MouseButton::Left {
+            continue;
+        }
+        let Some(p) = *last_cursor else { continue };
+        let phase = match b.state {
+            ButtonState::Pressed => TouchPhase::Started,
+            ButtonState::Released => TouchPhase::Ended,
+        };
+        events.push((MOUSE, phase, p));
+    }
+    for w in wheel.read() {
+        let dy = match w.unit {
+            MouseScrollUnit::Line => w.y * 40.0,
+            MouseScrollUnit::Pixel => w.y,
+        };
+        if let Ok(mut s) = scroller.single_mut() {
+            s.0.y = (s.0.y - dy / css).max(0.0);
+        }
+    }
+    if ui.screen == Screen::None || ui.screen == Screen::Loading {
+        ui.press = None;
+        return;
+    }
+    for (id, phase, p) in events {
+        match phase {
+            TouchPhase::Started => {
+                if ui.press.is_some() {
+                    continue; // one pointer at a time on the menus
+                }
+                let target = hit(&controls, css, p);
+                let slider = target.as_ref().and_then(|(e, _, act)| match act {
+                    Some(Act::Slide(which)) => sliders.get(*e).ok().map(|(_, n, t)| {
+                        let r = css_rect(n, t, css);
+                        (*which, r.0, r.2)
+                    }),
+                    _ => None,
+                });
+                ui.press = Some(Press {
+                    id,
+                    at: p,
+                    last: p,
+                    target,
+                    scrolling: false,
+                    slider,
+                });
+                if let Some((which, x, w)) = slider {
+                    slide(&mut ui, &mut ctx, which, x, w, p.x);
+                }
+            }
+            TouchPhase::Moved => {
+                let Some(mut pr) = ui.press.clone() else {
+                    continue;
+                };
+                if pr.id != id {
+                    continue;
+                }
+                if let Some((which, x, w)) = pr.slider {
+                    slide(&mut ui, &mut ctx, which, x, w, p.x);
+                } else {
+                    if !pr.scrolling && (p - pr.at).length() > SLOP && id != MOUSE {
+                        pr.scrolling = true;
+                    }
+                    if pr.scrolling
+                        && let Ok(mut s) = scroller.single_mut()
+                    {
+                        s.0.y = (s.0.y - (p.y - pr.last.y) / css).max(0.0);
+                    }
+                }
+                pr.last = p;
+                ui.press = Some(pr);
+            }
+            TouchPhase::Ended => {
+                let Some(pr) = ui.press.take() else { continue };
+                if pr.id != id || pr.scrolling || pr.slider.is_some() {
+                    continue;
+                }
+                // A tap on no control of the pause screen resumes, as the
+                // M4 pause card did (the owner's phone flow; D578).
+                if pr.target.is_none() && ui.screen == Screen::Pause {
+                    if hit(&controls, css, p).is_none() {
+                        activate(&mut ui, &mut ctx, &controls, Act::Resume);
+                    }
+                    continue;
+                }
+                // A tap: released on the control it pressed.
+                let Some((_, cid, Some(act))) = pr.target else {
+                    continue;
+                };
+                if hit(&controls, css, p).is_some_and(|(_, id2, _)| id2 == cid) {
+                    activate(&mut ui, &mut ctx, &controls, act);
+                }
+            }
+            TouchPhase::Canceled => {
+                if ui.press.as_ref().is_some_and(|p| p.id == id) {
+                    ui.press = None;
+                }
+            }
+        }
+    }
+}
+
+const MOUSE: u64 = u64::MAX - 1;
+
+/// What the actions change.
+#[derive(bevy::ecs::system::SystemParam)]
+struct ActCtx<'w, 's> {
+    play: ResMut<'w, Play>,
+    store: ResMut<'w, Store>,
+    opts: ResMut<'w, Opts>,
+    cs: ResMut<'w, CameraState>,
+    tr: Res<'w, TrackRes>,
+    status: Res<'w, Status>,
+    previews: ResMut<'w, crate::preview::Previews>,
+    /// The gamepads and the Controller screen (WP 6.4).
+    pads: ResMut<'w, crate::play::gamepad_io::PadsRes>,
+    pad_setup: ResMut<'w, pad_setup::PadSetup>,
+    windows: Query<'w, 's, &'static mut Window, With<PrimaryWindow>>,
+    exit: MessageWriter<'w, bevy::app::AppExit>,
+    netv: Res<'w, crate::net::NetView>,
+    netc: ResMut<'w, crate::net::NetCmds>,
+}
+
+/// A slider follows the pointer: `el.value` from where it is along the
+/// track, then `oninput`.
+fn slide(ui: &mut UiState, ctx: &mut ActCtx, which: Sl, x: f32, w: f32, px: f32) {
+    let thumb = 16.0;
+    let v = (((px - x - thumb / 2.0) / (w - thumb).max(1.0)).clamp(0.0, 1.0) * 100.0).round();
+    let v = f64::from(v) / 100.0;
+    let s = &mut ui.settings;
+    let (slot, key) = match which {
+        Sl::Music => (&mut s.music, "musicVol"),
+        Sl::Sfx => (&mut s.sfx, "sfxVol"),
+        Sl::TiltSens => (&mut s.tilt_sens, "tiltSens"),
+    };
+    if *slot != v {
+        *slot = v;
+        ctx.store.set_num(key, v);
+        ui.dirty = true;
+    }
+}
+
+/// A control activated by a tap, a click or Enter.
+fn activate(ui: &mut UiState, ctx: &mut ActCtx, controls: &ControlQuery, act: Act) {
+    let busy = ui.starting.is_some();
+    ui.dirty = true;
+    // The menus' buttons click (`main.js`'s document click handler; Race,
+    // Race again and Restart make the audio's "start" as the race starts).
+    if matches!(
+        act,
+        Act::Level(_)
+            | Act::Car(_)
+            | Act::Mode(_)
+            | Act::Resume
+            | Act::EndRun
+            | Act::Continue
+            | Act::Quit
+            | Act::Menu
+            | Act::PadSetup
+            | Act::Settings
+            | Act::SettingsDone
+            | Act::PadDone
+            | Act::PadDefaults
+            | Act::PadBind(_)
+            | Act::NextTrack
+            | Act::Exit
+    ) {
+        ui.clicks.push("click");
+    }
+    match act {
+        Act::Level(id) => {
+            // `if (mode !== 'menu') return;`
+            if ui.screen != Screen::Menu || busy {
+                return;
+            }
+            ui.settings.level = id.into();
+            ctx.store.set_str("level", id);
+            ui.audio_level = Some(id.into());
+            // The JS builds the new level behind the loading screen here;
+            // the menu shows its section instead, at once if it is up, and
+            // Race builds the level (D676, D743).
+            ctx.previews.select(id);
+        }
+        Act::Car(k) => {
+            ui.settings.car = k.into();
+            ctx.store.set_str("car", k);
+        }
+        Act::Mode(m) => {
+            let level = mp_levels::level_by_id(&ui.settings.level);
+            let offered = match m {
+                "pursuit" => level.police.is_some(),
+                "cruise" => level.open,
+                _ => level.police.is_some() || level.open,
+            };
+            if !offered {
+                return;
+            }
+            ctx.store.set_str(&format!("mode.{}", level.id), m);
+        }
+        Act::Start => {
+            // A double tap starts one race.
+            if busy || ui.screen != Screen::Menu {
+                return;
+            }
+            // The menu's sections go; the level is built or downloaded
+            // whole behind the loading screen unless it is drawn whole
+            // already (D743).
+            let level = ui.settings.level.clone();
+            ctx.previews.free_sections();
+            ui.starting = Some(if ctx.previews.has_full(&level) {
+                Starting::Level
+            } else {
+                // The views' memory goes before the level's build takes
+                // its own (D751); the page's loading screen covers it.
+                crate::preview::cover();
+                Starting::Free(0)
+            });
+        }
+        Act::Toggle(Opt::Radio) => {
+            let s = &mut ui.settings;
+            s.station = if s.station == "playlist" {
+                crate::play::station::radio_on_setting(&s.radio_station)
+            } else {
+                "playlist".into()
+            };
+            ctx.store.set_str("station", &s.station);
+        }
+        Act::Toggle(o) => {
+            let s = &mut ui.settings;
+            let (slot, key) = match o {
+                Opt::Mph => (&mut s.mph, "mph"),
+                Opt::Hq => (&mut s.hq, "hq"),
+                Opt::Flash => (&mut s.flash, "flash"),
+                Opt::Autogas => (&mut s.autogas, "autogas"),
+                Opt::Fullscreen => (&mut s.fullscreen, "fullscreen"),
+                Opt::Rumble => (&mut s.rumble, "rumble"),
+                Opt::ClassicEngine => (&mut s.classic_engine, "classicEngine"),
+                Opt::Radio => unreachable!("handled above"),
+            };
+            *slot = !*slot;
+            let v = *slot;
+            ctx.store.set_bool(key, v);
+            if o == Opt::Hq {
+                // `applyQuality`: shadows, and the pixel ratio on the web
+                // (`web::screen_pixel_ratio` follows `opts` every frame).
+                ctx.opts.hq = v;
+            }
+        }
+        Act::Slide(_) => {}
+        Act::Open(sel) => {
+            let id = sel_id(sel);
+            let at = controls
+                .iter()
+                .find(|(_, c, ..)| c.id == id)
+                .map(|(_, _, n, t, ..)| {
+                    let r = css_rect(n, t, ctx.play.css_scale.max(0.01));
+                    (r.0, r.1 + r.3, r.2)
+                })
+                .unwrap_or((0.0, 0.0, 120.0));
+            ui.dropdown = Some((sel, at));
+        }
+        Act::Choose(sel, v) => {
+            ui.dropdown = None;
+            match sel {
+                Sel::Track => {
+                    ui.settings.track = v.clone();
+                    ctx.store.set_str("track", &v);
+                }
+                Sel::Steer => {
+                    ui.settings.steering = v.clone();
+                    ctx.store.set_str("steering", &v);
+                }
+                Sel::Pedals => {
+                    ui.settings.pedals = v.clone();
+                    ctx.store.set_str("pedals", &v);
+                }
+                Sel::Guide => {
+                    ui.settings.guide = v.clone();
+                    ctx.store.set_str("guideLine", &v);
+                }
+                Sel::Assist => {
+                    ui.settings.assist = v.clone();
+                    ctx.store.set_str("steerAssist", &v);
+                }
+                // The radio's station: remembered for when it is on, and
+                // tuned at once (choosing one switches the radio on).
+                Sel::Station => {
+                    ui.settings.radio_station = v.clone();
+                    ui.settings.station = v.clone();
+                    ctx.store.set_str("radioStation", &v);
+                    ctx.store.set_str("station", &v);
+                }
+                // The render scale (D1194): the pixel ratio follows `opts`
+                // every frame, as High quality's does.
+                Sel::Scale => {
+                    ui.settings.scale = v.clone();
+                    ctx.store.set_str("renderScale", &v);
+                    ctx.opts.scale = store::scale_of(&v);
+                }
+                // Handling (D1202): the next race, or the next restart of
+                // this one, is built with it.
+                Sel::Physics => {
+                    ui.settings.physics = v.clone();
+                    ctx.store.set_str("physics", &v);
+                    if !ctx.play.params.physics_forced {
+                        ctx.play.params.physics =
+                            mp_sim::model::Physics::parse(&v).unwrap_or_default();
+                    }
+                }
+            }
+        }
+        Act::CloseDropdown => ui.dropdown = None,
+        Act::MusicLink => {
+            #[cfg(target_arch = "wasm32")]
+            web::open_music_player();
+        }
+        Act::Viewer => {
+            if ui.screen == Screen::Menu && !busy {
+                crate::viewer::open(&ui.settings.level);
+            }
+        }
+        Act::Settings => {
+            ui.open_settings();
+            // An Esc left over from the menu would close it at once.
+            if let Some(r) = ctx.play.race.as_mut() {
+                r.input.consume("pause");
+            }
+        }
+        Act::SettingsDone => ui.leave_settings(),
+        Act::PadSetup => {
+            if matches!(ui.screen, Screen::Menu | Screen::Pause | Screen::Settings) {
+                ui.pad_return = ui.screen;
+                ui.screen = Screen::PadSetup;
+                // An Esc left over from the menu would close it at once.
+                if let Some(r) = ctx.play.race.as_mut() {
+                    r.input.consume("pause");
+                }
+                ctx.pad_setup.show(&mut ctx.pads.pads);
+            }
+        }
+        Act::PadDone => {
+            if ctx.pad_setup.open {
+                ctx.pad_setup.close(&mut ctx.pads.pads, ui);
+            } else {
+                ui.screen = ui.pad_return;
+            }
+        }
+        Act::NextTrack => ui.next_track = true,
+        Act::PadBind(id) => {
+            if let Some(a) = crate::play::gamepad::Action::from_key(id) {
+                ctx.pad_setup.pick(&mut ctx.pads.pads, a);
+            }
+        }
+        Act::PadDefaults => ctx.pad_setup.defaults(&mut ctx.pads.pads),
+        Act::Resume => {
+            if let Some(r) = ctx.play.race.as_mut() {
+                r.pause(false);
+            }
+        }
+        Act::Continue => {
+            if let Some(r) = ctx.play.race.as_mut() {
+                r.continue_cruise();
+            }
+        }
+        Act::EndRun => {
+            if let Some(r) = ctx.play.race.as_mut()
+                && r.session.curr.race.cruise
+            {
+                r.mode = Mode::Results;
+            }
+        }
+        Act::Restart | Act::Again => {
+            let seed = ctx.play.params.seed;
+            let physics = ctx.play.params.physics;
+            if let Some(r) = ctx.play.race.as_mut() {
+                let mut o = r.setup.opts;
+                o.seed = seed.unwrap_or_else(crate::play::clock_seed);
+                if !r.online_now() {
+                    o.physics = physics;
+                }
+                r.restart(o);
+                ui.races += 1;
+            }
+        }
+        Act::Quit | Act::Menu => {
+            // `toMenu`.
+            ctx.play.stop = true;
+            ctx.play.armed = false;
+            to_attract(&mut ctx.cs, &ctx.tr);
+            ui.screen = Screen::Menu;
+            ui.scroll = 0.0;
+            ui.to_menu = true;
+            // The level stays drawn for its tab; the sections are prepared
+            // again behind the menu (D743).
+            let level = ctx.opts.o.level.clone();
+            ctx.previews.back_to_menu(&level);
+        }
+        Act::Exit => {
+            // Only the native menu has the button; the page cannot close
+            // itself.
+            if cfg!(not(target_arch = "wasm32")) && ui.screen == Screen::Menu && !busy {
+                info!("Quit: exit");
+                ctx.exit.write(bevy::app::AppExit::Success);
+            }
+        }
+        Act::Mp(m) => multiplayer(ui, ctx, m, busy),
+    }
+    let _ = &ctx.status;
+}
+
+/// The lobby's buttons (WP 10.7): each asks the connection for something.
+fn multiplayer(ui: &mut UiState, ctx: &mut ActCtx, m: lobby::MpAct, busy: bool) {
+    use crate::net::NetCmd;
+    use lobby::MpAct;
+    use mp_net::proto::{AiFill, GridRule};
+    let me = ctx.netv.me().cloned();
+    let set_me = |ctx: &mut ActCtx, name: String, car: String, color: u32| {
+        ctx.store.set_str("mpName", &name);
+        ctx.store.set_num("mpColor", f64::from(color));
+        ctx.netc.0.push(NetCmd::SetMe { name, car, color });
+    };
+    match m {
+        MpAct::Open | MpAct::Host => {
+            if ui.screen != Screen::Menu || busy {
+                return;
+            }
+            ui.clicks.push("click");
+            let name = ctx.store.string("mpName", "Driver");
+            let car = ui.settings.car.clone();
+            let color = mp_sim::physics::car_spec(&car).map_or(0xd81e36, |s| s.color);
+            let color = ctx.store.num("mpColor", f64::from(color)) as u32;
+            let signal = ctx.opts.o.param("signal").map(str::to_string);
+            ctx.netc.0.push(if m == MpAct::Host {
+                NetCmd::Host {
+                    signal,
+                    name,
+                    car,
+                    color,
+                }
+            } else {
+                NetCmd::Join {
+                    // `--join` (or `?join=`), else an invitation the page
+                    // was opened with (`#join=…`).
+                    url: ctx
+                        .opts
+                        .o
+                        .param("join")
+                        .map(str::to_string)
+                        .or_else(crate::net::page_link),
+                    signal,
+                    name,
+                    car,
+                    color,
+                }
+            });
+            ui.screen = Screen::Lobby;
+        }
+        MpAct::Copy => {
+            let Some(invite) = ctx.netv.invite.clone() else {
+                return;
+            };
+            ui.clicks.push("click");
+            #[cfg(target_arch = "wasm32")]
+            web::copy_text(&invite);
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                println!("Invitation: {invite}");
+                info!("invitation: {invite}");
+            }
+        }
+        MpAct::Leave => {
+            ui.clicks.push("click");
+            ctx.netc.0.push(NetCmd::Leave);
+            if ctx.play.race.as_ref().is_some_and(|r| r.online_now()) {
+                ctx.play.stop = true;
+                ctx.play.armed = false;
+                to_attract(&mut ctx.cs, &ctx.tr);
+            }
+            ui.screen = Screen::Menu;
+            ui.to_menu = true;
+        }
+        MpAct::Back => {
+            ui.clicks.push("click");
+            ctx.play.stop = true;
+            ctx.play.armed = false;
+            to_attract(&mut ctx.cs, &ctx.tr);
+            ui.screen = Screen::Lobby;
+        }
+        MpAct::Name => {
+            let Some(me) = me else { return };
+            #[cfg(target_arch = "wasm32")]
+            if let Some(n) = web::prompt("Your name", &me.name) {
+                set_me(ctx, n, me.car.clone(), me.color);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            let _ = me;
+        }
+        MpAct::Car(d) => {
+            let Some(me) = me else { return };
+            let cars: Vec<&str> = store::car_kinds().collect();
+            let i = cars.iter().position(|c| *c == me.car).unwrap_or(0) as i64;
+            let n = cars.len() as i64;
+            let car = cars[(i + i64::from(d)).rem_euclid(n) as usize];
+            ui.settings.car = car.into();
+            ctx.store.set_str("car", car);
+            set_me(ctx, me.name, car.into(), me.color);
+        }
+        MpAct::Color => {
+            let Some(me) = me else { return };
+            let c = lobby::COLORS;
+            let i = c
+                .iter()
+                .position(|x| *x == me.color)
+                .map_or(0, |i| (i + 1) % c.len());
+            set_me(ctx, me.name, me.car, c[i]);
+        }
+        MpAct::Ready => {
+            let r = me.is_some_and(|m| m.ready);
+            ctx.netc.0.push(NetCmd::Ready(!r));
+        }
+        MpAct::Go => ctx.netc.0.push(NetCmd::Go(true)),
+        MpAct::EndRace => {
+            if ctx.netv.leader {
+                ui.clicks.push("click");
+                ctx.netc.0.push(NetCmd::Go(false));
+            }
+        }
+        MpAct::Level(_)
+        | MpAct::Ai
+        | MpAct::Ghost
+        | MpAct::RubberBand
+        | MpAct::Grid
+        | MpAct::Races => {
+            let Some(mut s) = ctx.netv.lobby.settings.clone() else {
+                return;
+            };
+            match m {
+                MpAct::Level(d) => {
+                    // Seaside needs its survey data on the host; every
+                    // level is offered.
+                    let ids: Vec<&str> = mp_levels::levels().iter().map(|l| l.id).collect();
+                    let i = ids.iter().position(|l| *l == s.level).unwrap_or(0) as i64;
+                    let n = ids.len() as i64;
+                    s.level = ids[(i + i64::from(d)).rem_euclid(n) as usize].into();
+                }
+                MpAct::Ai => {
+                    s.ai = match s.ai {
+                        AiFill::None => AiFill::To6,
+                        AiFill::To6 => AiFill::To8,
+                        AiFill::To8 => AiFill::None,
+                    }
+                }
+                MpAct::Ghost => s.ghost = !s.ghost,
+                MpAct::RubberBand => s.rubber_band = !s.rubber_band,
+                MpAct::Grid => {
+                    s.grid = match s.grid {
+                        GridRule::Reverse => GridRule::Random,
+                        GridRule::Random => GridRule::Same,
+                        GridRule::Same => GridRule::Reverse,
+                    }
+                }
+                MpAct::Races => {
+                    s.races = match s.races {
+                        0 => 3,
+                        3 => 4,
+                        4 => 6,
+                        _ => 0,
+                    }
+                }
+                _ => {}
+            }
+            ctx.netc.0.push(NetCmd::Configure(s));
+        }
+    }
+}
+
+pub fn sel_id(sel: Sel) -> &'static str {
+    match sel {
+        Sel::Track => "opt-track",
+        Sel::Steer => "opt-steer",
+        Sel::Pedals => "opt-pedals",
+        Sel::Guide => "opt-guide",
+        Sel::Assist => "opt-assist",
+        Sel::Station => "opt-station",
+        Sel::Scale => "opt-scale",
+        Sel::Physics => "opt-physics",
+    }
+}
+
+/// Joins by the invitation the game was opened with, once, when the menu
+/// is ready (a few frames in, so its layout is there).
+fn auto_join(
+    mut ui: ResMut<UiState>,
+    status: Res<Status>,
+    controls: ControlQuery,
+    mut ctx: ActCtx,
+    mut done: Local<bool>,
+    mut wait: Local<u32>,
+) {
+    if *done {
+        return;
+    }
+    if !status.ready || ui.screen != Screen::Menu || ui.starting.is_some() {
+        *wait = 0;
+        return;
+    }
+    *wait += 1;
+    if *wait < 10 {
+        return;
+    }
+    *done = true;
+    activate(&mut ui, &mut ctx, &controls, Act::Mp(lobby::MpAct::Open));
+}
+
+/// Natively, `--query uiscript=lvl-tab-seaside,lvl-tab-sierra,btn-start`:
+/// activates those controls in turn, each once the client is ready on the
+/// menu (a level tab's build done), logs each step, and exits when the
+/// race after the last step is racing. A smoke test of the menu flow
+/// where there is no page to drive it (the web's is `__mp`).
+#[cfg(not(target_arch = "wasm32"))]
+fn ui_script(
+    mut ui: ResMut<UiState>,
+    status: Res<Status>,
+    controls: ControlQuery,
+    mut ctx: ActCtx,
+    mut step: Local<usize>,
+    mut wait: Local<u32>,
+) {
+    let steps: Vec<String> = ctx
+        .opts
+        .o
+        .param("uiscript")
+        .unwrap_or("")
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if *step >= steps.len() {
+        if ctx
+            .play
+            .race
+            .as_ref()
+            .is_some_and(|r| r.state() == RaceStateKind::Racing)
+            && ui.starting.is_none()
+        {
+            info!("uiscript: racing on {}; done", ctx.opts.o.level);
+            ctx.exit.write(bevy::app::AppExit::Success);
+        }
+        return;
+    }
+    if !status.ready || ui.screen != Screen::Menu || ui.starting.is_some() {
+        *wait = 0;
+        return;
+    }
+    // A few frames on the menu first, so its layout is there.
+    *wait += 1;
+    if *wait < 10 {
+        return;
+    }
+    *wait = 0;
+    let id = &steps[*step];
+    let act = controls
+        .iter()
+        .find(|(_, c, ..)| &c.id == id)
+        .and_then(|(_, c, ..)| c.act.clone());
+    let Some(act) = act else {
+        error!("uiscript: no control {id}");
+        ctx.exit.write(bevy::app::AppExit::error());
+        return;
+    };
+    info!(
+        "uiscript: {id} (level {}, scenes {})",
+        ctx.opts.o.level, status.scenes
+    );
+    activate(&mut ui, &mut ctx, &controls, act);
+    *step += 1;
+}
+
+/// The keyboard on the menus: Tab and Shift+Tab move the focus through the
+/// controls, Enter or Space activates the focused one (the browser's
+/// behaviour with the DOM's buttons).
+fn keys(
+    mut ui: ResMut<UiState>,
+    mut keys: MessageReader<KeyboardInput>,
+    held: Res<ButtonInput<KeyCode>>,
+    controls: ControlQuery,
+    mut ctx: ActCtx,
+) {
+    let mut moves: Vec<KeyCode> = Vec::new();
+    for k in keys.read() {
+        if k.state == ButtonState::Pressed && !k.repeat {
+            moves.push(k.key_code);
+        }
+    }
+    if matches!(ui.screen, Screen::None | Screen::Loading) {
+        return;
+    }
+    for code in moves {
+        match code {
+            KeyCode::Tab => {
+                let order = &ui.focus_order;
+                if order.is_empty() {
+                    continue;
+                }
+                let back = held.pressed(KeyCode::ShiftLeft) || held.pressed(KeyCode::ShiftRight);
+                let i = ui
+                    .focus
+                    .as_ref()
+                    .and_then(|f| order.iter().position(|o| o == f));
+                let n = order.len();
+                let next = match (i, back) {
+                    (None, false) => 0,
+                    (None, true) => n - 1,
+                    (Some(i), false) => (i + 1) % n,
+                    (Some(i), true) => (i + n - 1) % n,
+                };
+                ui.focus = Some(order[next].clone());
+                ui.dirty = true;
+            }
+            // Esc on the Controller screen is `pad_setup::frame`'s (it
+            // stops listening, or leaves).
+            KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
+                let Some(f) = ui.focus.clone() else { continue };
+                let act = controls
+                    .iter()
+                    .find(|(_, c, ..)| c.id == f)
+                    .and_then(|(_, c, ..)| c.act.clone());
+                if let Some(a) = act {
+                    activate(&mut ui, &mut ctx, &controls, a);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Rebuilds the shown screen when it, the viewport or a setting changed.
+#[allow(clippy::too_many_arguments)]
+fn build(
+    mut commands: Commands,
+    mut ui: ResMut<UiState>,
+    play: Res<Play>,
+    store: Res<Store>,
+    opts: Res<Opts>,
+    status: Res<Status>,
+    icons: Option<Res<Icons>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    pad_setup: Res<pad_setup::PadSetup>,
+    roots: Query<Entity, With<UiRoot>>,
+    scroller: Query<&ScrollPosition, With<Scroller>>,
+    mut loading: Local<(f32, String)>,
+    mut tilt_seen: Local<u8>,
+    netv: Res<crate::net::NetView>,
+) {
+    // The lobby follows the connection.
+    if netv.is_changed() && ui.screen == Screen::Lobby {
+        ui.dirty = true;
+    }
+    let Some(icons) = icons else { return };
+    // `tilt.onChange = showTiltState`: the menu's tilt note follows the sensor.
+    let tilt = crate::play::tilt::state_code();
+    if *tilt_seen != tilt {
+        *tilt_seen = tilt;
+        ui.dirty = true;
+    }
+    let Ok(w) = windows.single() else { return };
+    let css = play.css_scale.max(0.01);
+    let bp = Bp {
+        footer: ui.footer,
+        ..Bp::new(
+            w.width() * css,
+            w.height() * css,
+            1.0 / css,
+            play.touch_ui,
+            ui.inset_top,
+        )
+    };
+    if ui.bp != Some(bp) {
+        ui.bp = Some(bp);
+        ui.dirty = true;
+    }
+    if let Ok(s) = scroller.single() {
+        ui.scroll = s.0.y;
+    }
+    // The loading screen follows the build's progress.
+    if ui.screen == Screen::Loading {
+        let label = screens::loading_label(&status);
+        if (loading.0 - status.progress).abs() > 0.01 || loading.1 != label {
+            *loading = (status.progress, label);
+            ui.dirty = true;
+        }
+    }
+    if !ui.dirty && ui.built == Some(ui.screen) {
+        return;
+    }
+    ui.dirty = false;
+    ui.built = Some(ui.screen);
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    // `menu=0`: the screens are not drawn (pictures of what is behind). On
+    // the web the page's own loading screen covers the canvas while the
+    // client loads (D576), so the client draws none under it (D753: its
+    // glyphs would be held through the level's build).
+    let page_covers = cfg!(target_arch = "wasm32") && ui.screen == Screen::Loading;
+    if ui.screen == Screen::None || page_covers || opts.o.param("menu") == Some("0") {
+        ui.focus_order.clear();
+        return;
+    }
+    let mut cx = screens::Cx {
+        bp,
+        icons: &icons,
+        focus: ui.focus.clone(),
+        order: Vec::new(),
+    };
+    let root = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                top: Val::Px(0.0),
+                bottom: Val::Px(0.0),
+                ..default()
+            },
+            GlobalZIndex(10),
+            UiRoot,
+        ))
+        .id();
+    let screen = ui.screen;
+    let scroll = ui.scroll;
+    let mut screen_node = None;
+    commands.entity(root).with_children(|p| {
+        screen_node = Some(match screen {
+            Screen::Loading => screens::loading(p, &mut cx, &status),
+            Screen::Menu => menu::menu(p, &mut cx, &ui, &store, &opts),
+            Screen::Pause => screens::pause(p, &mut cx, &ui, &play, &netv),
+            Screen::Results => screens::results(p, &mut cx, &ui),
+            Screen::PadSetup => screens::padsetup(p, &mut cx, &ui, &pad_setup.view),
+            Screen::Lobby => lobby::lobby(p, &mut cx, &ui, &netv),
+            Screen::Settings => settings::settings(p, &mut cx, &ui, &play),
+            Screen::None => return,
+        });
+        if screen == Screen::Menu && bp.touch && bp.portrait {
+            menu::rotate_hint(p, &cx.bp);
+        }
+    });
+    if let Some(e) = screen_node {
+        commands
+            .entity(e)
+            .insert((Scroller, ScrollPosition(Vec2::new(0.0, scroll))));
+    }
+    if let Some((sel, at)) = ui.dropdown {
+        let (opts_list, current) = menu::select_options(sel, &ui.settings);
+        let dd = widgets::dropdown(&mut commands, &bp, at, &opts_list, &current, move |v| {
+            Act::Choose(sel, v.to_owned())
+        });
+        commands.entity(root).add_child(dd);
+    }
+    ui.focus_order = cx.order;
+}
+
+/// After the frame's layout is known: a pending `reveal` scrolls its
+/// control to the middle (`scrollIntoView({block: 'center'})`).
+fn after_layout(
+    mut ui: ResMut<UiState>,
+    play: Res<Play>,
+    controls: ControlQuery,
+    mut scroller: Query<(&mut ScrollPosition, &ComputedNode), With<Scroller>>,
+) {
+    let css = play.css_scale.max(0.01);
+    let Ok((mut s, n)) = scroller.single_mut() else {
+        ui.reveal = None;
+        return;
+    };
+    // A screen rebuilt this frame has no layout yet: its offset (carried
+    // over by `build`) and a pending reveal wait for it.
+    if n.size.y <= 0.0 {
+        return;
+    }
+    // Keep the offset inside the content, as a browser does.
+    let max = ((n.content_size.y - n.size.y) * n.inverse_scale_factor).max(0.0);
+    let mut y = s.0.y.clamp(0.0, max);
+    if let Some(id) = ui.reveal.take()
+        && let Some((_, _, cn, t, ..)) = controls.iter().find(|(_, c, ..)| c.id == id)
+    {
+        let r = css_rect(cn, t, css);
+        let view_h = n.size.y * n.inverse_scale_factor * css;
+        let dy = (r.1 + r.3 / 2.0) - view_h / 2.0;
+        y = (y + dy / css).clamp(0.0, max);
+    }
+    if s.0.y != y {
+        s.0.y = y;
+    }
+}
+
+/// What the bridge reports for a control (CSS px).
+pub struct Snap {
+    pub entity: Entity,
+    pub id: String,
+    /// Its box.
+    pub rect: (f32, f32, f32, f32),
+    /// The part of it its screen shows ([`css_shown`]).
+    pub shown: (f32, f32, f32, f32),
+    pub visible: bool,
+    pub enabled: bool,
+    pub value: Value,
+    pub sel: bool,
+    pub z: i32,
+}
+
+/// The values the bridge reports for every control.
+pub fn snapshot(controls: &ControlQuery, css: f32) -> Vec<Snap> {
+    controls
+        .iter()
+        .map(|(e, c, n, t, vis, z, clip)| Snap {
+            entity: e,
+            id: c.id.clone(),
+            rect: css_rect(n, t, css),
+            shown: css_shown(n, t, clip, css),
+            visible: vis.get(),
+            enabled: c.act.is_some(),
+            value: c.value.clone(),
+            sel: c.sel,
+            z: z.map_or(0, |z| z.0),
+        })
+        .collect()
+}
+
+/// Whether the race is counting down or running (for the tests).
+pub fn race_state(play: &Play) -> Option<RaceStateKind> {
+    play.race.as_ref().map(|r| r.state())
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    //! The screens' logic without a window: the lobby's buttons
+    //! (`multiplayer`) and what they ask of the connection, and the results
+    //! table (`show_results`) offline and online.
+
+    use super::*;
+    use crate::net::{NetCmd, NetCmds, NetView};
+    use bevy::ecs::system::RunSystemOnce;
+    use bevy::math::DVec3;
+    use lobby::MpAct;
+    use mp_net::client::LobbyView;
+    use mp_net::proto::{AiFill, GridRule, PlayerInfo, Settings as MpSettings};
+    use mp_sim::race::ResultRow;
+
+    /// The front end's state on `screen`, with the default settings.
+    pub(crate) fn ui_state(screen: Screen) -> UiState {
+        UiState {
+            settings: Settings::load(&store::memory(), false),
+            menu_first: true,
+            preview: false,
+            screen,
+            pad_return: Screen::Menu,
+            settings_return: Screen::Menu,
+            starting: None,
+            dirty: false,
+            bp: None,
+            built: None,
+            scroll: 0.0,
+            focus: None,
+            focus_order: Vec::new(),
+            dropdown: None,
+            results: None,
+            press: None,
+            races: 0,
+            reveal: None,
+            clicks: Vec::new(),
+            audio_level: None,
+            next_track: false,
+            to_menu: false,
+            pads: false,
+            inset_top: 0.0,
+            footer: 0.0,
+            now_playing: String::new(),
+            on_station: false,
+        }
+    }
+
+    pub(crate) fn player(slot: u8, name: &str, car: &str, color: u32) -> PlayerInfo {
+        PlayerInfo {
+            slot,
+            name: name.into(),
+            car: car.into(),
+            color,
+            ready: false,
+            connected: true,
+        }
+    }
+
+    /// Ann (slot 0, leads) and Bob (slot 1) in the lobby, seen from `me`.
+    pub(crate) fn lobby_of_two(me: u8) -> NetView {
+        NetView {
+            active: true,
+            connected: true,
+            slot: Some(me),
+            leader: me == 0,
+            lobby: LobbyView {
+                settings: Some(MpSettings::default()),
+                players: vec![
+                    player(0, "Ann", "sports", 0xd81e36),
+                    player(1, "Bob", "rally", 0x1f4fd8),
+                ],
+                ..LobbyView::default()
+            },
+            ..NetView::default()
+        }
+    }
+
+    /// Everything the actions change (`ActCtx`), with no race.
+    pub(crate) fn world(screen: Screen, net: NetView, o: Options) -> World {
+        let mut w = World::new();
+        w.insert_resource(ui_state(screen));
+        w.insert_resource(crate::play::tests::bare_play());
+        w.insert_resource(store::memory());
+        w.insert_resource(Opts {
+            o,
+            hq: false,
+            scale: 1.0,
+        });
+        w.insert_resource(CameraState {
+            fly: None,
+            attract: crate::fly::Attract::default(),
+            focus: DVec3::ZERO,
+        });
+        w.init_resource::<TrackRes>();
+        w.init_resource::<Status>();
+        w.insert_resource(crate::preview::tests::previews("coast"));
+        w.init_resource::<crate::play::gamepad_io::PadsRes>();
+        w.init_resource::<pad_setup::PadSetup>();
+        w.init_resource::<bevy::ecs::message::Messages<bevy::app::AppExit>>();
+        w.insert_resource(net);
+        w.init_resource::<NetCmds>();
+        w
+    }
+
+    /// Presses a lobby button; what it asked of the connection.
+    fn press(w: &mut World, m: MpAct, busy: bool) -> Vec<NetCmd> {
+        w.run_system_once(move |mut ui: ResMut<UiState>, mut ctx: ActCtx| {
+            multiplayer(&mut ui, &mut ctx, m.clone(), busy)
+        })
+        .unwrap();
+        std::mem::take(&mut w.resource_mut::<NetCmds>().0)
+    }
+
+    fn set_me(w: &mut World, f: impl FnOnce(&mut PlayerInfo)) {
+        let mut v = w.resource_mut::<NetView>();
+        let s = v.slot.unwrap();
+        f(v.lobby.players.iter_mut().find(|p| p.slot == s).unwrap());
+    }
+
+    fn configured(cmds: Vec<NetCmd>) -> MpSettings {
+        match cmds.as_slice() {
+            [NetCmd::Configure(s)] => s.clone(),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The menu's Multiplayer joins with the saved name and colour (or
+    /// "Driver" and the car's own), the chosen car, and `?join=`; only from
+    /// the menu, and not while a race is starting.
+    #[test]
+    fn multiplayer_joins_from_the_menu_only() {
+        let o = Options {
+            query: vec![("join".into(), "ws://host/ws".into())],
+            ..Options::default()
+        };
+        let mut w = world(Screen::Menu, NetView::default(), o);
+        assert!(press(&mut w, MpAct::Open, true).is_empty(), "busy");
+        assert_eq!(w.resource::<UiState>().screen, Screen::Menu);
+        let car = w.resource::<UiState>().settings.car.clone();
+        let color = mp_sim::physics::car_spec(&car).unwrap().color;
+        assert_eq!(
+            press(&mut w, MpAct::Open, false),
+            [NetCmd::Join {
+                url: Some("ws://host/ws".into()),
+                signal: None,
+                name: "Driver".into(),
+                car: car.clone(),
+                color,
+            }]
+        );
+        assert_eq!(w.resource::<UiState>().screen, Screen::Lobby);
+        assert!(
+            press(&mut w, MpAct::Open, false).is_empty(),
+            "not again from the lobby"
+        );
+
+        let mut w = world(Screen::Menu, NetView::default(), Options::default());
+        w.resource_mut::<Store>().set_str("mpName", "Ann");
+        w.resource_mut::<Store>()
+            .set_num("mpColor", f64::from(0x2e8b57u32));
+        assert_eq!(
+            press(&mut w, MpAct::Open, false),
+            [NetCmd::Join {
+                url: None,
+                signal: None,
+                name: "Ann".into(),
+                car,
+                color: 0x2e8b57,
+            }]
+        );
+    }
+
+    /// The car button steps through every car and wraps both ways; the
+    /// choice is this player's car offline too, and the name and colour
+    /// are remembered.
+    #[test]
+    fn the_car_button_wraps_over_the_cars() {
+        let kinds: Vec<&str> = store::car_kinds().collect();
+        let mut w = world(Screen::Lobby, lobby_of_two(0), Options::default());
+        let last = *kinds.last().unwrap();
+        set_me(&mut w, |p| p.car = last.into());
+        assert_eq!(
+            press(&mut w, MpAct::Car(1), false),
+            [NetCmd::SetMe {
+                name: "Ann".into(),
+                car: kinds[0].into(),
+                color: 0xd81e36,
+            }]
+        );
+        assert_eq!(w.resource::<UiState>().settings.car, kinds[0]);
+        let st = w.resource::<Store>();
+        assert_eq!(st.string("car", ""), kinds[0]);
+        assert_eq!(st.string("mpName", ""), "Ann");
+        assert_eq!(st.num("mpColor", 0.0), f64::from(0xd81e36u32));
+
+        set_me(&mut w, |p| p.car = kinds[0].into());
+        match press(&mut w, MpAct::Car(-1), false).as_slice() {
+            [NetCmd::SetMe { car, .. }] => assert_eq!(car, last),
+            other => panic!("{other:?}"),
+        }
+        // A car the client doesn't know steps from the first.
+        set_me(&mut w, |p| p.car = "hovercraft".into());
+        match press(&mut w, MpAct::Car(1), false).as_slice() {
+            [NetCmd::SetMe { car, .. }] => assert_eq!(car, kinds[1 % kinds.len()]),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The colour button steps through the palette and wraps; a colour not
+    /// in it starts the palette.
+    #[test]
+    fn the_colour_button_cycles_the_palette() {
+        let c = lobby::COLORS;
+        let mut w = world(Screen::Lobby, lobby_of_two(1), Options::default());
+        let mut seen = Vec::new();
+        for _ in 0..c.len() {
+            match press(&mut w, MpAct::Color, false).as_slice() {
+                [NetCmd::SetMe { name, car, color }] => {
+                    assert_eq!((name.as_str(), car.as_str()), ("Bob", "rally"));
+                    seen.push(*color);
+                    let color = *color;
+                    set_me(&mut w, |p| p.color = color);
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        // From the second colour (Bob's) round to it again.
+        let mut want: Vec<u32> = c[2..].to_vec();
+        want.extend_from_slice(&c[..2]);
+        assert_eq!(seen, want);
+        set_me(&mut w, |p| p.color = 0x123456);
+        match press(&mut w, MpAct::Color, false).as_slice() {
+            [NetCmd::SetMe { color, .. }] => assert_eq!(*color, c[0]),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Ready toggles this player's own flag; the buttons about this player
+    /// do nothing before the host has said who that is.
+    #[test]
+    fn ready_toggles_and_nothing_without_a_slot() {
+        let mut w = world(Screen::Lobby, lobby_of_two(1), Options::default());
+        assert_eq!(press(&mut w, MpAct::Ready, false), [NetCmd::Ready(true)]);
+        set_me(&mut w, |p| p.ready = true);
+        assert_eq!(press(&mut w, MpAct::Ready, false), [NetCmd::Ready(false)]);
+        assert_eq!(press(&mut w, MpAct::Go, false), [NetCmd::Go(true)]);
+        // Natively there is no name prompt.
+        assert!(press(&mut w, MpAct::Name, false).is_empty());
+
+        let mut w = world(
+            Screen::Lobby,
+            NetView {
+                active: true,
+                ..NetView::default()
+            },
+            Options::default(),
+        );
+        for m in [MpAct::Car(1), MpAct::Color, MpAct::Name] {
+            assert!(press(&mut w, m.clone(), false).is_empty(), "{m:?}");
+        }
+        assert!(
+            press(&mut w, MpAct::Ai, false).is_empty(),
+            "no settings yet"
+        );
+    }
+
+    /// The leader's settings: the level steps over every known level and
+    /// wraps both ways; the AI fill, grid and race count go round their
+    /// choices; ghost and rubber-banding toggle. Each press sends the
+    /// whole settings with one thing changed.
+    #[test]
+    fn the_leaders_settings_cycle() {
+        let ids: Vec<&str> = mp_levels::levels().iter().map(|l| l.id).collect();
+        let mut w = world(Screen::Lobby, lobby_of_two(0), Options::default());
+        let set = |w: &mut World, s: MpSettings| {
+            w.resource_mut::<NetView>().lobby.settings = Some(s);
+        };
+        let base = MpSettings::default();
+        let mut seen = Vec::new();
+        for _ in 0..ids.len() {
+            let s = configured(press(&mut w, MpAct::Level(1), false));
+            assert_eq!(
+                MpSettings {
+                    level: base.level.clone(),
+                    ..s.clone()
+                },
+                base
+            );
+            seen.push(s.level.clone());
+            set(&mut w, s);
+        }
+        assert_eq!(seen.last().map(String::as_str), Some(base.level.as_str()));
+        let mut sorted = seen.clone();
+        sorted.sort();
+        let mut want: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
+        want.sort();
+        assert_eq!(sorted, want, "every level once");
+        set(
+            &mut w,
+            MpSettings {
+                level: ids[0].into(),
+                ..base.clone()
+            },
+        );
+        assert_eq!(
+            configured(press(&mut w, MpAct::Level(-1), false)).level,
+            *ids.last().unwrap()
+        );
+
+        let mut cycle = |m: MpAct, n: usize| -> Vec<MpSettings> {
+            set(&mut w, base.clone());
+            (0..n)
+                .map(|_| {
+                    let s = configured(press(&mut w, m.clone(), false));
+                    set(&mut w, s.clone());
+                    s
+                })
+                .collect()
+        };
+        let ai: Vec<AiFill> = cycle(MpAct::Ai, 3).iter().map(|s| s.ai).collect();
+        assert_eq!(ai, [AiFill::To8, AiFill::None, AiFill::To6]);
+        let grid: Vec<GridRule> = cycle(MpAct::Grid, 3).iter().map(|s| s.grid).collect();
+        assert_eq!(grid, [GridRule::Random, GridRule::Same, GridRule::Reverse]);
+        let races: Vec<u8> = cycle(MpAct::Races, 4).iter().map(|s| s.races).collect();
+        assert_eq!(races, [3, 4, 6, 0]);
+        let ghost: Vec<bool> = cycle(MpAct::Ghost, 2).iter().map(|s| s.ghost).collect();
+        assert_eq!(ghost, [true, false]);
+        let rb: Vec<bool> = cycle(MpAct::RubberBand, 2)
+            .iter()
+            .map(|s| s.rubber_band)
+            .collect();
+        assert_eq!(rb, [false, true]);
+        // A race count the menu doesn't offer starts over at open-ended.
+        set(
+            &mut w,
+            MpSettings {
+                races: 5,
+                ..base.clone()
+            },
+        );
+        assert_eq!(configured(press(&mut w, MpAct::Races, false)).races, 0);
+    }
+
+    /// Leave goes back to the menu and ends an online race in hand; Back
+    /// (from a finished race's results) ends it and shows the lobby.
+    #[test]
+    fn leave_and_back() {
+        let mut w = world(Screen::Lobby, lobby_of_two(1), Options::default());
+        assert_eq!(press(&mut w, MpAct::Leave, false), [NetCmd::Leave]);
+        let ui = w.resource::<UiState>();
+        assert_eq!(ui.screen, Screen::Menu);
+        assert!(ui.to_menu);
+        let play = w.resource::<Play>();
+        assert!(!play.stop && play.armed, "no race: nothing to stop");
+
+        let mut w = world(Screen::Pause, lobby_of_two(1), Options::default());
+        w.resource_mut::<Play>().race = Some(crate::play::flow::tests::second_of_two());
+        assert_eq!(press(&mut w, MpAct::Leave, false), [NetCmd::Leave]);
+        let play = w.resource::<Play>();
+        assert!(play.stop && !play.armed, "the online race ends");
+        assert_eq!(w.resource::<UiState>().screen, Screen::Menu);
+
+        let mut w = world(Screen::Results, lobby_of_two(1), Options::default());
+        assert!(press(&mut w, MpAct::Back, false).is_empty());
+        let play = w.resource::<Play>();
+        assert!(play.stop && !play.armed);
+        assert_eq!(w.resource::<UiState>().screen, Screen::Lobby);
+    }
+
+    // ── showResults ────────────────────────────────────────────────────
+
+    fn row(place: usize, name: &'static str, human: Option<usize>, time: f64) -> ResultRow {
+        ResultRow {
+            place,
+            name,
+            player: human.is_some(),
+            human,
+            color: 0x808080 + place as u32,
+            time,
+            estimated: false,
+        }
+    }
+
+    /// An event at a place's results (stage 5): a trial against its time,
+    /// a delivery out of time; back to the cruise, the best kept per event.
+    #[test]
+    fn event_results_say_how_it_went_and_go_back_to_the_cruise() {
+        use mp_sim::event::EventResult;
+        use mp_track::EventKind;
+        let lr = mp_sim::race::LevelRuntime::new(crate::play::cruise_level(
+            mp_levels::level_by_id("peninsula"),
+            true,
+        ))
+        .unwrap();
+        let mut race = crate::play::flow::Race::new(
+            lr,
+            crate::play::flow::Setup {
+                opts: mp_sim::race::RaceOpts {
+                    car: "sports",
+                    seed: 1,
+                    pursuit: false,
+                    heat: 1.0,
+                    physics: mp_sim::model::Physics::Arcade,
+                },
+                autodrive: false,
+                touch: false,
+            },
+            crate::play::touch::TouchControls::default(),
+        );
+        let ev = |kind| {
+            race.session
+                .lr
+                .level
+                .events
+                .iter()
+                .position(|e| e.kind == kind)
+                .unwrap()
+        };
+        let (trial, delivery) = (ev(EventKind::TimeTrial), ev(EventKind::Delivery));
+        let mut store = store::memory();
+        let settings = Settings::load(&store, false);
+        race.event_result = Some(EventResult {
+            index: trial,
+            kind: EventKind::TimeTrial,
+            time: 250.0,
+            place: 1,
+            rows: Vec::new(),
+            made_it: true,
+        });
+        let v = show_results(
+            &mut store,
+            &settings,
+            "peninsula",
+            &race,
+            &NetView::default(),
+        );
+        assert!(v.event);
+        assert_eq!(v.title, "Time beaten!");
+        assert_eq!(v.rows[0].value, "4:10.00");
+        assert_eq!(v.rows[1].name, "To beat");
+        assert_eq!(v.best, "Skyline at Dawn: best 4:10.00");
+        race.event_result = Some(EventResult {
+            index: delivery,
+            kind: EventKind::Delivery,
+            time: 380.0,
+            place: 1,
+            rows: Vec::new(),
+            made_it: false,
+        });
+        let v = show_results(
+            &mut store,
+            &settings,
+            "peninsula",
+            &race,
+            &NetView::default(),
+        );
+        assert_eq!(v.title, "Out of time");
+        assert_eq!(v.best, "The Store Run");
+        assert_eq!(store.num_or_null("bestEvent.peninsula.store-run"), None);
+    }
+
+    /// Online: the humans' lobby names, this player's row marked (as the
+    /// second human), back to the lobby, and no best time saved.
+    #[test]
+    fn online_results_use_the_lobby_names_and_save_nothing() {
+        let mut race = crate::play::flow::tests::second_of_two();
+        race.results = Some(vec![
+            row(1, "YOU", Some(0), 100.0),
+            row(2, "VIPER", None, 101.0),
+            row(3, "P2", Some(1), 102.5),
+        ]);
+        let mut net = lobby_of_two(1);
+        net.humans = net.lobby.players.clone();
+        let mut store = store::memory();
+        let settings = Settings::load(&store, false);
+        let v = show_results(&mut store, &settings, "coast", &race, &net);
+        assert_eq!(v.title, "3rd place");
+        let names: Vec<&str> = v.rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["Ann", "VIPER", "Bob"]);
+        let me: Vec<bool> = v.rows.iter().map(|r| r.me).collect();
+        assert_eq!(me, [false, false, true]);
+        assert_eq!(v.rows[2].value, "1:42.50");
+        assert!(v.online);
+        assert_eq!(v.best, "");
+        assert!(v.tiles.is_empty());
+        assert_eq!(store.num_or_null("best.coast"), None);
+        assert_eq!(store.num_or_null("bestLap.coast"), None);
+
+        // Without the lobby's names, the simulation's.
+        let v = show_results(&mut store, &settings, "coast", &race, &NetView::default());
+        let names: Vec<&str> = v.rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["YOU", "VIPER", "P2"]);
+    }
+
+    fn offline_race() -> crate::play::flow::Race {
+        let lr = mp_sim::race::LevelRuntime::new(mp_levels::level_by_id("sierra")).unwrap();
+        crate::play::flow::Race::new(
+            lr,
+            crate::play::flow::Setup {
+                opts: mp_sim::race::RaceOpts {
+                    car: "sports",
+                    seed: 1,
+                    pursuit: false,
+                    heat: 1.0,
+                    physics: mp_sim::model::Physics::Arcade,
+                },
+                autodrive: false,
+                touch: false,
+            },
+            crate::play::touch::TouchControls::default(),
+        )
+    }
+
+    /// Offline, a win sets the best time when it beats the saved one (or
+    /// there is none, or it is 0), and only a win does.
+    #[test]
+    fn offline_a_win_saves_a_better_best_only() {
+        let mut race = offline_race();
+        let mut store = store::memory();
+        let settings = Settings::load(&store, false);
+        let net = NetView::default();
+        race.results = Some(vec![
+            row(1, "VIPER", None, 90.0),
+            row(2, "YOU", Some(0), 95.0),
+        ]);
+        let v = show_results(&mut store, &settings, "sierra", &race, &net);
+        assert_eq!(v.title, "2nd place");
+        assert_eq!(v.best, "Win the race to set a best time");
+        assert_eq!(store.num_or_null("best.sierra"), None);
+        assert!(!v.online);
+        assert_eq!(v.rows.iter().filter(|r| r.me).count(), 1);
+
+        race.results = Some(vec![
+            row(1, "YOU", Some(0), 95.0),
+            row(2, "VIPER", None, 96.0),
+        ]);
+        let v = show_results(&mut store, &settings, "sierra", &race, &net);
+        assert_eq!(v.title, "You win!");
+        assert_eq!(store.num_or_null("best.sierra"), Some(95.0));
+        assert_eq!(v.best, "Best winning time: 1:35.00");
+
+        race.results = Some(vec![row(1, "YOU", Some(0), 97.0)]);
+        show_results(&mut store, &settings, "sierra", &race, &net);
+        assert_eq!(store.num_or_null("best.sierra"), Some(95.0), "slower: kept");
+        race.results = Some(vec![row(1, "YOU", Some(0), 94.0)]);
+        show_results(&mut store, &settings, "sierra", &race, &net);
+        assert_eq!(store.num_or_null("best.sierra"), Some(94.0));
+        store.set_num("best.sierra", 0.0);
+        race.results = Some(vec![row(1, "YOU", Some(0), 99.0)]);
+        show_results(&mut store, &settings, "sierra", &race, &net);
+        assert_eq!(store.num_or_null("best.sierra"), Some(99.0), "0 is no time");
+
+        // Estimated times are marked.
+        let mut r = row(2, "VIPER", None, 120.0);
+        r.estimated = true;
+        race.results = Some(vec![row(1, "YOU", Some(0), 99.0), r]);
+        let v = show_results(&mut store, &settings, "sierra", &race, &net);
+        assert_eq!(v.rows[1].value, "~2:00.00");
+        // No row of this player: nothing to show.
+        race.results = Some(vec![row(1, "VIPER", None, 90.0)]);
+        let v = show_results(&mut store, &settings, "sierra", &race, &net);
+        assert_eq!(v, ResultsView::default());
+    }
+
+    // ── Boot and the bridge's mode ─────────────────────────────────────
+
+    fn opts(q: &str) -> Options {
+        Options {
+            query: crate::options::parse_query(q),
+            ..Options::default()
+        }
+    }
+
+    /// A race page opens on the menu unless the query asks to race at
+    /// once (`autostart`, `race`, `car`, `shots`); `?touch=` decides the
+    /// touch UI natively.
+    #[test]
+    fn what_opens_first() {
+        assert!(menu_first(&opts("")));
+        assert!(menu_first(&opts("level=sierra")), "a level only picks");
+        for q in ["autostart=1", "race=1", "car=rally", "shots=a"] {
+            assert!(!menu_first(&opts(q)), "{q}");
+        }
+        assert!(!menu_first(&opts("race=0")), "no race at all");
+        assert!(touch_ui(&opts("touch=1")));
+        assert!(!touch_ui(&opts("touch=0")));
+        assert!(!touch_ui(&opts("touch=yes")));
+        #[cfg(not(target_arch = "wasm32"))]
+        assert!(!touch_ui(&opts("")));
+    }
+
+    /// `__game.mode`: loading until ready and while a Race tap waits for
+    /// its level, the race's mode while one is shown, else the menu.
+    #[test]
+    fn the_bridges_mode() {
+        let mut ui = ui_state(Screen::Menu);
+        let mut play = crate::play::tests::bare_play();
+        let mut status = Status::default();
+        assert_eq!(mode_name(&ui, &play, &status), "loading");
+        status.ready = true;
+        assert_eq!(mode_name(&ui, &play, &status), "menu");
+        play.race = Some(crate::play::flow::tests::second_of_two());
+        assert_eq!(mode_name(&ui, &play, &status), "race");
+        play.race.as_mut().unwrap().mode = Mode::Paused;
+        assert_eq!(mode_name(&ui, &play, &status), "paused");
+        play.race.as_mut().unwrap().mode = Mode::Results;
+        assert_eq!(mode_name(&ui, &play, &status), "results");
+        ui.preview = true;
+        assert_eq!(mode_name(&ui, &play, &status), "menu", "the warm-up race");
+        ui.preview = false;
+        ui.starting = Some(Starting::Level);
+        assert_eq!(mode_name(&ui, &play, &status), "loading");
+        ui.starting = Some(Starting::Free(1));
+        assert_eq!(mode_name(&ui, &play, &status), "loading");
+        ui.starting = Some(Starting::Build {
+            frames: 0,
+            quiet: 0,
+            t: 0.0,
+        });
+        assert_eq!(mode_name(&ui, &play, &status), "menu");
+    }
+}

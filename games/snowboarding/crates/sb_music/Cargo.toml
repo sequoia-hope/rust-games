@@ -1,0 +1,22 @@
+[package]
+name = "sb_music"
+description = "The music: midnight-playground's music engine (instruments, sequencer, composer, genres, mix) and Ten-Eighty FM's station player"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# rlib for the tests and the client (which reads the station's schedule);
+# cdylib: on the web the engine is its own small wasm (no wasm-bindgen),
+# which the AudioWorklet shim `crates/sb_game/web/music-worklet.js`
+# instantiates on the audio thread. `cargo xtask web` builds it.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The C-ABI exports of `src/wasm.rs`, for the standalone worklet wasm only.
+worklet = []
+
+[lints.clippy]
+# The port keeps the lab's shapes (index loops, long argument lists).
+needless_range_loop = "allow"
+too_many_arguments = "allow"

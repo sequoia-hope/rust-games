@@ -1,0 +1,9 @@
+[package]
+name = "sb_radio"
+description = "Ten-Eighty FM: the announcers' script and the director that decides when they speak. No engine, no clock."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+sb_sim.workspace = true

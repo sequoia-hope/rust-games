@@ -1,0 +1,6 @@
+/target
+/dist
+/report
+node_modules/
+__pycache__/
+*.log

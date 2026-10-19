@@ -1,0 +1,77 @@
+--- a/src/gles/adapter.rs
++++ b/src/gles/adapter.rs
+@@ -890,6 +890,7 @@
+                     next_shader_id: Default::default(),
+                     program_cache: Default::default(),
+                     es: es_ver.is_some(),
++                    tex_levels: Default::default(),
+                     max_msaa_samples: max_samples,
+                 }),
+             },
+--- a/src/gles/device.rs
++++ b/src/gles/device.rs
+@@ -997,6 +997,8 @@
+                 super::TextureInner::DefaultRenderbuffer => {}
+                 super::TextureInner::Texture { raw, .. } => {
+                     unsafe { gl.delete_texture(raw) };
++                    // D1190: GL may give the name to a new texture.
++                    self.shared.tex_levels.lock().remove(&raw);
+                 }
+                 #[cfg(webgl)]
+                 super::TextureInner::ExternalFramebuffer { .. } => {}
+--- a/src/gles/mod.rs
++++ b/src/gles/mod.rs
+@@ -281,6 +281,12 @@
+     next_shader_id: AtomicU32,
+     program_cache: Mutex<ProgramCache>,
+     es: bool,
++    /// Midnight Playground (D1190): the mip range each texture's
++    /// `TEXTURE_BASE_LEVEL` and `TEXTURE_MAX_LEVEL` were last set to, so a
++    /// bind sets them only when the view's range differs. Every change to
++    /// those parameters goes through `Queue::process` (`C::BindTexture`);
++    /// `destroy_texture` forgets the texture, as GL may reuse its name.
++    tex_levels: Mutex<FastHashMap<glow::Texture, Range<u32>>>,
+ 
+     /// Result of `gl.get_parameter_i32(glow::MAX_SAMPLES)`.
+     /// Cached here so it doesn't need to be queried every time texture format capabilities are requested.
+--- a/src/gles/queue.rs
++++ b/src/gles/queue.rs
+@@ -1595,16 +1595,28 @@
+                 *bound = Some((texture, target, mip_levels.clone()));
+                 drop(cache);
+ 
+-                unsafe {
+-                    gl.tex_parameter_i32(target, glow::TEXTURE_BASE_LEVEL, mip_levels.start as i32)
+-                };
+-                unsafe {
+-                    gl.tex_parameter_i32(
+-                        target,
+-                        glow::TEXTURE_MAX_LEVEL,
+-                        (mip_levels.end - 1) as i32,
+-                    )
+-                };
++                // D1190: the levels are set on the texture, not the unit;
++                // set them only when this view's range differs from the
++                // last one set.
++                let mut levels = self.shared.tex_levels.lock();
++                if levels.get(&texture) != Some(mip_levels) {
++                    unsafe {
++                        gl.tex_parameter_i32(
++                            target,
++                            glow::TEXTURE_BASE_LEVEL,
++                            mip_levels.start as i32,
++                        )
++                    };
++                    unsafe {
++                        gl.tex_parameter_i32(
++                            target,
++                            glow::TEXTURE_MAX_LEVEL,
++                            (mip_levels.end - 1) as i32,
++                        )
++                    };
++                    levels.insert(texture, mip_levels.clone());
++                }
++                drop(levels);
+ 
+                 let version = gl.version();
+                 let is_min_es_3_1 = version.is_embedded && (version.major, version.minor) >= (3, 1);

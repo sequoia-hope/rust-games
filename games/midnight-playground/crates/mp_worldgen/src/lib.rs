@@ -1,0 +1,41 @@
+//! World generation: turns a level into an engine-neutral `mp_scene::Scene`
+//! plus animators and the data the simulation needs (SPEC 5).
+
+#![forbid(unsafe_code)]
+
+pub mod anim;
+pub mod beach;
+pub mod builder;
+pub mod car_model;
+pub mod city;
+pub mod closure;
+pub mod coast;
+pub mod color;
+pub mod color_builder;
+pub mod colorizer;
+pub mod desert;
+pub mod flora;
+pub mod fonts;
+pub mod geom;
+pub mod harbor;
+pub mod land;
+pub mod life;
+pub mod material;
+pub mod mountain;
+pub mod object;
+pub mod pursuit_props;
+pub mod raceway;
+pub mod road;
+pub mod scenery;
+pub mod sea;
+pub mod section;
+pub mod sky;
+pub mod stages;
+pub mod stream;
+pub mod streets;
+pub mod terrain;
+pub mod terrain_mesh;
+pub mod textures;
+pub mod three_geom;
+pub mod valley;
+pub mod world;

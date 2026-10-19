@@ -1,0 +1,70 @@
+--- a/src/box_shadow.rs
++++ b/src/box_shadow.rs
+@@ -553,6 +553,11 @@
+         pass.set_vertex_buffer(0, vertices.slice(..));
+         // Define how to "connect" the vertices
+         pass.set_index_buffer(indices.slice(..), IndexFormat::Uint32);
++        // Midnight Playground (D1200): a batch whose nodes added no quads
++        // is empty; drawing it anyway makes WebGPU warn.
++        if batch.range.is_empty() {
++            return RenderCommandResult::Success;
++        }
+         // Draw the vertices
+         pass.draw_indexed(batch.range.clone(), 0, 0..1);
+         RenderCommandResult::Success
+--- a/src/gradient.rs
++++ b/src/gradient.rs
+@@ -963,6 +963,11 @@
+         pass.set_vertex_buffer(0, vertices.slice(..));
+         // Define how to "connect" the vertices
+         pass.set_index_buffer(indices.slice(..), IndexFormat::Uint32);
++        // Midnight Playground (D1200): a batch whose nodes added no quads
++        // is empty; drawing it anyway makes WebGPU warn.
++        if batch.range.is_empty() {
++            return RenderCommandResult::Success;
++        }
+         // Draw the vertices
+         pass.draw_indexed(batch.range.clone(), 0, 0..1);
+         RenderCommandResult::Success
+--- a/src/render_pass.rs
++++ b/src/render_pass.rs
+@@ -237,6 +237,11 @@
+             indices.slice(..),
+             bevy_render::render_resource::IndexFormat::Uint32,
+         );
++        // Midnight Playground (D1200): a batch whose nodes added no quads
++        // is empty; drawing it anyway makes WebGPU warn.
++        if batch.range.is_empty() {
++            return RenderCommandResult::Success;
++        }
+         // Draw the vertices
+         pass.draw_indexed(batch.range.clone(), 0, 0..1);
+         RenderCommandResult::Success
+--- a/src/ui_material_pipeline.rs
++++ b/src/ui_material_pipeline.rs
+@@ -284,6 +284,11 @@
+         };
+ 
+         pass.set_vertex_buffer(0, ui_meta.into_inner().vertices.buffer().unwrap().slice(..));
++        // Midnight Playground (D1200): a batch whose nodes added no quads
++        // is empty; drawing it anyway makes WebGPU warn.
++        if batch.range.is_empty() {
++            return RenderCommandResult::Success;
++        }
+         pass.draw(batch.range.clone(), 0..1);
+         RenderCommandResult::Success
+     }
+--- a/src/ui_texture_slice_pipeline.rs
++++ b/src/ui_texture_slice_pipeline.rs
+@@ -715,6 +715,11 @@
+         pass.set_vertex_buffer(0, vertices.slice(..));
+         // Define how to "connect" the vertices
+         pass.set_index_buffer(indices.slice(..), IndexFormat::Uint32);
++        // Midnight Playground (D1200): a batch whose nodes added no quads
++        // is empty; drawing it anyway makes WebGPU warn.
++        if batch.range.is_empty() {
++            return RenderCommandResult::Success;
++        }
+         // Draw the vertices
+         pass.draw_indexed(batch.range.clone(), 0, 0..1);
+         RenderCommandResult::Success

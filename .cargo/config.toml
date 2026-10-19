@@ -1,0 +1,8 @@
+# `cargo xtask` here at the root runs the kit's tooling (check-deps for the
+# whole workspace); each game's folder and crates/engine alias their own.
+[alias]
+xtask = "run --quiet --package engine_xtask --"
+
+# `cargo test --target wasm32-unknown-unknown` runs the tests under Node.
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"

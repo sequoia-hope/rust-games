@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1a33">
+<title>Snowboarding</title>
+<meta name="description" content="A 1080°-style snowboarding game in Rust, Bevy and WebAssembly: race a CPU rider, carve, spin and grab down three mountains and a half-pipe.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b1a33'/%3E%3Cpath d='M3 24 L16 6 L29 24 Z' fill='%23eaf4ff'/%3E%3Crect x='6' y='22' width='20' height='3' rx='1.5' transform='rotate(-18 16 23)' fill='%23ff6a2b'/%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b1a33; color: #eaf4ff;
+               font: 16px/1.5 system-ui, sans-serif; overflow: hidden; }
+  /* The canvas fills the window; winit writes its pixel size inline. */
+  #game { position: fixed; inset: 0; width: 100% !important; height: 100% !important; display: block;
+          outline: none; touch-action: none; -webkit-touch-callout: none;
+          -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  @font-face { font-family: Rajdhani; font-weight: 600; src: url(assets/fonts/rajdhani/Rajdhani-SemiBold.ttf); }
+  @font-face { font-family: Rajdhani; font-weight: 700; src: url(assets/fonts/rajdhani/Rajdhani-Bold.ttf); }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 16px; padding: 16px; text-align: center;
+            background: radial-gradient(ellipse at 50% 30%, #2a5c9a, #0b1a33 70%);
+            font-family: Rajdhani, "Arial Narrow", system-ui, sans-serif; }
+  .screen[hidden] { display: none; }
+  .logo { font-size: clamp(44px, 10vw, 112px); font-weight: 700; letter-spacing: .02em; line-height: .9;
+          background: linear-gradient(180deg, #fff 35%, #a9c8ee); -webkit-background-clip: text;
+          background-clip: text; color: transparent; filter: drop-shadow(0 6px 24px rgba(120,190,255,.35)); }
+  .logo span { display: block; font-size: .32em; letter-spacing: .5em; margin-top: .3em;
+               background: linear-gradient(90deg, #ff6a2b, #ffc34a); -webkit-background-clip: text;
+               background-clip: text; color: transparent; }
+  .bar { width: min(420px, 80vw); height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #7fd0ff, #fff); transition: width .15s; }
+  #msg { margin: 0; color: rgba(234,244,255,.7); letter-spacing: .2em; text-transform: uppercase; font-size: 13px; min-height: 1.5em; }
+  #msg.error { color: #ff9a8a; letter-spacing: normal; text-transform: none; font: 14px/1.5 system-ui, sans-serif;
+               white-space: pre-wrap; max-width: 46em; text-align: left; }
+  #nogpu p, #crashed p { max-width: 34em; margin: 0; color: #c9d6ea; font-family: system-ui, sans-serif; }
+  #crashed code { display: block; max-width: 46em; max-height: 30vh; overflow: auto; text-align: left;
+                  font: 12px/1.4 ui-monospace, monospace; color: #ff9a8a; white-space: pre-wrap; }
+  #crashed button { font: 700 22px Rajdhani, system-ui, sans-serif; letter-spacing: .1em; padding: 10px 28px;
+                    border-radius: 10px; border: 2px solid #8fd8ff; background: #12305a; color: #fff; }
+</style>
+</head>
+<body>
+<!-- Borrowed from midnight-playground's page: pick the backend (WebGPU,
+     else the WebGL2 build), download the wasm with progress, bridge user
+     gestures into the wasm (sound may only start inside one), and keep the
+     loading screen up until the first frames are drawn. Every URL here is
+     relative: the build may be served under a sub-path. -->
+<canvas id="game" tabindex="0"></canvas>
+<div id="loading" class="screen">
+  <div class="logo">SNOWBOARDING<span>1080° STYLE</span></div>
+  <div class="bar"><i id="bar"></i></div>
+  <p id="msg">Starting…</p>
+</div>
+<div id="nogpu" class="screen" hidden>
+  <div class="logo">SNOWBOARDING</div>
+  <p><strong>This browser has neither WebGPU nor WebGL2</strong>, one of which the game needs.
+     A current Chrome, Edge, Firefox or Safari has at least WebGL2.</p>
+</div>
+<div id="crashed" class="screen" hidden>
+  <div class="logo">WIPEOUT</div>
+  <p>The game hit an error and stopped. Reloading starts it again.</p>
+  <button id="reload">RELOAD</button>
+  <code id="crash-msg"></code>
+</div>
+<script type="module">
+  const sb = (window.__sb = { state: 'boot', startMs: performance.now() });
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+
+  // The canvas draws at most 1.5 pixels per CSS pixel on a touch screen
+  // and 2 elsewhere (?dpr= sets the cap). A phone's 3x would be four times
+  // the pixels to fill and to hold: with 4x MSAA, about 100 MB of render
+  // targets on an iPhone, which Safari counts against the tab. winit takes
+  // the ratio from window.devicePixelRatio, and the canvas's size from the
+  // device-pixel box where the browser has one (Safari has not): hiding
+  // that box makes both follow the cap, so touches still land where drawn.
+  const realDpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(realDpr, +params.get('dpr') || (matchMedia('(pointer: coarse)').matches ? 1.5 : 2));
+  if (dpr !== realDpr) {
+    Object.defineProperty(window, 'devicePixelRatio', { get: () => dpr, configurable: true });
+    try { delete ResizeObserverEntry.prototype.devicePixelContentBoxSize; } catch {}
+  }
+  Object.assign(sb, { dpr, realDpr });
+
+  // Reports to the server (tools/serve.py appends them to logs/client.jsonl):
+  // what the page starts on, every crash with the console's last lines (a
+  // Rust panic's message is printed there before the wasm traps), and a tab
+  // that vanished, which is how a phone that ran out of memory looks: the
+  // page keeps a heartbeat in localStorage and marks it clean on leaving,
+  // so a heartbeat left unclean at the next start is a page that was
+  // killed, last seen on that screen with that heap.
+  const session = Math.random().toString(36).slice(2, 8);
+  const lines = [];
+  const keep = (line) => {
+    lines.push(line.slice(0, 600));
+    if (lines.length > 12) lines.shift();
+  };
+  for (const level of ['error', 'warn']) {
+    const orig = console[level].bind(console);
+    console[level] = (...a) => {
+      keep(level + ': ' + a.map((x) => (x && x.stack) || String(x)).join(' '));
+      orig(...a);
+    };
+  }
+  const seen = () => ({ screen: sb.screen, state: sb.state, course: sb.course, mode: sb.mode, frames: sb.frames,
+    memMB: sb.memMB ? sb.memMB() : undefined, up: +((performance.now() - sb.startMs) / 1000).toFixed(1),
+    ...(sb.frozen ? { frozen: true } : {}) });
+  const report = (kind, extra = {}) => {
+    const body = JSON.stringify({ kind, session, backend: sb.backend, ...seen(), ...extra });
+    try { if (!navigator.sendBeacon('log', body)) throw 0; } catch { fetch('log', { method: 'POST', body, keepalive: true }).catch(() => {}); }
+  };
+  sb.report = report;
+  const ALIVE = 'sb.alive';
+  const store = (() => { try { return window.localStorage; } catch { return null; } })();
+  let last = null;
+  try { last = JSON.parse(store?.getItem(ALIVE) || 'null'); } catch {}
+  const beat = (clean) => {
+    try { store?.setItem(ALIVE, JSON.stringify({ session, at: Date.now(), clean, hidden: document.hidden, ...seen(), lines: lines.slice(-4) })); } catch {}
+  };
+  setInterval(() => beat(false), 1000);
+  addEventListener('pagehide', () => beat(true));
+  document.addEventListener('visibilitychange', () => beat(false));
+  addEventListener('pageshow', (e) => { if (e.persisted) beat(false); });
+  report('start', {
+    ua: navigator.userAgent, secure: isSecureContext, dpr, realDpr, size: `${innerWidth}x${innerHeight}`,
+    worklet: typeof AudioWorkletNode !== 'undefined', path: location.pathname + location.search,
+    ...(last && !last.clean ? { vanished: { ...last, ago: +((Date.now() - last.at) / 1000).toFixed(0) } } : {}),
+  });
+
+  // Every uncaught error, not only the wasm's traps: a JS exception thrown
+  // through the wasm skips Rust's destructors, so one inside a frame leaves
+  // winit's runner borrowed for good and the game stops without a word (a
+  // Firefox tab did, its only trace winit's "RefCell already borrowed" at
+  // pagehide). A trap after the first frame is crashed()'s to report; the
+  // rest are reported here (five a page at most) and kept in the lines a
+  // later crash, freeze or vanished tab carries.
+  const TRAP = /unreachable|RuntimeError|panicked/;
+  let errors = 0;
+  const uncaught = (kind, err) => {
+    const s = String(err), st = err && err.stack ? String(err.stack) : '';
+    const why = st && !st.startsWith(s) ? `${s}\n${st}` : st || s;
+    if (TRAP.test(why) && sb.frames) return;
+    keep(`${kind}: ${why}`);
+    if (++errors <= 5) report('error', { why: why.slice(0, 2000), lines });
+  };
+  addEventListener('error', (e) => uncaught('uncaught', e.error || `${e.message} (${e.filename}:${e.lineno})`));
+  addEventListener('unhandledrejection', (e) => uncaught('rejection', e.reason));
+
+  // A freeze: the tab in sight, yet no new frame for five checks running
+  // (checks, not seconds, so one long task that holds the page up is not
+  // one). Reported once, with the crash screen; a game that draws again
+  // takes the screen down and says how long it stood still.
+  let lastFrames = 0, still = 0, frozeAt = 0;
+  setInterval(() => {
+    const f = sb.frames || 0;
+    if (f <= 3 || sb.state === 'crashed' || sb.state === 'failed') return;
+    if (f !== lastFrames) {
+      if (sb.frozen) {
+        sb.frozen = false;
+        report('thawed', { after: +((performance.now() - frozeAt) / 1000 + 5).toFixed(1) });
+        $('crashed').hidden = true;
+      }
+      lastFrames = f; still = 0;
+      return;
+    }
+    if (document.hidden) { still = 0; return; }
+    if (++still === 5 && !sb.frozen) {
+      sb.frozen = true; frozeAt = performance.now();
+      report('frozen', { still, lines });
+      beat(false);
+      $('crash-msg').textContent = `No frame for ${still} seconds.` + (lines.length ? '\n' + lines[lines.length - 1] : '');
+      $('crashed').hidden = false;
+    }
+  }, 1000);
+  const show = (frac, text) => {
+    if (frac !== null) $('bar').style.width = (100 * Math.max(0, Math.min(1, frac))).toFixed(1) + '%';
+    if (text !== null) $('msg').textContent = text;
+  };
+  const fail = (text) => {
+    sb.state = 'failed'; sb.error = text;
+    report('failed', { why: text.slice(0, 2000), lines });
+    $('loading').hidden = false;
+    $('msg').className = 'error';
+    $('msg').textContent = text;
+  };
+  const MB = (n) => (n / 1048576).toFixed(1) + ' MB';
+
+  async function download(url, onProgress) {
+    const res = await fetch(url, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+    const total = res.headers.get('content-encoding') ? 0 : Number(res.headers.get('content-length')) || 0;
+    if (!res.body) return new Uint8Array(await res.arrayBuffer());
+    const reader = res.body.getReader();
+    let buf = new Uint8Array(total || 1 << 20), n = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (n + value.length > buf.length) {
+        const next = new Uint8Array(Math.max(buf.length * 2, n + value.length));
+        next.set(buf.subarray(0, n)); buf = next;
+      }
+      buf.set(value, n); n += value.length;
+      onProgress(n, total);
+    }
+    return buf.length === n ? buf : buf.slice(0, n);
+  }
+
+  // WebGPU, asked a few times: Chrome can answer null while its GPU process starts.
+  async function webgpuAdapter() {
+    let adapter = null;
+    for (let i = 0; i < 3 && !adapter && 'gpu' in navigator; i++) {
+      if (i) await new Promise((r) => setTimeout(r, 300));
+      adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null);
+    }
+    return adapter;
+  }
+  function hasWebGL2() {
+    try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; }
+  }
+  const withParams = (extra) => {
+    const q = new URLSearchParams(location.search);
+    for (const [k, v] of Object.entries(extra)) q.set(k, v);
+    return location.pathname + '?' + q.toString() + location.hash;
+  };
+
+  async function main() {
+    const build = await fetch('build.json', { cache: 'no-cache' }).then((r) => r.json()).catch(() => ({}));
+    const built = build.backends || ['webgpu', 'webgl2'];
+    // ?backend=webgpu or ?backend=webgl2 forces one.
+    const want = params.get('backend');
+    let backend = null;
+    if (want !== 'webgl2' && built.includes('webgpu') && await webgpuAdapter()) backend = 'webgpu';
+    if (!backend && want !== 'webgpu' && built.includes('webgl2') && hasWebGL2()) backend = 'webgl2';
+    sb.backend = backend;
+    if (!backend) { sb.state = 'nogpu'; $('loading').hidden = true; $('nogpu').hidden = false; return; }
+
+    // A WebGPU build that dies before its first frame: try WebGL2 instead.
+    if (backend === 'webgpu' && want !== 'webgpu') {
+      const fallBack = (e) => {
+        if (sb.frames || sb.state === 'failed') return;
+        console.error('WebGPU build failed before its first frame; trying WebGL2:', e?.message || e?.reason || e);
+        location.replace(withParams({ backend: 'webgl2' }));
+      };
+      window.addEventListener('error', fallBack);
+      window.addEventListener('unhandledrejection', fallBack);
+    }
+
+    const name = backend === 'webgl2' ? 'sb_game_webgl2' : 'sb_game';
+    const glue = await import(`./${name}.js`);
+    show(0, `Loading (${backend === 'webgl2' ? 'WebGL2' : 'WebGPU'})…`);
+    const bytes = await download(`${name}_bg.wasm`, (n, t) => show(t ? 0.9 * n / t : null, `Loading… ${MB(n)}`));
+    sb.wasmMB = +(bytes.length / 1048576).toFixed(2);
+    show(0.92, 'Waxing the boards…');
+    const wasm = await glue.default({ module_or_path: bytes });
+    // The wasm's heap in MB (a test reads it: it must not keep growing).
+    sb.memMB = () => +(wasm.memory.buffer.byteLength / 1048576).toFixed(1);
+
+    // After the first frame, a trap in the wasm (a Rust panic aborts) or a
+    // lost GPU stops the game for good: say so, with a way back, instead of
+    // leaving a frozen picture.
+    const crashed = (why) => {
+      if (sb.state === 'crashed' || !sb.frames) return;
+      sb.state = 'crashed'; sb.error = why;
+      console.error('crashed:', why);
+      report('crash', { why: String(why).slice(0, 2000), lines });
+      beat(true);
+      $('crash-msg').textContent = why;
+      $('crashed').hidden = false;
+    };
+    $('reload').addEventListener('click', () => location.reload());
+    window.addEventListener('error', (e) => {
+      const err = e.error || e.message;
+      if (err instanceof WebAssembly.RuntimeError || /unreachable|RuntimeError|panicked/.test(String(err))) {
+        crashed(String(err && err.stack || err));
+      }
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      if (e.reason instanceof WebAssembly.RuntimeError) crashed(String(e.reason.stack || e.reason));
+    });
+    // A lost WebGL context (Safari drops one under memory pressure) leaves
+    // nothing to draw with: as good as a crash.
+    $('game').addEventListener('webglcontextlost', () => crashed('The graphics context was lost (WebGL).'));
+
+    // Sound may only start inside a gesture: hand every one to the wasm.
+    for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) {
+      window.addEventListener(type, () => glue.gesture(), { capture: true, passive: true });
+    }
+    $('game').addEventListener('contextmenu', (e) => e.preventDefault());
+    // __sb.screenshot(name): the next frame as a download (a test hook).
+    sb.screenshot = (n) => glue.screenshot(String(n));
+    // __sb.audio(): the sound's state (a test hook).
+    sb.audio = () => JSON.parse(glue.audio_status());
+
+    const poll = () => {
+      if (sb.state === 'failed') return;
+      if ((sb.frames || 0) > 3) {
+        $('loading').hidden = true; $('game').focus();
+        report('up', { canvas: `${$('game').width}x${$('game').height}` });
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    poll();
+    glue.run();
+  }
+  main().catch((e) => {
+    // winit's run loop returns by throwing a control-flow exception on the web.
+    if (String(e).includes('Using exceptions for control flow')) return;
+    fail('Failed to start: ' + (e && e.stack || e));
+  });
+</script>
+</body>
+</html>

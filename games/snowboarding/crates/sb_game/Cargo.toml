@@ -1,0 +1,89 @@
+[package]
+name = "sb_game"
+description = "The Snowboarding client: rendering, camera, input, HUD, menus, sound, platform glue"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The web build is the cdylib, post-processed by wasm-bindgen into dist/web/
+# (`cargo xtask web`). The native build is the binary.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "snowboarding"
+path = "src/main.rs"
+
+[dependencies]
+sb_sim.workspace = true
+# The announcers' script and director (the music itself is sb_music's
+# own wasm in an AudioWorklet, built beside the page by `cargo xtask web`;
+# the web client links it too, for pages without AudioWorklet).
+sb_radio.workspace = true
+# Bevy 0.19.1, pinned, default features off (midnight-playground's set):
+# the 3D renderer, windowing, states, input and UI text. No 2D sprites,
+# audio, glTF, gizmos or picking.
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_state",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_light",
+    "bevy_camera",
+    "bevy_mesh",
+    "bevy_image",
+    "bevy_color",
+    "bevy_material",
+    "bevy_shader",
+    "keyboard",
+    "mouse",
+    "touch",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_text",
+    "default_font",
+    "png",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "multi_threaded",
+    "x11",
+    "wayland",
+    "bevy_gilrs",
+] }
+
+# The web backend is chosen at compile time, one wasm file each, picked by
+# the page: WebGPU by default, WebGL2 when built with
+# `RUSTFLAGS="--cfg sb_webgl2"` (`cargo xtask web` builds both).
+[target.'cfg(all(target_arch = "wasm32", not(sb_webgl2)))'.dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = ["web", "webgpu"] }
+
+[target.'cfg(all(target_arch = "wasm32", sb_webgl2))'.dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = ["web", "webgl2"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+sb_music.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = "0.4"
+js-sys.workspace = true
+web-sys = { workspace = true, features = [
+    "console", "Response", "AudioWorklet", "Worklet", "AudioWorkletNode", "AudioWorkletNodeOptions", "AudioParamMap",
+    "Window", "Document", "Element", "HtmlElement", "Navigator", "Location", "Storage", "Performance",
+    "AudioContext", "BaseAudioContext", "AudioContextState", "AudioNode", "AudioParam", "AudioDestinationNode",
+    "AudioBuffer", "AudioBufferSourceNode", "AudioScheduledSourceNode", "BiquadFilterNode", "BiquadFilterType",
+    "GainNode", "OscillatorNode", "OscillatorType", "StereoPannerNode", "Gamepad", "GamepadButton", "AnalyserNode",
+    "ScriptProcessorNode", "AudioProcessingEvent",
+] }
+# Debug and trace logging compiled out of release wasm (midnight-playground D671).
+tracing = { version = "0.1", default-features = false, features = ["release_max_level_info"] }
+log = { version = "0.4", default-features = false, features = ["release_max_level_info"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(sb_webgl2)"] }

@@ -1,0 +1,9 @@
+{
+  "name": "snowboarding",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling for the Rust game: headless browser screenshots (tools/shot.mjs)",
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0"
+  }
+}

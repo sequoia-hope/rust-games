@@ -1,0 +1,506 @@
+--- a/src/backend/webgpu.rs
++++ b/src/backend/webgpu.rs
+@@ -1288,9 +1288,91 @@
+     ident: crate::cmp::Identifier,
+ }
+ 
++// DESTROY ON DROP (bevy-patches): the crates.io release never calls
++// `destroy()` on a buffer or texture; it leaves each to the JS garbage
++// collector, which sees only a small wrapper, not the GPU memory behind
++// it (Safari may not collect it for a long time). Here a buffer or texture
++// is destroyed when the last thing that can still use it lets go, as
++// wgpu-core does natively: every clone of its handle, the views of a
++// texture, the bind groups that bind it, and the encoders, passes, bundles
++// and command buffers that record it, until the command buffer is
++// submitted (WebGPU frees the memory once the submitted work is done).
++
++/// A buffer's or texture's life: destroyed when the last `Rc` goes.
++#[derive(Debug)]
++enum Life {
++    Buffer(webgpu_sys::GpuBuffer),
++    Texture(webgpu_sys::GpuTexture),
++    /// A canvas's current texture: the browser's, never destroyed here.
++    Borrowed,
++}
++
++impl Drop for Life {
++    fn drop(&mut self) {
++        match self {
++            Life::Buffer(buffer) => buffer.destroy(),
++            Life::Texture(texture) => texture.destroy(),
++            Life::Borrowed => {}
++        }
++    }
++}
++
++/// What something that can still use buffers or textures keeps alive.
++#[derive(Debug, Clone)]
++enum Keep {
++    One(Rc<Life>),
++    Many(Rc<[Keep]>),
++}
++
++impl Keep {
++    fn same(&self, other: &Keep) -> bool {
++        match (self, other) {
++            (Keep::One(a), Keep::One(b)) => Rc::ptr_eq(a, b),
++            (Keep::Many(a), Keep::Many(b)) => Rc::ptr_eq(a, b),
++            _ => false,
++        }
++    }
++}
++
++/// What an encoder and its passes, or a bundle encoder, have recorded.
++#[derive(Debug, Clone, Default)]
++struct Kept(Rc<RefCell<Vec<Keep>>>);
++
++impl Kept {
++    fn push(&self, keep: Keep) {
++        let mut list = self.0.borrow_mut();
++        // Draws set the same buffers and bind groups over and over.
++        if !list.last().is_some_and(|last| last.same(&keep)) {
++            list.push(keep);
++        }
++    }
++
++    fn buffer(&self, buffer: &dispatch::DispatchBuffer) {
++        self.push(Keep::One(buffer.as_webgpu().life.clone()));
++    }
++
++    fn texture(&self, texture: &dispatch::DispatchTexture) {
++        self.push(Keep::One(texture.as_webgpu().life.clone()));
++    }
++
++    fn view(&self, view: &dispatch::DispatchTextureView) {
++        self.push(view.as_webgpu().keep.clone());
++    }
++
++    fn bind_group(&self, bind_group: &dispatch::DispatchBindGroup) {
++        self.push(Keep::Many(bind_group.as_webgpu().keep.clone()));
++    }
++
++    fn take(&self) -> Vec<Keep> {
++        core::mem::take(&mut *self.0.borrow_mut())
++    }
++}
++
+ #[derive(Debug, Clone)]
+ pub struct WebBindGroup {
+     pub(crate) inner: webgpu_sys::GpuBindGroup,
++    /// What it binds (DESTROY ON DROP).
++    keep: Rc<[Keep]>,
+     /// Unique identifier for this BindGroup.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1298,6 +1380,8 @@
+ #[derive(Debug, Clone)]
+ pub struct WebTextureView {
+     pub(crate) inner: webgpu_sys::GpuTextureView,
++    /// Its texture (DESTROY ON DROP).
++    keep: Keep,
+     /// Unique identifier for this TextureView.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1329,6 +1413,8 @@
+     pub(crate) inner: webgpu_sys::GpuBuffer,
+     /// The mapped array buffer and mapped range.
+     mapping: Rc<RefCell<WebBufferMapState>>,
++    /// Shared by every clone; the last destroys it (DESTROY ON DROP).
++    life: Rc<Life>,
+     /// Unique identifier for this Buffer.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1337,6 +1423,7 @@
+     /// Creates a new web buffer for the given Javascript object and description.
+     fn new(inner: webgpu_sys::GpuBuffer, desc: &crate::BufferDescriptor<'_>) -> Self {
+         Self {
++            life: Rc::new(Life::Buffer(inner.clone())),
+             inner,
+             mapping: Rc::new(RefCell::new(WebBufferMapState {
+                 mapped_buffer: None,
+@@ -1391,6 +1478,9 @@
+     ///   this `WebTexture` is dropped, signalling that wgpu is done with the
+     ///   handle.
+     drop_guard: Option<Rc<DropGuard>>,
++    /// Shared by every clone and view; the last destroys it, unless it is
++    /// externally owned (DESTROY ON DROP).
++    life: Rc<Life>,
+     /// Unique identifier for this Texture.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1450,6 +1540,8 @@
+ #[derive(Debug, Clone)]
+ pub struct WebCommandEncoder {
+     pub(crate) inner: webgpu_sys::GpuCommandEncoder,
++    /// What it and its passes recorded (DESTROY ON DROP).
++    kept: Kept,
+     /// Unique identifier for this CommandEncoder.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1457,6 +1549,8 @@
+ #[derive(Debug)]
+ pub struct WebComputePassEncoder {
+     pub(crate) inner: webgpu_sys::GpuComputePassEncoder,
++    /// Its encoder's record (DESTROY ON DROP).
++    kept: Kept,
+     /// Unique identifier for this ComputePassEncoder.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1464,6 +1558,8 @@
+ #[derive(Debug)]
+ pub struct WebRenderPassEncoder {
+     pub(crate) inner: webgpu_sys::GpuRenderPassEncoder,
++    /// Its encoder's record (DESTROY ON DROP).
++    kept: Kept,
+     /// Unique identifier for this RenderPassEncoder.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1471,6 +1567,8 @@
+ #[derive(Debug)]
+ pub struct WebCommandBuffer {
+     pub(crate) inner: webgpu_sys::GpuCommandBuffer,
++    /// What it uses, let go once submitted (DESTROY ON DROP).
++    _keep: Vec<Keep>,
+     /// Unique identifier for this CommandBuffer.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1478,6 +1576,8 @@
+ #[derive(Debug, Clone)]
+ pub struct WebRenderBundleEncoder {
+     pub(crate) inner: webgpu_sys::GpuRenderBundleEncoder,
++    /// What it recorded (DESTROY ON DROP).
++    kept: Kept,
+     /// Unique identifier for this RenderBundleEncoder.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1485,6 +1585,8 @@
+ #[derive(Debug, Clone)]
+ pub struct WebRenderBundle {
+     pub(crate) inner: webgpu_sys::GpuRenderBundle,
++    /// What it uses (DESTROY ON DROP).
++    keep: Rc<[Keep]>,
+     /// Unique identifier for this RenderBundle.
+     ident: crate::cmp::Identifier,
+ }
+@@ -1876,6 +1978,7 @@
+         WebTexture {
+             inner: texture,
+             drop_guard: Some(Rc::new(DropGuard::new(drop_callback))),
++            life: Rc::new(Life::Borrowed),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -2194,6 +2297,7 @@
+         &self,
+         desc: &crate::BindGroupDescriptor<'_>,
+     ) -> dispatch::DispatchBindGroup {
++        let mut keep = Vec::new();
+         let mapped_entries = desc
+             .entries
+             .iter()
+@@ -2204,6 +2308,7 @@
+                     size,
+                 }) => {
+                     let buffer = buffer.inner.as_webgpu();
++                    keep.push(Keep::One(buffer.life.clone()));
+                     let mapped_buffer_binding = webgpu_sys::GpuBufferBinding::new(&buffer.inner);
+                     mapped_buffer_binding.set_offset_f64(offset as f64);
+                     if let Some(s) = size {
+@@ -2226,6 +2331,7 @@
+                     panic!("Web backend does not support arrays of samplers")
+                 }
+                 crate::BindingResource::TextureView(texture_view) => {
++                    keep.push(texture_view.inner.as_webgpu().keep.clone());
+                     let texture_view = &texture_view.inner.as_webgpu().inner;
+                     webgpu_sys::GpuBindGroupEntry::new_with_gpu_texture_view(
+                         binding.binding,
+@@ -2256,6 +2362,7 @@
+ 
+         WebBindGroup {
+             inner: bind_group,
++            keep: keep.into(),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -2486,6 +2593,7 @@
+ 
+         let texture = self.inner.create_texture(&mapped_desc).unwrap();
+         WebTexture {
++            life: Rc::new(Life::Texture(texture.clone())),
+             inner: texture,
+             drop_guard: None,
+             ident: crate::cmp::Identifier::create(),
+@@ -2575,6 +2683,7 @@
+ 
+         WebCommandEncoder {
+             inner: command_encoder,
++            kept: Kept::default(),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -2614,6 +2723,7 @@
+ 
+         WebRenderBundleEncoder {
+             inner: render_bundle_encoder,
++            kept: Kept::default(),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -3010,6 +3120,7 @@
+ 
+         WebTextureView {
+             inner: view,
++            keep: Keep::One(self.life.clone()),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -3122,6 +3233,8 @@
+         destination_offset: crate::BufferAddress,
+         copy_size: Option<crate::BufferAddress>,
+     ) {
++        self.kept.buffer(source);
++        self.kept.buffer(destination);
+         let source = source.as_webgpu();
+         let destination = destination.as_webgpu();
+ 
+@@ -3153,6 +3266,8 @@
+         destination: crate::TexelCopyTextureInfo<'_>,
+         copy_size: crate::Extent3d,
+     ) {
++        self.kept.buffer(&source.buffer.inner);
++        self.kept.texture(&destination.texture.inner);
+         self.inner
+             .copy_buffer_to_texture_with_gpu_extent_3d_dict(
+                 &map_buffer_copy_view(source),
+@@ -3168,6 +3283,8 @@
+         destination: crate::TexelCopyBufferInfo<'_>,
+         copy_size: crate::Extent3d,
+     ) {
++        self.kept.texture(&source.texture.inner);
++        self.kept.buffer(&destination.buffer.inner);
+         self.inner
+             .copy_texture_to_buffer_with_gpu_extent_3d_dict(
+                 &map_texture_copy_view(source),
+@@ -3183,6 +3300,8 @@
+         destination: crate::TexelCopyTextureInfo<'_>,
+         copy_size: crate::Extent3d,
+     ) {
++        self.kept.texture(&source.texture.inner);
++        self.kept.texture(&destination.texture.inner);
+         self.inner
+             .copy_texture_to_texture_with_gpu_extent_3d_dict(
+                 &map_texture_copy_view(source),
+@@ -3217,6 +3336,7 @@
+ 
+         WebComputePassEncoder {
+             inner: compute_pass,
++            kept: self.kept.clone(),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -3246,6 +3366,7 @@
+                         crate::LoadOp::Load => (webgpu_sys::GpuLoadOp::Load, None),
+                     };
+ 
++                    self.kept.view(&ca.view.inner);
+                     let view = &ca.view.inner.as_webgpu().inner;
+ 
+                     let mapped_color_attachment =
+@@ -3258,6 +3379,7 @@
+                         mapped_color_attachment.set_clear_value_gpu_color_dict(&cv);
+                     }
+                     if let Some(rt) = ca.resolve_target {
++                        self.kept.view(&rt.inner);
+                         let resolve_target_view = &rt.inner.as_webgpu().inner;
+                         mapped_color_attachment
+                             .set_resolve_target_gpu_texture_view(resolve_target_view);
+@@ -3277,6 +3399,7 @@
+         }
+ 
+         if let Some(dsa) = &desc.depth_stencil_attachment {
++            self.kept.view(&dsa.view.inner);
+             let depth_stencil_attachment = &dsa.view.inner.as_webgpu().inner;
+             let mapped_depth_stencil_attachment =
+                 webgpu_sys::GpuRenderPassDepthStencilAttachment::new_with_gpu_texture_view(
+@@ -3335,6 +3458,7 @@
+ 
+         WebRenderPassEncoder {
+             inner: render_pass,
++            kept: self.kept.clone(),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -3353,6 +3477,7 @@
+ 
+         WebCommandBuffer {
+             inner: buffer,
++            _keep: self.kept.take(),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -3372,6 +3497,7 @@
+         offset: crate::BufferAddress,
+         size: Option<crate::BufferAddress>,
+     ) {
++        self.kept.buffer(buffer);
+         let buffer = buffer.as_webgpu();
+ 
+         match size {
+@@ -3411,6 +3537,7 @@
+         destination: &dispatch::DispatchBuffer,
+         destination_offset: crate::BufferAddress,
+     ) {
++        self.kept.buffer(destination);
+         let query_set = &query_set.as_webgpu().inner;
+         let destination = &destination.as_webgpu().inner;
+ 
+@@ -3480,6 +3607,9 @@
+         bind_group: Option<&dispatch::DispatchBindGroup>,
+         offsets: &[crate::DynamicOffset],
+     ) {
++        if let Some(bind_group) = bind_group {
++            self.kept.bind_group(bind_group);
++        }
+         let bind_group = bind_group.map(|bind_group| &bind_group.as_webgpu().inner);
+ 
+         if offsets.is_empty() {
+@@ -3539,6 +3669,7 @@
+         indirect_buffer: &dispatch::DispatchBuffer,
+         indirect_offset: crate::BufferAddress,
+     ) {
++        self.kept.buffer(indirect_buffer);
+         let indirect_buffer = indirect_buffer.as_webgpu();
+ 
+         self.inner
+@@ -3576,6 +3707,9 @@
+         bind_group: Option<&dispatch::DispatchBindGroup>,
+         offsets: &[crate::DynamicOffset],
+     ) {
++        if let Some(bind_group) = bind_group {
++            self.kept.bind_group(bind_group);
++        }
+         let bind_group = bind_group.map(|bind_group| &bind_group.as_webgpu().inner);
+ 
+         if offsets.is_empty() {
+@@ -3600,6 +3734,7 @@
+         offset: crate::BufferAddress,
+         size: Option<crate::BufferSize>,
+     ) {
++        self.kept.buffer(buffer);
+         let buffer = buffer.as_webgpu();
+         let index_format = map_index_format(index_format);
+ 
+@@ -3623,6 +3758,9 @@
+         offset: crate::BufferAddress,
+         size: Option<crate::BufferSize>,
+     ) {
++        if let Some(buffer) = buffer {
++            self.kept.buffer(buffer);
++        }
+         let buffer = buffer.map(|buffer| &buffer.as_webgpu().inner);
+ 
+         if let Some(size) = size {
+@@ -3699,6 +3837,7 @@
+         indirect_buffer: &dispatch::DispatchBuffer,
+         indirect_offset: crate::BufferAddress,
+     ) {
++        self.kept.buffer(indirect_buffer);
+         let buffer = indirect_buffer.as_webgpu();
+         self.inner
+             .draw_indirect_with_f64(&buffer.inner, indirect_offset as f64);
+@@ -3709,6 +3848,7 @@
+         indirect_buffer: &dispatch::DispatchBuffer,
+         indirect_offset: crate::BufferAddress,
+     ) {
++        self.kept.buffer(indirect_buffer);
+         let buffer = indirect_buffer.as_webgpu();
+         self.inner
+             .draw_indexed_indirect_with_f64(&buffer.inner, indirect_offset as f64);
+@@ -3728,6 +3868,7 @@
+         indirect_offset: crate::BufferAddress,
+         count: u32,
+     ) {
++        self.kept.buffer(indirect_buffer);
+         let buffer = indirect_buffer.as_webgpu();
+ 
+         for i in 0..count {
+@@ -3743,6 +3884,7 @@
+         indirect_offset: crate::BufferAddress,
+         count: u32,
+     ) {
++        self.kept.buffer(indirect_buffer);
+         let buffer = indirect_buffer.as_webgpu();
+ 
+         for i in 0..count {
+@@ -3837,7 +3979,10 @@
+         render_bundles: &mut dyn Iterator<Item = &dispatch::DispatchRenderBundle>,
+     ) {
+         let mapped = render_bundles
+-            .map(|bundle| bundle.as_webgpu().inner.clone())
++            .map(|bundle| {
++                self.kept.push(Keep::Many(bundle.as_webgpu().keep.clone()));
++                bundle.as_webgpu().inner.clone()
++            })
+             .collect::<Vec<webgpu_sys::GpuRenderBundle>>();
+         self.inner.execute_bundles(&mapped);
+     }
+@@ -3867,6 +4012,9 @@
+         bind_group: Option<&dispatch::DispatchBindGroup>,
+         offsets: &[crate::DynamicOffset],
+     ) {
++        if let Some(bind_group) = bind_group {
++            self.kept.bind_group(bind_group);
++        }
+         let bind_group = bind_group.map(|bind_group| &bind_group.as_webgpu().inner);
+ 
+         if offsets.is_empty() {
+@@ -3891,6 +4039,7 @@
+         offset: crate::BufferAddress,
+         size: Option<crate::BufferSize>,
+     ) {
++        self.kept.buffer(buffer);
+         let buffer = buffer.as_webgpu();
+         let index_format = map_index_format(index_format);
+ 
+@@ -3914,6 +4063,9 @@
+         offset: crate::BufferAddress,
+         size: Option<crate::BufferSize>,
+     ) {
++        if let Some(buffer) = buffer {
++            self.kept.buffer(buffer);
++        }
+         let buffer = buffer.map(|buffer| &buffer.as_webgpu().inner);
+ 
+         if let Some(size) = size {
+@@ -3959,6 +4111,7 @@
+         indirect_buffer: &dispatch::DispatchBuffer,
+         indirect_offset: crate::BufferAddress,
+     ) {
++        self.kept.buffer(indirect_buffer);
+         let buffer = indirect_buffer.as_webgpu();
+         self.inner
+             .draw_indirect_with_f64(&buffer.inner, indirect_offset as f64);
+@@ -3969,6 +4122,7 @@
+         indirect_buffer: &dispatch::DispatchBuffer,
+         indirect_offset: crate::BufferAddress,
+     ) {
++        self.kept.buffer(indirect_buffer);
+         let buffer = indirect_buffer.as_webgpu();
+         self.inner
+             .draw_indexed_indirect_with_f64(&buffer.inner, indirect_offset as f64);
+@@ -3989,6 +4143,7 @@
+ 
+         WebRenderBundle {
+             inner: bundle,
++            keep: self.kept.take().into(),
+             ident: crate::cmp::Identifier::create(),
+         }
+         .into()
+@@ -4358,6 +4513,7 @@
+ 
+         let web_surface_texture = WebTexture {
+             inner: surface_texture,
++            life: Rc::new(Life::Borrowed),
+             drop_guard: None,
+             ident: crate::cmp::Identifier::create(),
+         };
