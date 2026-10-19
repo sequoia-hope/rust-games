@@ -93,7 +93,7 @@ fn role_of(key: &str) -> Option<(Role, f64, bool)> {
     })
 }
 
-/// The level of a bed part (pads, arpeggio) while it plays exposed in an
+/// The level of a bed (pads, atmosphere) while it plays exposed in an
 /// intro, before the kick: +12 dB (engine default).
 const EXPOSED_LIFT: f64 = 4.0;
 
@@ -359,6 +359,9 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
             },
             _ => Ch::default(),
         };
+        if let Some((_, db)) = p.levels.iter().find(|(k, _)| k == rk) {
+            layer.ch.level = Some(layer.ch.level.unwrap_or(1.0) * 10f64.powf(db / 20.0));
+        }
         if *rk == "K" {
             layer.keys_pump = true;
         }
@@ -567,11 +570,9 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         if filtered {
             layer.autos.push(lp);
         }
-        // Parts mixed as a bed under the drums play up while they are
-        // exposed, before the kick comes in (engine default).
-        if matches!(*rk, "Pd" | "A" | "Atm" | "L")
-            && kick_in > 0
-            && layer.clips.iter().any(|c| c.bar < kick_in)
+        // Beds mixed under the drums play up while they are exposed,
+        // before the kick comes in (engine default).
+        if matches!(*rk, "Pd" | "Atm") && kick_in > 0 && layer.clips.iter().any(|c| c.bar < kick_in)
         {
             layer.autos.push(
                 Automation::new("level")

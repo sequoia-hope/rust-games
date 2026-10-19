@@ -6,6 +6,16 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Synthwave balance (2026-10-19)
+
+- **`Profile::levels`**: per-role level offsets (dB) on the generator's
+  channel levels. Synthwave and outrun raise the arpeggio 12 dB and the
+  lead 7 dB: in the chorus, K-weighted, the arpeggio had sat 19 LU under
+  the bass and the lead 11; now about 6 and 4. House is unchanged.
+- The intro lift is for beds only (pads, atmosphere), no longer the
+  arpeggio.
+- Struct literals of `Profile` need the new field (`levels: &[]`).
+
 ### Synthwave openings (2026-10-19)
 
 - **`profile::Intro`** and **`Profile::intros`**: ways a song can open,
@@ -13,8 +23,8 @@ notable additions too. Newest first.
   role. Synthwave and outrun open on pads and the arpeggio, on the bass
   alone, behind an opening filter, or (least often) on the drums, after the
   sourced reference intros (`research/genres/synthwave.md` §4.8); house
-  keeps its DJ intro on the kick. Pads and arpeggio play +12 dB while
-  exposed before the kick.
+  keeps its DJ intro on the kick. Pads play +12 dB while exposed before
+  the kick.
 - A run of filtered blocks now opens its filter in one sweep, not one per
   block (no current template had such a run).
 - Struct literals of `Profile` need the new field (`intros: &[]` keeps

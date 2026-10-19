@@ -319,7 +319,7 @@ Patterns:
 - Electro FX: vocoder or robotic speech, orchestra hits, explosion/noise sweeps, sonar pings (Drexciya). [13][14][21]
 
 ### Arrangement & energy
-- Openings, drawn per song (weights author's estimate from the sourced intros): pads and arp, then bass at 9, drums at 17 after a 2-bar snare roll (0.4) [55][56][60][62]; bass alone, drums at 9 (0.3) [59]; the whole band behind an opening low-pass over 16 bars (0.15) [50]; kick and snare alone (0.15) [2][58]. Parts mixed as beds play up while exposed (engine default +12 dB).
+- Openings, drawn per song (weights author's estimate from the sourced intros): pads and arp, then bass at 9, drums at 17 after a 2-bar snare roll (0.4) [55][56][60][62]; bass alone, drums at 9 (0.3) [59]; the whole band behind an opening low-pass over 16 bars (0.15) [50]; kick and snare alone (0.15) [2][58]. Pads play up while exposed (engine default +12 dB). In the chorus, K-weighted, the arp sits about 6 LU under the bass and the lead about 4, the pads about 11 (engine default: no source measures the balance).
 - Pop template (vocal synthwave and Italo): intro 4–8 bars, verse 4 or 8, chorus 8, verse, chorus, middle eight 8–12, solo 4–8, drum break 2 + riser, chorus ×2, outro fade. Target 3:30–6:30. [12][24]
 - DJ/instrumental template: start drums only (kick + snare), add hats at bar 9, bass at bar 17; add or remove one element every 4 or 8 bars; FX sweep at each 8- or 16-bar boundary. Target 4:30–9:00 for electro and Italo 12-inch versions. [2][11][24]
 - Design the peak first (a 6–7 s loop with all parts) and derive the intro and breakdown by subtraction. [50]

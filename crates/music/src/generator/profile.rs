@@ -131,6 +131,9 @@ pub struct Profile {
     pub template: &'static [(&'static str, &'static str)],
     /// Ways to open, drawn by weight (empty: the template's own).
     pub intros: &'static [Intro],
+    /// Level offsets per role key in dB, on the generator's channel levels
+    /// (which suit house's patches).
+    pub levels: &'static [(&'static str, f64)],
     /// Sidechain depth on the pumped layers (RULES.md G7).
     pub pump: f64,
     /// The drum fills: `true` for synthwave's snare or tom runs every 4th
@@ -364,6 +367,10 @@ pub const SYNTHWAVE: Profile = Profile {
     form: SYNTH_FORM,
     template: SYNTH_TEMPLATE,
     intros: SYNTH_INTROS,
+    // The arp is the hook [synthwave#38]: in the chorus, K-weighted, the
+    // arp about 6 LU under the bass and the lead 4 (engine default;
+    // without these the arp sat 19 LU under it, the lead 11).
+    levels: &[("A", 12.0), ("L", 7.0)],
     pump: 0.3,
     tom_fills: true,
     tape: 0.4,
@@ -573,6 +580,7 @@ pub const CHICAGO: Profile = Profile {
     template: CHICAGO_TEMPLATE,
     // DJ intros open on the kick (G6) [arrangement#14][arrangement#16].
     intros: &[],
+    levels: &[],
     // −3 to −4.5 dB [sound-design#29][house#28].
     pump: 0.35,
     tom_fills: false,
