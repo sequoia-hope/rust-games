@@ -77,8 +77,8 @@ JavaScript Music Lab ported line for line, with the lab as its oracle
    - `worklet`: the C ABI (feature-gated, unchanged exports kept as aliases
      until both shims move).
    Every breaking change goes in `CHANGELOG.md` with its migration.
-4. **One package rename** (owner's call, question 1), done once in Phase 1
-   with the other breaking changes, so consumers migrate once.
+4. **One package rename,** to `music` (the owner's answer 1), done once in
+   Phase 1 with the other breaking changes, so consumers migrate once.
 
 ## Phase 1: clean up (no change in sound)
 
@@ -188,12 +188,11 @@ refactor does, since they touch different files.
 3. Phase 4's player as soon as there's a new song to play; then the other
    genres.
 
-## Questions for the owner
+## The owner's answers (2026-10-19)
 
-1. **Name:** keep the package name `mp_music`, or rename it once now (e.g.
-   `music`)? It's a breaking change for outside consumers either way.
-2. **The lab:** agree that the JS lab is frozen and Rust leads (decision 1)?
-3. **Reference music:** which artists and tracks are the target sound, per
-   genre? (sound.md's open question 1.) It sets research priorities and the
-   listening gate.
-4. **Where the player lives**, and is plain HTML/JS fine for it?
+1. **Name:** rename the package to `music` (in Phase 1, with the other
+   breaking changes). The worklet wasm becomes `music.wasm`.
+2. **The lab** is frozen; Rust leads (decision 1).
+3. **Reference music:** not given yet; the research starts from each
+   genre's landmark tracks.
+4. **The player** is plain HTML/JS, in `apps/music-player/`.
