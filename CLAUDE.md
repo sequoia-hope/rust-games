@@ -16,6 +16,7 @@ code you touch.
 | `games/midnight-playground/` | **Midnight Playground**, the street racer (`mp_*` crates, plus the frozen legacy JS game) |
 | `games/snowboarding/` | **Snowboarding**, the 1080°-style snowboarding game (`sb_*` crates) |
 | `docs/` | architecture, the reorganization plan, kickoff prompts for new projects |
+| `site/` | the public site's list (`games.toml`) and front page (below) |
 | `status/` | coordination between parallel sessions (below) |
 
 Root files: `Cargo.toml` (the one workspace: members, shared dependency
@@ -101,6 +102,18 @@ server and never write a port number into a script, config or doc: a
 program takes `--port`, then `$PORT`, then `proj port`, then fails loudly.
 `rust-games` itself is registered (its `index.html` status page); the games
 and the kit have their own registrations.
+
+## The public site
+
+Every push to `main` publishes https://sequoia-hope.github.io/rust-games/
+(`.github/workflows/pages.yml`): a front page listing the games, and each
+game at `/rust-games/<game>/`. `site/games.toml` is the list (URL name,
+folder, title, one-line blurb); each listed folder has a `pages.sh` that
+builds it and writes its part of the site into the folder it is given. To
+put a new game (or anything else with a page, such as a music player) on
+the site, write its `pages.sh` and add it to `site/games.toml`.
+The site is public: no private hostnames, addresses or paths in what a
+game ships.
 
 ## Commits
 

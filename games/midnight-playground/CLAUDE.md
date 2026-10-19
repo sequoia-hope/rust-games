@@ -1,10 +1,12 @@
 # Midnight Playground (formerly Midnight Racer): working rules for agents
 
 The game is **Midnight Playground**, in Rust; its crates are `mp_*`
-(DECISIONS D1100). The repository is `sequoia-hope/midnight-playground` and
-Pages serves the Rust game at https://sequoia-hope.github.io/midnight-playground/
-(the cutover, D1112). The JS game keeps the name Midnight Racer and is the
-legacy version, under `legacy/` on Pages. The local checkout, the `proj`
+(DECISIONS D1100). It is published on rust-games' site, at
+https://sequoia-hope.github.io/rust-games/midnight-playground/ (D1235). The
+old repository, `sequoia-hope/midnight-playground`, and its site at
+https://sequoia-hope.github.io/midnight-playground/ are frozen as they were
+at the move. The JS game keeps the name Midnight Racer and is the legacy
+version, under `legacy/` on the site. The local checkout, the `proj`
 name and the tailnet path are `midnight-playground` too (renamed 2026-10-10).
 
 **Since 2026-10-18 this game lives in the rust-games monorepo**, at
@@ -180,13 +182,13 @@ relative, because the game is always served under a sub-path.
 4. Commit on your task's branch, in its own worktree, and land it with
    `scripts/land.sh` (the root `CLAUDE.md`; no more pushing straight to
    `main`): imperative subject, a prose body. Build output (`dist/`,
-   `target/`, `parity/report/`) stays out of git. Until the monorepo is
-   pushed somewhere, nothing publishes; `.github/workflows/pages.yml` (inert
-   in this subfolder) is how it was published on every push to `main` (D1112): the Rust build at the site root, the JS game's tracked
-   files under `legacy/`, and `dist/next/` forwarding to the root. The web
-   build is self-contained (`cargo xtask web` copies the fonts, Seaside's
+   `target/`, `parity/report/`) stays out of git. Every push to `main`
+   publishes the site (the root `.github/workflows/pages.yml`, D1235), and
+   `pages.sh` here lays this game out in it: the Rust build at the game's
+   folder, the tools beside it and the JS game's tracked files under
+   `legacy/` (D1112). The web build is self-contained (`cargo xtask web` copies the fonts, Seaside's
    survey and photo and the radio clips into it), so it works at
-   `dist/next/` locally and at the root on Pages: never reach above it with
+   `dist/next/` locally and at the game's folder on Pages: never reach above it with
    `../../` from the Rust page.
 
 **Parallel work.** Packages run in parallel only with disjoint files. A

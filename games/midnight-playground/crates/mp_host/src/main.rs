@@ -34,9 +34,9 @@ use mp_net::rtc::{RtcNet, RtcOptions};
 use mp_net::signal::{JoinLink, Role};
 use mp_net::transport::Mux;
 
-/// Where the game is published (the site root since the cutover, D1112):
+/// Where the game is published (on rust-games' site since D1235):
 /// the link `--room` prints opens it.
-const PAGES: &str = "https://sequoia-hope.github.io/midnight-playground/";
+const PAGES: &str = "https://sequoia-hope.github.io/rust-games/midnight-playground/";
 
 /// The link to a room: the page, the signalling server in its query (the
 /// page may not have it built in, D1124), the room and secret after `#`.

@@ -1,0 +1,99 @@
+# The public site, https://sequoia-hope.github.io/rust-games/: a front page
+# listing the games, and each under its own folder. site/games.toml is the
+# list; each entry is built on a runner of its own by its folder's
+# pages.sh, then the front page is written and the whole site deployed.
+#
+# A failed build fails the run and nothing is deployed: the previous site
+# stays up rather than a broken one going out.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer push waits for the running one, and only
+# the newest waiting push is kept.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  games:
+    name: What the site lists
+    runs-on: ubuntu-latest
+    outputs:
+      entries: ${{ steps.list.outputs.entries }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: echo "entries=$(python3 scripts/pages.py matrix)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.entry.name }}
+    needs: games
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        entry: ${{ fromJSON(needs.games.outputs.entries) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: pages-${{ matrix.entry.name }}
+      - name: wasm-bindgen version from Cargo.lock
+        id: bindgen
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.bindgen.outputs.version }}
+      - name: wasm-opt (binaryen 116)
+        run: |
+          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_116/binaryen-version_116-x86_64-linux.tar.gz | tar xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-version_116/bin" >> "$GITHUB_PATH"
+      # MP_SIGNAL_URL (a repository variable, the relay's wss:// address) is
+      # the signalling server Midnight Playground builds in for joining by
+      # link (its DECISIONS D1124); other games ignore it.
+      - name: Build and lay out the game
+        env:
+          MP_SIGNAL_URL: ${{ vars.MP_SIGNAL_URL }}
+        run: ${{ matrix.entry.path }}/pages.sh "$RUNNER_TEMP/site/${{ matrix.entry.name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-${{ matrix.entry.name }}
+          path: ${{ runner.temp }}/site
+          retention-days: 1
+
+  site:
+    name: Front page, and the site together
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: site-*
+          merge-multiple: true
+          path: _site
+      - run: python3 scripts/pages.py index _site && du -sh _site/*
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy
+    needs: site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

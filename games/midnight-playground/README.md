@@ -5,14 +5,14 @@ the desktop. It's written in Rust on Bevy, drawn with WebGPU (with a WebGL2
 build for browsers without it), and has almost no asset files: the terrain,
 cars, textures, music and engine sound are all generated in code.
 
-**Play it at https://sequoia-hope.github.io/midnight-playground/**
+**Play it at https://sequoia-hope.github.io/rust-games/midnight-playground/**
 
 Midnight Playground began as **Midnight Racer**, the same game in JavaScript
 on three.js with no build step. The Rust version is a faithful port of it
 (`docs/rust-port/`) and is now the game; the JavaScript one stays playable
 as the legacy version at
-**https://sequoia-hope.github.io/midnight-playground/legacy/**, and its source
-is still in this repository (`index.html`, `src/`). The two share their
+**https://sequoia-hope.github.io/rust-games/midnight-playground/legacy/**, and its source
+is still in this folder (`index.html`, `src/`). The two share their
 settings and best times in the browser.
 
 ## Levels
@@ -208,12 +208,14 @@ where each corner's shape says they should.
 
 ## Run it
 
-**Online:** https://sequoia-hope.github.io/midnight-playground/. Every push
-to `main` rebuilds the game (`cargo xtask web --release`) and publishes it a
-few minutes later (`.github/workflows/pages.yml`): the Rust game at the root,
-the JavaScript game under `legacy/`, and the old `dist/next/` address
-forwarding to the root. The tools are part of the game and live beside
-it: **https://sequoia-hope.github.io/midnight-playground/tools/** lists
+**Online:** https://sequoia-hope.github.io/rust-games/midnight-playground/.
+Every push to the rust-games repo's `main` rebuilds the game and publishes it
+a few minutes later (the root `.github/workflows/pages.yml` runs `pages.sh`
+here): the Rust game at this folder's address, the JavaScript game under
+`legacy/`. The game's first site, https://sequoia-hope.github.io/midnight-playground/,
+is frozen as it was when the game moved into rust-games. The tools are part
+of the game and live beside it:
+**https://sequoia-hope.github.io/rust-games/midnight-playground/tools/** lists
 them (the Music Lab, the Engine Sound Lab, the benches and voice studios),
 and the menu's build line links there, under the commit, date and
 compiler the page was built from.
