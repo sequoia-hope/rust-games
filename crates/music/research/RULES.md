@@ -2086,8 +2086,10 @@ median in the research).
   drums at 9, 0.3 [synthwave#59]; the whole band behind a low-pass opening
   over 16 bars, 0.15 [synthwave#50]; kick and snare alone (the table), 0.15
   [synthwave#2][synthwave#58]. Outrun: the same, drums first 0.3 (engine
-  default; no source compares the styles). Bed parts (pads, arp) play
-  +12 dB while exposed before the kick (engine default).
+  default; no source compares the styles). Pads play +12 dB while exposed
+  before the kick (engine default). Balance in the chorus, K-weighted
+  (engine default, no measured source): the arp about 6 LU under the bass,
+  the lead about 4, the pads a bed about 11.
 
   Pop/vocal form: intro 4–8, verse 4 or 8, chorus 8, verse, chorus, middle
   eight 8–12, solo 4–8, drum break 2 + riser, chorus ×2, outro fade; target

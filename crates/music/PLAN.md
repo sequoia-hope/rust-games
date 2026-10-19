@@ -223,7 +223,9 @@ refactor does, since they touch different files.
   engine gaps #10, #14, #18), opt-in so the classic sound is unchanged.
 - **2026-10-19, synthwave openings:** after the owner heard every song open
   on the kick, synthwave and outrun draw one of four sourced openings
-  (pads and arp, bass alone, filtered band, drums).
+  (pads and arp, bass alone, filtered band, drums). The arp, the
+  owner heard, was buried: it and the lead now sit about 6 and 4 LU under
+  the bass in the chorus.
 
 ## The owner's answers (2026-10-19)
 
