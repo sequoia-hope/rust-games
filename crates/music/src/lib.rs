@@ -39,6 +39,7 @@
 pub mod compose;
 pub mod dsp;
 pub mod engine;
+pub mod generator;
 pub mod genres;
 pub mod instruments;
 pub mod json;
@@ -47,7 +48,9 @@ pub mod lab;
 pub mod patches;
 pub mod player;
 pub mod radio;
+pub mod score;
 pub mod seq;
+pub mod song;
 pub mod track;
 #[cfg(all(target_arch = "wasm32", feature = "worklet"))]
 pub mod wasm;

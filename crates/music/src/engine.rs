@@ -36,7 +36,7 @@ use crate::track::{Ch, Lab, Track, lookup};
 
 /// Reverb sends of the game's default kit (Music.js KIT), per lane
 /// (`LANE_REV[name]`; `None` for a lane not in the table).
-fn lane_rev(name: &str) -> Option<f64> {
+pub(crate) fn lane_rev(name: &str) -> Option<f64> {
     Some(match name {
         "kick" => 0.0,
         "snare" => 0.25,
@@ -74,7 +74,7 @@ fn lane_rev(name: &str) -> Option<f64> {
 /// Lab mix: drums against the synths. This, the patch gains and the master
 /// level were set by soloing every part in A and B and matching their RMS
 /// (measure.js); B then plays at the loudness of A, so A/B is fair.
-const DRUM_LEVEL: f64 = 0.263;
+pub(crate) const DRUM_LEVEL: f64 = 0.263;
 
 /// JS truthiness of a numeric field: `if (o.drive)` is false for a missing
 /// key, 0 and NaN.
@@ -150,7 +150,7 @@ impl Channel {
 /// A noise sweep for risers and downlifters. The noise is the engine's own
 /// generator (`this.r`), passed to `run`.
 #[derive(Clone, Debug)]
-struct Sweep {
+pub(crate) struct Sweep {
     f: Svf,
     f0: f64,
     f1: f64,
@@ -165,7 +165,7 @@ struct Sweep {
 
 impl Sweep {
     #[allow(clippy::too_many_arguments)]
-    fn new(f0: f64, f1: f64, g0: f64, g1: f64, len: f64, q: f64, sr: f64) -> Sweep {
+    pub(crate) fn new(f0: f64, f1: f64, g0: f64, g1: f64, len: f64, q: f64, sr: f64) -> Sweep {
         Sweep {
             f: Svf::new(),
             f0,
@@ -179,11 +179,11 @@ impl Sweep {
         }
     }
 
-    fn done(&self) -> bool {
+    pub(crate) fn done(&self) -> bool {
         self.t as f64 >= self.len
     }
 
-    fn run(&mut self, r: &mut Rng) -> f64 {
+    pub(crate) fn run(&mut self, r: &mut Rng) -> f64 {
         let u = self.t as f64 / self.len;
         self.t += 1;
         if (self.t & 31) == 1 {
