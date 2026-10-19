@@ -48,10 +48,11 @@ guests natively over WebRTC through it and races two players.
    `wss://mp-signal.<account>.workers.dev/` (Settings, Secrets and
    variables, Actions, Variables); the Pages workflow passes it to the
    build (D1124).
-5. Optionally, `ALLOWED_ORIGINS = "https://sequoia-hope.github.io"` under
-   `[vars]` in `wrangler.toml` turns away pages from anywhere else (the
-   local server's tailnet address would need adding to test from there).
-   Native clients send no Origin and always get in.
+5. `ALLOWED_ORIGINS = "https://sequoia-hope.github.io"` under `[vars]` in
+   `wrangler.toml` turns away pages from anywhere else (the local server's
+   tailnet address would need adding to test from there). Every one of
+   the owner's Pages sites shares that origin. Native clients send no
+   Origin and always get in.
 
 A custom domain (a route on a zone of the owner's) works the same way;
 only the address changes.
