@@ -129,14 +129,15 @@ fn a_wrong_secret_never_connects() {
     assert!(he.is_empty(), "{he:?}");
     assert!(se.is_empty(), "{se:?}");
     assert_eq!(stranger.status(), RtcStatus::InRoom, "no host found");
-    // A real guest still gets in.
+    // A real guest still gets in. Wait for both ends: on a busy machine the
+    // host can hear of the guest a poll after the guest hears of the host.
     let mut guest = RtcNet::open(opts(&signal, &link, Role::Guest));
     let mut ge = Vec::new();
     assert!(until(30, || {
         host.poll(&mut he);
         guest.poll(&mut ge);
         stranger.poll(&mut se);
-        !ge.is_empty()
+        !ge.is_empty() && !he.is_empty()
     }));
     assert_eq!(ge, vec![NetEvent::Connected(0)]);
     assert_eq!(he, vec![NetEvent::Connected(1)]);
