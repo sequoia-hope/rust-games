@@ -78,6 +78,19 @@ const fn block(name: &'static str, bars: u32, energy: f64) -> Block {
     Block { name, bars, energy }
 }
 
+/// One way a song of the profile can open: replacement cells for the
+/// first blocks of the arrangement table, per role. A row's cells replace
+/// the template's from the first block on; rows and blocks it leaves out
+/// keep the template's. The song draws one by weight.
+#[derive(Clone, Copy, Debug)]
+pub struct Intro {
+    pub name: &'static str,
+    pub p: f64,
+    pub cells: &'static [(&'static str, &'static str)],
+    /// The sourced note the lab shows when a song opens this way.
+    pub note: &'static str,
+}
+
 /// A genre profile (RULES.md's field list, as far as the generator uses
 /// it).
 #[derive(Clone, Copy, Debug)]
@@ -116,6 +129,8 @@ pub struct Profile {
     /// The arrangement: per role key, one cell per block (RULES.md's cell
     /// codes; `+N`, `1N`, `rA-B` name bars, 1-based).
     pub template: &'static [(&'static str, &'static str)],
+    /// Ways to open, drawn by weight (empty: the template's own).
+    pub intros: &'static [Intro],
     /// Sidechain depth on the pumped layers (RULES.md G7).
     pub pump: f64,
     /// The drum fills: `true` for synthwave's snare or tom runs every 4th
@@ -234,6 +249,81 @@ const SYNTH_TEMPLATE: &[(&str, &str)] = &[
     ("X", "- - 1 - 1 - 1 - - - 1 -"),
 ];
 
+/// Synthwave openings over the first four blocks (bars 1–8, 9–16, 17–24,
+/// 25–32). Of the reference tracks with a sourced intro, none opens on the
+/// drums: two on pads or the arpeggio, two on the bass
+/// [synthwave#59][synthwave#60][synthwave#62]; the guides build "pads and
+/// arp first, then bass and stripped drums, then the full kit"
+/// [synthwave#55][synthwave#56], one tutorial from the drums
+/// [synthwave#58]. Weights follow that count (author's estimate).
+const PADS_FIRST: Intro = Intro {
+    name: "pads first",
+    p: 0.4,
+    cells: &[
+        ("K", "- - x x"),
+        ("C", "- r15-16 x x"),
+        ("H", "- - x x"),
+        ("B", "- + x x"),
+        ("A", "- x x x"),
+        ("Pd", "x x s s"),
+        ("R", "- r13-16 - r"),
+    ],
+    note: "It opens on pads, the arpeggio and then the bass, and the drums come in at the verse after a two-bar snare roll: the guides' \"pads and arp first, then bass and stripped drums\", and the 8 bars of synths before Blinding Lights' drums [synthwave#55][synthwave#56][synthwave#60][synthwave#61][synthwave#62].",
+};
+const BASS_FIRST: Intro = Intro {
+    name: "bass first",
+    p: 0.3,
+    cells: &[
+        ("K", "- x x x"),
+        ("C", "r7-8 x x x"),
+        ("H", "- + x x"),
+        ("B", "x x x x"),
+        ("X", "- 1 1 -"),
+    ],
+    note: "It opens on the bass alone, as \"A Real Hero\" and \"Under Your Spell\" do, and the drums come in at bar 9 after a snare roll [synthwave#59].",
+};
+const FILTERED: Intro = Intro {
+    name: "filtered",
+    p: 0.15,
+    cells: &[
+        ("K", "f f x x"),
+        ("C", "f f x x"),
+        ("H", "f f x x"),
+        ("B", "f f x x"),
+        ("A", "f f - +"),
+        ("Pd", "f f - -"),
+        ("R", "- r13-16 - r"),
+    ],
+    note: "It opens on the whole band behind a low-pass filter that opens over 16 bars: the peak loop with its top subtracted, as Timecop1983 derives an intro from the peak [synthwave#50] (the filter sweep is an engine default).",
+};
+const DRUMS_FIRST: Intro = Intro {
+    name: "drums first",
+    p: 0.15,
+    cells: &[],
+    note: "It opens on kick and snare alone, the instrumental form's intro [synthwave#2][synthwave#58]; no sourced reference track opens this way, so it is drawn least.",
+};
+const SYNTH_INTROS: &[Intro] = &[PADS_FIRST, BASS_FIRST, FILTERED, DRUMS_FIRST];
+/// Outrun: the same openings, drums first drawn more often for its
+/// four-on-the-floor (engine default: no source compares the styles).
+const OUTRUN_INTROS: &[Intro] = &[
+    Intro {
+        p: 0.3,
+        ..PADS_FIRST
+    },
+    Intro {
+        p: 0.25,
+        ..BASS_FIRST
+    },
+    Intro {
+        p: 0.15,
+        ..FILTERED
+    },
+    Intro {
+        p: 0.3,
+        ..DRUMS_FIRST
+    },
+];
+
 const SYNTH_NOTES: &[&str] = &[
     "Synthwave grew from 1980s film and TV scores (John Carpenter, Tangerine Dream, Vangelis, Jan Hammer) and Italo disco into a 2000s internet genre: Kavinsky, College, Lazerhawk, Perturbator [synthwave#1][synthwave#23].",
     "The Juno-style poly with its chorus is the default voice on pads, arps and leads, the chorus at the measured depth (±0.5 ms for I, ±1.1 ms for II); tape saturation sits on drums, bass and synths [synthwave#29][synthwave#38][synthwave#47][sound-design#44].",
@@ -273,6 +363,7 @@ pub const SYNTHWAVE: Profile = Profile {
     lead_sounds: &["sawLead", "sqLead", "brassLead"],
     form: SYNTH_FORM,
     template: SYNTH_TEMPLATE,
+    intros: SYNTH_INTROS,
     pump: 0.3,
     tom_fills: true,
     tape: 0.4,
@@ -300,6 +391,7 @@ pub const OUTRUN: Profile = Profile {
     ],
     pad_sounds: &["darkPad", "superPad", "warmPad"],
     lead_sounds: &["sawLead", "brassLead"],
+    intros: OUTRUN_INTROS,
     pump: 0.4,
     ..SYNTHWAVE
 };
@@ -479,6 +571,8 @@ pub const CHICAGO: Profile = Profile {
     lead_sounds: &["piano", "ep", "organ"],
     form: CHICAGO_FORM,
     template: CHICAGO_TEMPLATE,
+    // DJ intros open on the kick (G6) [arrangement#14][arrangement#16].
+    intros: &[],
     // −3 to −4.5 dB [sound-design#29][house#28].
     pump: 0.35,
     tom_fills: false,

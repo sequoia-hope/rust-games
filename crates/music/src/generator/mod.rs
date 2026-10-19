@@ -93,6 +93,10 @@ fn role_of(key: &str) -> Option<(Role, f64, bool)> {
     })
 }
 
+/// The level of a bed part (pads, arpeggio) while it plays exposed in an
+/// intro, before the kick: +12 dB (engine default).
+const EXPOSED_LIFT: f64 = 4.0;
+
 /// A song from a profile and a seed; `None` for an unknown genre.
 pub fn generate(genre: &str, seed: u32, settings: &Settings) -> Option<Song> {
     let p = profile::profile(genre)?;
@@ -242,6 +246,37 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         notes.push("The middle eight goes up a minor third and comes back, as Italo and synthwave middle eights do [synthwave#12].".into());
     }
 
+    // How the song opens: one of the profile's intros, by weight.
+    let intro = (!p.intros.is_empty()).then(|| {
+        let mut di = dice.fork("intro");
+        &p.intros[di.weighted(&p.intros.iter().map(|i| i.p).collect::<Vec<_>>())]
+    });
+    if let Some(i) = intro {
+        notes.push(i.note.to_owned());
+    }
+    let row = |rk: &str, cells: &str| -> Vec<Cell> {
+        let mut cells: Vec<Cell> = cells.split_whitespace().map(cell).collect();
+        if let Some((_, over)) = intro.and_then(|i| i.cells.iter().find(|(k, _)| *k == rk)) {
+            for (c, o) in cells.iter_mut().zip(over.split_whitespace()) {
+                *c = cell(o);
+            }
+        }
+        cells
+    };
+
+    // The bar the kick first plays.
+    let kick_in = p
+        .template
+        .iter()
+        .find(|(k, _)| *k == "K")
+        .and_then(|(rk, cells)| {
+            row(rk, cells)
+                .iter()
+                .position(|c| !matches!(c, Cell::Off))
+                .map(|bi| starts[bi])
+        })
+        .unwrap_or(0);
+
     let mut dd = dice.fork("drums");
     let kit = |kit: &str| Sound::Drums {
         kit: kit.to_owned(),
@@ -251,7 +286,7 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         let Some((role, min_energy, pumped)) = role_of(rk) else {
             continue;
         };
-        let cells: Vec<Cell> = cells.split_whitespace().map(cell).collect();
+        let cells = row(rk, cells);
         let mut layer = match *rk {
             "K" | "H" | "C" | "P" | "Sn" | "X" => Layer::new(&rk.to_lowercase(), role, kit(p.kit)),
             _ => {
@@ -484,12 +519,18 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                         });
                     }
                     if mark == Mark::Filtered {
-                        filtered = true;
-                        lp = lp.to(b0 as f64, 400.0, Curve::Step).to(
-                            b1 as f64 - 0.01,
-                            2400.0,
-                            Curve::Exp,
-                        );
+                        // One sweep over a run of filtered blocks.
+                        let filt = |c: &Cell| matches!(c, Cell::On(Mark::Filtered, _));
+                        if bi == 0 || !filt(&cells[bi - 1]) {
+                            filtered = true;
+                            let run = cells[bi..].iter().take_while(|c| filt(c)).count();
+                            let end: u32 = p.form[bi..bi + run].iter().map(|b| b.bars).sum();
+                            lp = lp.to(b0 as f64, 400.0, Curve::Step).to(
+                                (b0 + end) as f64 - 0.01,
+                                2400.0,
+                                Curve::Exp,
+                            );
+                        }
                     } else {
                         lp = lp.to(b0 as f64, 20000.0, Curve::Step);
                     }
@@ -526,6 +567,18 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         if filtered {
             layer.autos.push(lp);
         }
+        // Parts mixed as a bed under the drums play up while they are
+        // exposed, before the kick comes in (engine default).
+        if matches!(*rk, "Pd" | "A" | "Atm" | "L")
+            && kick_in > 0
+            && layer.clips.iter().any(|c| c.bar < kick_in)
+        {
+            layer.autos.push(
+                Automation::new("level")
+                    .to(0.0, EXPOSED_LIFT, Curve::Step)
+                    .to(kick_in as f64, 1.0, Curve::Step),
+            );
+        }
         if !layer.clips.is_empty() {
             song.layers.push(layer);
         }
@@ -534,9 +587,9 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     // Risers into the drops, and the bus high-pass rising under them
     // (G4: "HPF on the music bus rising to remove the bottom end just
     // before the drop", reset at the drop).
-    if let Some((_, cells)) = p.template.iter().find(|(k, _)| *k == "R") {
+    if let Some((rk, cells)) = p.template.iter().find(|(k, _)| *k == "R") {
         let mut hp = Automation::new("hp").to(0.0, 0.0, Curve::Step);
-        for (bi, c) in cells.split_whitespace().map(cell).enumerate() {
+        for (bi, c) in row(rk, cells).into_iter().enumerate() {
             if let Cell::Build(range) = c {
                 let (a, b) = range.unwrap_or((starts[bi], starts[bi] + p.form[bi].bars));
                 song.fx.push(Fx::Riser {
@@ -571,6 +624,22 @@ mod tests {
                     p.key
                 );
                 assert!(role_of(k).is_some() || *k == "R", "{} row {k}", p.key);
+            }
+            for i in p.intros {
+                for (k, cells) in i.cells {
+                    assert!(
+                        p.template.iter().any(|(t, _)| t == k),
+                        "{} intro {} row {k}",
+                        p.key,
+                        i.name
+                    );
+                    assert!(
+                        cells.split_whitespace().count() <= p.form.len(),
+                        "{} intro {} row {k}",
+                        p.key,
+                        i.name
+                    );
+                }
             }
             for (s, _) in p.minor_progs.iter().chain(p.major_progs) {
                 assert!(
@@ -620,6 +689,57 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn synthwave_opens_in_more_than_one_way() {
+        // Where the kick and the bass first play, per seed.
+        let first = |s: &Song, name: &str| {
+            s.layers
+                .iter()
+                .find(|l| l.name == name)
+                .and_then(|l| l.clips.iter().map(|c| c.bar).min())
+        };
+        for genre in ["synthwave", "outrun"] {
+            let (mut drums_first, mut drums_later, mut bass_first) = (0, 0, 0);
+            for seed in 0..60 {
+                let s = generate(genre, seed, &Settings::default()).unwrap();
+                match first(&s, "k") {
+                    Some(0) => drums_first += 1,
+                    _ => drums_later += 1,
+                }
+                if first(&s, "bass") == Some(0) {
+                    bass_first += 1;
+                }
+                // Pads exposed before the kick play up until it comes in.
+                if first(&s, "chords") == Some(0) && first(&s, "k").is_some_and(|b| b > 0) {
+                    let pad = s.layers.iter().find(|l| l.name == "chords").unwrap();
+                    let lv = pad.autos.iter().find(|a| a.param == "level").unwrap();
+                    let kick = first(&s, "k").unwrap() as f64;
+                    assert!(lv.at(0.0).unwrap() > 1.0 && lv.at(kick).unwrap() == 1.0);
+                }
+            }
+            assert!(drums_first > 0, "{genre}: {drums_first} open on the kick");
+            assert!(drums_later > 0, "{genre}: {drums_later} hold it back");
+            assert!(bass_first > 0, "{genre}: {bass_first} open on the bass");
+        }
+    }
+
+    #[test]
+    fn a_filtered_run_is_one_sweep() {
+        // Two filtered blocks in a row open the filter once, not twice.
+        let s = (0..60)
+            .map(|seed| generate("synthwave", seed, &Settings::default()).unwrap())
+            .find(|s| s.notes.iter().any(|n| n.contains("filter")))
+            .expect("a filtered intro");
+        let pad = s.layers.iter().find(|l| l.name == "chords").unwrap();
+        let lp = pad.autos.iter().find(|a| a.param == "lp").unwrap();
+        let hz: Vec<f64> = (0..32).map(|h| lp.at(h as f64 / 2.0).unwrap()).collect();
+        assert!(hz[0] < 500.0 && hz[31] > 1500.0, "{hz:?}");
+        assert!(
+            hz.windows(2).all(|w| w[1] >= w[0]),
+            "never closes again: {hz:?}"
+        );
     }
 
     #[test]

@@ -6,6 +6,20 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Synthwave openings (2026-10-19)
+
+- **`profile::Intro`** and **`Profile::intros`**: ways a song can open,
+  drawn per song by weight, each replacing the template's first cells per
+  role. Synthwave and outrun open on pads and the arpeggio, on the bass
+  alone, behind an opening filter, or (least often) on the drums, after the
+  sourced reference intros (`research/genres/synthwave.md` §4.8); house
+  keeps its DJ intro on the kick. Pads and arpeggio play +12 dB while
+  exposed before the kick.
+- A run of filtered blocks now opens its filter in one sweep, not one per
+  block (no current template had such a run).
+- Struct literals of `Profile` need the new field (`intros: &[]` keeps
+  the template's opening).
+
 ### Sound accuracy for synthwave and house (2026-10-19)
 
 Additions, all opt-in: with none of the new parameters set, every sound is
