@@ -9,7 +9,20 @@ first: this is a shared crate, so its API rules and `CHANGELOG.md` apply.
 
 **The redesign is under way: `PLAN.md`** (the owner's brief is
 `docs/music-engine-kickoff.md`). Rust leads now: the JS lab's engine is
-frozen, and its UI is moving onto this crate.
+frozen, and its UI runs on this crate (`apps/music-lab/`).
+
+Two generators live here:
+- **classic** (`genres`, `compose`, `seq`, `track`, `engine`): the port of
+  the JS lab, still the games' radio; held to the lab's goldens.
+- **new** (`generator`, `score`, `song`): per-instrument layers from the
+  genre profiles in `generator/profile.rs`, which transcribe
+  `research/RULES.md` (keep every number's citation, or mark it an
+  engine default); candidates scored by `generator/surprise.rs`. Its
+  determinism is held by its own tests (same seed, same song), not by
+  goldens yet.
+
+`cargo run --release -p music --example render -- <genre> <seed> out.wav
+[--classic]` renders any song without a game.
 
 - **Port rules** (Midnight Playground's DECISIONS D1150, in `src/lib.rs`):
   same structure, constants and order of random draws as the lab; JS

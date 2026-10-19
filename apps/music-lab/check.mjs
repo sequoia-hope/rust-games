@@ -61,6 +61,14 @@ try {
   const second = await page.evaluate(() => window.musicLab.cur.genre);
   check(second === 'trance', 'Make: a trance track');
 
+  // The new generator: a song with layers and notes, playing.
+  await page.select('#genre', 'chicago');
+  await page.click('#make');
+  const fresh = await page.waitForFunction(() => window.musicLab.cur.song && window.musicLab.pos?.playing && window.musicLab.pos.barIndex >= 1, { timeout: 30000 }).then(() => true, () => false);
+  const layers = await page.evaluate(() => ({ n: window.musicLab.cur.song.layers.length, shown: !document.querySelector('#layersCard').hidden, notes: document.querySelectorAll('#notes li').length }));
+  check(fresh && layers.n >= 6 && layers.shown && layers.notes >= 5, `new generator: a Chicago house song plays, ${layers.n} layers drawn, ${layers.notes} notes`);
+  await page.click('#play'); // stop
+
   await page.click('#demo');
   await page.click('#pads button');
   await sleep(1500);
@@ -68,10 +76,10 @@ try {
   await page.click('#measure');
   const measured = await page.waitForFunction(() => document.querySelector('#mNote').textContent.startsWith('Done') || document.querySelector('#mNote').textContent.startsWith('Failed'), { timeout: 120000 }).then(() => page.$eval('#mNote', (e) => e.textContent), (e) => String(e));
   const rows = await page.$$eval('#mTable tr', (rs) => rs.slice(1).map((r) => [...r.children].map((c) => c.textContent)));
-  check(measured.startsWith('Done') && rows.length === 2 && rows.every((r) => Number(r[2]) > -60), `measured offline: ${rows.map((r) => `${r[1]} ${r[2]} dB`).join(', ')}`);
+  check(measured.startsWith('Done') && rows.length === 3 && rows.every((r) => Number(r[2]) > -60), `measured offline: ${rows.map((r) => `${r[1]} ${r[2]} dB`).join(', ')}`);
 
   const status = await page.$eval('#status', (e) => e.textContent);
-  check(!/refused|failed|stopped/i.test(status), `status: ${status}`);
+  check(!/refused|failed|stopped with an error/i.test(status), `status: ${status}`);
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 } finally {
   await browser.close();

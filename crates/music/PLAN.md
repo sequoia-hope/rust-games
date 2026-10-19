@@ -204,6 +204,21 @@ refactor does, since they touch different files.
 3. Phase 4's player as soon as there's a new song to play; then the other
    genres.
 
+## Progress
+
+- **2026-10-19, Phase 1 done** (on main): the package is `music`; stations
+  are data each game passes in; Snowboarding's fork is gone; one worklet
+  shim; the broken favourites and lab paths fixed; the lab on Rust
+  (`apps/music-lab/`, registered `music-lab`, on the public site).
+  Not done from the list: the layered public API and moving `classic`
+  under its own module (no consumer needs it yet; the new generator was
+  added beside it instead).
+- **2026-10-19, Phase 2 done:** nine research files and `RULES.md`.
+- **2026-10-19, Phase 3 begun:** the score model, its player, the
+  expectation model, and the first profiles (the owner's picks: synthwave,
+  outrun, Chicago house, deep house), playable in the lab with the layer
+  viewer and notes.
+
 ## The owner's answers (2026-10-19)
 
 1. **Name:** rename the package to `music` (in Phase 1, with the other
@@ -212,5 +227,6 @@ refactor does, since they touch different files.
    Rust engine (decision 1); the JS engine is frozen.
 3. **Reference music:** not given yet; the research starts from each
    genre's landmark tracks.
+5. **First genres:** synthwave and house.
 4. **The player** is plain HTML/JS; it is a page of the Rust lab, in
    `apps/music-lab/`.

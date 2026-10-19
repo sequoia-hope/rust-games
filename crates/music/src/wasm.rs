@@ -220,6 +220,20 @@ pub extern "C" fn music_generate(ptr: *mut u8, len: usize, seed: u32, dejavu: f6
     }
 }
 
+/// A song of the new generator as the page shows it, as JSON
+/// ([`crate::lab::song_json`]; `"null"` for an unknown genre): the genre's
+/// key is the text at `ptr` (`len` bytes from [`music_alloc`], freed here);
+/// `bpm` and `key` (0 = C) below zero are drawn.
+#[unsafe(no_mangle)]
+pub extern "C" fn music_song(ptr: *mut u8, len: usize, seed: u32, bpm: f64, key: i32) -> *const u8 {
+    let genre = take_text(ptr, len).unwrap_or_default();
+    let settings = crate::generator::Settings {
+        bpm: (bpm > 0.0).then_some(bpm),
+        key: (key >= 0).then_some(key),
+    };
+    give(crate::lab::song_json(&genre, seed, &settings).unwrap_or_else(|| "null".to_owned()))
+}
+
 pub struct LabNode {
     session: crate::lab::Session,
     buf: [f32; 2 * BLOCK],
