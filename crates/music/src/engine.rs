@@ -13,10 +13,11 @@
 //!                          energy filter ─ glue ─ tape ─ master ─ limiter ─ out
 //! ```
 //!
-//! Not ported: the page's keyboard and pads (`setAudition`, `noteOn`,
-//! `noteOff`, `hit`, the audition instrument and its channel in `process`),
-//! which the game does not use, and `kitTweak` (the page's live drum edits;
-//! always empty in the game). The `onSection` / `onEnd` callbacks are
+//! The lab page's keyboard and pads are here too, for the lab on this
+//! engine: [`Engine::set_audition`], [`Engine::note_on`],
+//! [`Engine::note_off`], [`Engine::hit`] and the per-lane kit tweaks
+//! ([`Engine::set_kit_tweak`]); a game never calls them, so its songs
+//! render as before. The `onSection` / `onEnd` callbacks are
 //! [`EngineEvent`]s the caller takes with [`Engine::take_events`].
 //!
 //! Added for the radio's tune-in (radio.md 7, DECISIONS D1151):
@@ -299,6 +300,13 @@ pub struct Engine {
     events: Vec<EngineEvent>,
     /// The per-lane kit voice cache (`laneK`).
     lane_k: Vec<(String, KitVoice)>,
+    /// The lab's live drum edits (`kitTweak`): per lane, kit voice
+    /// parameters by their JS names.
+    kit_tweak: Vec<(String, Vec<(String, f64)>)>,
+    /// The lab keyboard's instrument and its channel (`audition`,
+    /// `auditionCh`).
+    audition: Option<Instrument>,
+    audition_ch: Channel,
 }
 
 impl Engine {
@@ -339,6 +347,15 @@ impl Engine {
             gr_n: 0,
             events: Vec::new(),
             lane_k: Vec::new(),
+            kit_tweak: Vec::new(),
+            audition: None,
+            audition_ch: Channel::new(
+                &Ch {
+                    rev: Some(0.2),
+                    ..Ch::default()
+                },
+                sr,
+            ),
         };
         e.set_mix(Mix::default());
         e
@@ -383,6 +400,11 @@ impl Engine {
             .and_then(|k| lookup(k, name));
         let base = kit_voice(&self.kit, name, ko.and_then(|o| o.s.as_deref()))?;
         let mut k = base;
+        if let Some(tw) = lookup(&self.kit_tweak, name) {
+            for (p, v) in tw {
+                k.set(p, *v);
+            }
+        }
         k.lvl = Some(k.lvl.unwrap_or(1.0) * ko.and_then(|o| o.g).unwrap_or(1.0));
         k.rev = Some(ko.and_then(|o| o.rev).or(lane_rev(name)).unwrap_or(0.0));
         self.lane_k.push((name.to_owned(), k));
@@ -433,6 +455,39 @@ impl Engine {
         let mut merged = p.inst.lab().clone();
         merge_lab(&mut merged, &lab);
         p.inst.set_patch(merged);
+    }
+
+    /// The lab's drum edits (`setKit(name, tweak)`'s `tweak`): per lane,
+    /// kit voice parameters by their JS names, laid over the kit's.
+    pub fn set_kit_tweak(&mut self, tweak: Vec<(String, Vec<(String, f64)>)>) {
+        self.kit_tweak = tweak;
+        self.lane_k.clear();
+    }
+
+    /// The lab keyboard's instrument (`setAudition`), outside the song.
+    pub fn set_audition(&mut self, lab: Lab) {
+        self.audition = Some(make_instrument(lab, 999, self.sr));
+    }
+
+    /// A key down on the lab keyboard: `dur_s` samples (the JS default is
+    /// 30 s, held until [`Engine::note_off`]).
+    pub fn note_on(&mut self, midi: f64, vel: f64, dur_s: Option<f64>, opt: &TriggerOpt) {
+        let dur = dur_s.unwrap_or(self.sr * 30.0);
+        if let Some(a) = &mut self.audition {
+            a.trigger(&[midi], vel, dur, opt);
+        }
+    }
+
+    /// A key up on the lab keyboard.
+    pub fn note_off(&mut self, midi: f64) {
+        if let Some(a) = &mut self.audition {
+            a.release(midi);
+        }
+    }
+
+    /// A drum pad (`hit(lane, vel)`).
+    pub fn hit(&mut self, lane: &str, vel: f64) {
+        self.drum(lane, vel, None);
     }
 
     /// Starts at a bar of the song; the first 16th fires after `delay_s`
@@ -741,6 +796,16 @@ impl Engine {
                     rv[1] += r * rev;
                 }
             });
+            // The keyboard's instrument goes straight in, with a little
+            // reverb.
+            if let Some(a) = &mut self.audition {
+                a.run(&mut self.audition_ch.buf);
+                self.audition_ch.run(&mut o);
+                ul += o[0];
+                ur += o[1];
+                rv[0] += o[0] * 0.25;
+                rv[1] += o[1] * 0.25;
+            }
             // Song filter over the instruments, drums and the delay return.
             s[0] = 0.0;
             s[1] = 0.0;

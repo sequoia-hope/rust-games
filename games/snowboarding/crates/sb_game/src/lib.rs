@@ -11,7 +11,7 @@
 //! - [`hud`], [`menu`]: the screens.
 //! - [`radio`]: the announcers (`sb_radio`), their captions, and the mix.
 //! - [`audio`]: Web Audio sound on the web: effects, the station's music
-//!   (`sb_music` in an AudioWorklet) and the announcers' clips.
+//!   (`music` in an AudioWorklet) and the announcers' clips.
 //! - [`plugins`]: Bevy's default plugins less its 2D sprites.
 //!
 //! The web build comes in two backends, WebGPU and WebGL2 (the `sb_webgl2`

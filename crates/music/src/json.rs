@@ -151,6 +151,201 @@ fn write(v: &Val, out: &mut String) {
     }
 }
 
+/// Parses JSON text (as written by [`canon`] or by hand: the station
+/// tables games pass in). Numbers are `f64`; object keys keep their order.
+pub fn parse(text: &str) -> Result<Val, String> {
+    let mut p = Parser {
+        s: text.as_bytes(),
+        i: 0,
+    };
+    let v = p.value()?;
+    p.ws();
+    if p.i != p.s.len() {
+        return Err(p.err("trailing text"));
+    }
+    Ok(v)
+}
+
+struct Parser<'a> {
+    s: &'a [u8],
+    i: usize,
+}
+
+impl Parser<'_> {
+    fn err(&self, what: &str) -> String {
+        format!("JSON: {what} at byte {}", self.i)
+    }
+    fn ws(&mut self) {
+        while self.i < self.s.len() && matches!(self.s[self.i], b' ' | b'\t' | b'\n' | b'\r') {
+            self.i += 1;
+        }
+    }
+    fn eat(&mut self, b: u8) -> bool {
+        self.ws();
+        if self.s.get(self.i) == Some(&b) {
+            self.i += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn lit(&mut self, word: &str, v: Val) -> Result<Val, String> {
+        if self.s[self.i..].starts_with(word.as_bytes()) {
+            self.i += word.len();
+            Ok(v)
+        } else {
+            Err(self.err("unexpected word"))
+        }
+    }
+    fn value(&mut self) -> Result<Val, String> {
+        self.ws();
+        match self.s.get(self.i) {
+            None => Err(self.err("unexpected end")),
+            Some(b'{') => {
+                self.i += 1;
+                let mut pairs = Vec::new();
+                if self.eat(b'}') {
+                    return Ok(Val::Obj(pairs));
+                }
+                loop {
+                    self.ws();
+                    let k = self.string()?;
+                    if !self.eat(b':') {
+                        return Err(self.err("expected ':'"));
+                    }
+                    pairs.push((k, self.value()?));
+                    if self.eat(b'}') {
+                        return Ok(Val::Obj(pairs));
+                    }
+                    if !self.eat(b',') {
+                        return Err(self.err("expected ',' or '}'"));
+                    }
+                }
+            }
+            Some(b'[') => {
+                self.i += 1;
+                let mut items = Vec::new();
+                if self.eat(b']') {
+                    return Ok(Val::Arr(items));
+                }
+                loop {
+                    items.push(self.value()?);
+                    if self.eat(b']') {
+                        return Ok(Val::Arr(items));
+                    }
+                    if !self.eat(b',') {
+                        return Err(self.err("expected ',' or ']'"));
+                    }
+                }
+            }
+            Some(b'"') => Ok(Val::Str(self.string()?)),
+            Some(b't') => self.lit("true", Val::Bool(true)),
+            Some(b'f') => self.lit("false", Val::Bool(false)),
+            Some(b'n') => self.lit("null", Val::Null),
+            Some(_) => {
+                let start = self.i;
+                while self.i < self.s.len()
+                    && matches!(
+                        self.s[self.i],
+                        b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9'
+                    )
+                {
+                    self.i += 1;
+                }
+                std::str::from_utf8(&self.s[start..self.i])
+                    .ok()
+                    .and_then(|t| t.parse::<f64>().ok())
+                    .map(Val::Num)
+                    .ok_or_else(|| self.err("bad number"))
+            }
+        }
+    }
+    fn string(&mut self) -> Result<String, String> {
+        if self.s.get(self.i) != Some(&b'"') {
+            return Err(self.err("expected a string"));
+        }
+        self.i += 1;
+        let mut out = Vec::new();
+        loop {
+            let Some(&b) = self.s.get(self.i) else {
+                return Err(self.err("unterminated string"));
+            };
+            self.i += 1;
+            match b {
+                b'"' => break,
+                b'\\' => {
+                    let Some(&e) = self.s.get(self.i) else {
+                        return Err(self.err("unterminated string"));
+                    };
+                    self.i += 1;
+                    match e {
+                        b'"' | b'\\' | b'/' => out.push(e),
+                        b'n' => out.push(b'\n'),
+                        b't' => out.push(b'\t'),
+                        b'r' => out.push(b'\r'),
+                        b'b' => out.push(8),
+                        b'f' => out.push(12),
+                        b'u' => {
+                            let mut c = self.hex4()?;
+                            if (0xD800..0xDC00).contains(&c) && self.s[self.i..].starts_with(b"\\u")
+                            {
+                                self.i += 2;
+                                let lo = self.hex4()?;
+                                c = 0x10000
+                                    + ((c - 0xD800) << 10)
+                                    + (lo.wrapping_sub(0xDC00) & 0x3FF);
+                            }
+                            let ch = char::from_u32(c).ok_or_else(|| self.err("bad \\u escape"))?;
+                            out.extend_from_slice(ch.encode_utf8(&mut [0; 4]).as_bytes());
+                        }
+                        _ => return Err(self.err("bad escape")),
+                    }
+                }
+                _ => out.push(b),
+            }
+        }
+        String::from_utf8(out).map_err(|_| self.err("bad UTF-8"))
+    }
+    fn hex4(&mut self) -> Result<u32, String> {
+        let h = self
+            .s
+            .get(self.i..self.i + 4)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u32::from_str_radix(h, 16).ok())
+            .ok_or_else(|| self.err("bad \\u escape"))?;
+        self.i += 4;
+        Ok(h)
+    }
+}
+
+impl Val {
+    /// An object's member.
+    pub fn get(&self, key: &str) -> Option<&Val> {
+        match self {
+            Val::Obj(pairs) => pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Val::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Val::Num(x) => Some(*x),
+            _ => None,
+        }
+    }
+    pub fn as_arr(&self) -> Option<&[Val]> {
+        match self {
+            Val::Arr(a) => Some(a),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +372,32 @@ mod tests {
             ("aa", Some(Val::Arr(vec![Val::Null, Val::Bool(true)]))),
         ]);
         assert_eq!(canon(&v), r#"{"aa":[null,true],"b":2,"c":"x\"y"}"#);
+    }
+
+    #[test]
+    fn parses_what_canon_writes() {
+        let v = Val::obj(vec![
+            ("a", Val::num(1.5)),
+            (
+                "b",
+                Some(Val::Arr(vec![
+                    Val::Str("x\"é\n".into()),
+                    Val::Null,
+                    Val::Bool(true),
+                ])),
+            ),
+            ("c", Some(Val::Obj(vec![]))),
+            ("d", Val::num(-2e-7)),
+        ]);
+        assert_eq!(parse(&canon(&v)).unwrap(), v);
+        assert_eq!(
+            parse(" [ 1 , {\"k\" : \"\\u00e9\\ud83c\\udfb5\"} ] ").unwrap(),
+            Val::Arr(vec![
+                Val::Num(1.0),
+                Val::Obj(vec![("k".into(), Val::Str("é🎵".into()))])
+            ])
+        );
+        assert!(parse("[1,]").is_err());
+        assert!(parse("{\"a\":1} x").is_err());
     }
 }

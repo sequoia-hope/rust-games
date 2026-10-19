@@ -96,8 +96,8 @@ with a 0.45 s pause. `audio/dj/index.json` records `voices` and, per clip,
    (the id keeps its number if you keep its position) and `render.py`
    records just those. Commit only the takes the owner kept (the committed
    set is one take per line, `takes: 1` in `index.json`).
-8. **Wire the station**: `STATIONS[...].dj = Some("dez")` in
-   `crates/mp_music/src/radio.rs`; the director handles any DJ with clips
+8. **Wire the station**: `"dj": "dez"` on its entry in the game's
+   station table (Midnight Playground: `crates/mp_audio/stations.json`); the director handles any DJ with clips
    in `index.json`. A station with no clips plays music only.
 9. **DECISIONS entry** (see the `decisions-log` skill): the brief, the
    sheet in one paragraph, the three candidates and which was chosen and

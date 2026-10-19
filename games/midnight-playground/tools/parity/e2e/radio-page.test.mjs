@@ -97,7 +97,7 @@ test('skips ahead on its own clock, rates the song where the file is writable, a
       const real = window.fetch.bind(window);
       let songs = [];
       window.fetch = async (url, init = {}) => {
-        if (!String(url).endsWith('/crates/mp_music/favourites.json')) return real(url, init);
+        if (!String(url).endsWith('/crates/mp_audio/favourites.json')) return real(url, init);
         if (init.method === 'POST') {
           const song = JSON.parse(init.body);
           window.__posted.push(song);

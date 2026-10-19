@@ -2,8 +2,8 @@
 //! same code in the browser's AudioWorklet (`wasm`) and in `mp_audio`'s
 //! native worklet processor (radio.md 7, DECISIONS D1151).
 //!
-//! The node's params come once per block: `station` (an index in
-//! [`STATIONS`], below zero off), the wall time at the moment of tuning as
+//! The node's params come once per block: `station` (an index in the
+//! game's station table, given to [`Player::new`], below zero off), the wall time at the moment of tuning as
 //! two numbers (days since the Unix epoch and seconds into the day), a
 //! `tune` serial, and `energy`. A change of station or serial re-tunes:
 //! the cue for that wall time is computed ([`cue`]), the engine starts on
@@ -20,7 +20,7 @@
 //! re-syncs.
 
 use crate::engine::{Engine, EngineEvent};
-use crate::radio::{STATIONS, Slot, Tuner, block, block_at, cue_in, next_slot, wall_from};
+use crate::radio::{Slot, Station, Tuner, block, block_at, cue_in, next_slot, wall_from};
 
 pub struct Player {
     /// The two engines: `engines[cur]` the station tuned, the other the
@@ -30,6 +30,8 @@ pub struct Player {
     /// The leaving engine's block, rendered beside the tuned one's.
     spare: (Vec<f32>, Vec<f32>),
     tuner: Tuner,
+    /// The game's stations, in dial order.
+    stations: Vec<Station>,
     /// The station tuned, if any.
     station: Option<usize>,
     /// The `tune` param's last value (a change re-syncs).
@@ -41,8 +43,9 @@ pub struct Player {
 }
 
 impl Player {
-    /// A player at `sample_rate`, off (silent) until tuned.
-    pub fn new(seed: u32, sample_rate: f64) -> Player {
+    /// A player at `sample_rate` for a game's `stations` (the `station`
+    /// param indexes them), off (silent) until tuned.
+    pub fn new(seed: u32, sample_rate: f64, stations: Vec<Station>) -> Player {
         Player {
             engines: [
                 Engine::new(seed, sample_rate),
@@ -51,6 +54,7 @@ impl Player {
             cur: 0,
             spare: (Vec::new(), Vec::new()),
             tuner: Tuner::new(seed.wrapping_add(7), sample_rate),
+            stations,
             station: None,
             serial: None,
             energy: 1.0,
@@ -73,7 +77,11 @@ impl Player {
             None
         } else {
             let i = (station + 0.5).floor() as usize;
-            if i < STATIONS.len() { Some(i) } else { None }
+            if i < self.stations.len() {
+                Some(i)
+            } else {
+                None
+            }
         };
         if st != self.station || self.serial != Some(tune) {
             self.serial = Some(tune);
@@ -116,7 +124,7 @@ impl Player {
             return;
         };
         let (b, into) = block_at(wall);
-        self.slots = block(&STATIONS[i], b);
+        self.slots = block(&self.stations[i], b);
         let c = cue_in(b, &self.slots, into);
         self.block = c.block;
         self.slot = c.slot;
@@ -134,7 +142,7 @@ impl Player {
     /// The song ended: the next slot, straight away.
     fn next_song(&mut self) {
         let Some(i) = self.station else { return };
-        let (b, s, slots) = next_slot(&STATIONS[i], self.block, self.slot, &self.slots);
+        let (b, s, slots) = next_slot(&self.stations[i], self.block, self.slot, &self.slots);
         self.block = b;
         self.slot = s;
         self.slots = slots;
@@ -179,6 +187,11 @@ impl Player {
         }
     }
 
+    /// The game's stations, in dial order.
+    pub fn stations(&self) -> &[Station] {
+        &self.stations
+    }
+
     /// Where the player is: the station, block and slot, for tests.
     pub fn position(&self) -> Option<(usize, u64, usize)> {
         self.station.map(|s| (s, self.block, self.slot))
@@ -209,7 +222,7 @@ mod tests {
     #[test]
     fn off_is_silent_and_a_station_plays() {
         let sr = 48000.0;
-        let mut p = Player::new(2026, sr);
+        let mut p = Player::new(2026, sr, crate::radio::test_stations());
         p.set_params(-1.0, 0.0, 0.0, 0.0, 1.0);
         let (rms, _) = render(&mut p, 20);
         assert_eq!(rms, 0.0);
@@ -231,9 +244,9 @@ mod tests {
     #[test]
     fn a_song_ending_hands_over_to_the_next_slot() {
         let sr = 48000.0;
-        let mut p = Player::new(2026, sr);
+        let mut p = Player::new(2026, sr, crate::radio::test_stations());
         // Tune in a few seconds before the end of the block's first song.
-        let st = &STATIONS[0];
+        let st = &crate::radio::test_stations()[0];
         let slots = block(st, 3);
         let wall = crate::radio::EPOCH + 3.0 * crate::radio::BLOCK_SECS + slots[0].secs - 2.0;
         let (day, sec) = wall_parts(wall);

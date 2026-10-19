@@ -12,9 +12,10 @@ code you touch.
 | Where | What |
 |---|---|
 | `crates/engine/` | **Playground Kit**, the shared engine (`pk_math` kernel/noise/rng, `pk_lockstep` deterministic simulation, `pk_canvas` 2D canvas, `pk_shell` the Bevy client shell, `pk_xtask` build tooling), plus `patches/` (the patched wgpu, wgpu-hal, bevy_ui_render every game builds on), `js/` (headless-Chrome tools), `template/` (a new game's skeleton), `skills/`, `docs/` (its plan and DECISIONS) |
-| `crates/music/` | the **music engine** (package `mp_music`): the Music Lab's procedural music (instruments, sequencer, composer, genre grammars, mix) and the radio station player; also built as its own AudioWorklet wasm |
+| `crates/music/` | the **music engine** (package `music`): the Music Lab's procedural music (instruments, sequencer, composer, genre grammars, mix) and the radio station player; also built as its own AudioWorklet wasm |
 | `games/midnight-playground/` | **Midnight Playground**, the street racer (`mp_*` crates, plus the frozen legacy JS game) |
 | `games/snowboarding/` | **Snowboarding**, the 1080°-style snowboarding game (`sb_*` crates) |
+| `apps/` | tools with a page of their own on the engines, such as `apps/music-lab/`, the **Music Lab** (the music engine's workbench: `./serve.sh`, registered as `music-lab`) |
 | `docs/` | architecture, the reorganization plan, kickoff prompts for new projects |
 | `site/` | the public site's list (`games.toml`) and front page (below) |
 | `status/` | coordination between parallel sessions (below) |

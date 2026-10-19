@@ -16,9 +16,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <!--
   Radio: the game's stations on a dial (docs/vision/radio.md 7). The same
-  station player the game runs (mp_music.wasm in music-worklet.js, built by
+  station player the game runs (music.wasm in music-worklet.js, built by
   `cargo xtask web`) plays here through an AudioWorklet; a second copy of
-  the wasm on the main thread answers what is on (mpm_schedule), so the
+  the wasm on the main thread answers what is on (music_schedule), so the
   page shows the song playing, how far it is, and the block's programme.
   Stations run on the wall clock: tune away and back and the song has
   moved on, and another device tuned here hears the same thing. It plays
@@ -87,7 +87,7 @@ td.v.keep { color: var(--ok); } td.v.reject { color: #ff8a8a; }
 <h1>Radio</h1>
 <p>The game's stations (<code>docs/vision/radio.md</code> 7): streams of generated music on the wall clock, in twenty-minute
 blocks, the same on every device. Tune away and back and the song has moved on. This is the player the game runs
-(<code>mp_music.wasm</code>), so what you hear here is what the car hears.</p>
+(<code>music.wasm</code>), so what you hear here is what the car hears.</p>
 <div id="status">Tap a station to start.</div>
 
 <div class="grid">
@@ -127,7 +127,7 @@ blocks, the same on every device. Tune away and back and the song has moved on. 
       <span class="sub" id="skew"></span>
     </div>
     <!-- Rating (radio.md 8): keep or reject the song playing, with a note.
-         Shown only where the server writes crates/mp_music/favourites.json
+         Shown only where the server writes crates/mp_audio/favourites.json
          (tools/serve.py): on a clone, not on GitHub Pages. -->
     <div id="rate" hidden>
       <div class="row">
@@ -136,7 +136,7 @@ blocks, the same on every device. Tune away and back and the song has moved on. 
         <input type="text" id="note" placeholder="why (optional, saved with the verdict)" maxlength="300">
         <span class="saved" id="saved"></span>
       </div>
-      <p style="margin:6px 0 0;font-size:13px">A song is its <code>(genre, seed)</code>; the verdict goes to <code>crates/mp_music/favourites.json</code> in this clone, by hand or by commit from there.
+      <p style="margin:6px 0 0;font-size:13px">A song is its <code>(genre, seed)</code>; the verdict goes to <code>crates/mp_audio/favourites.json</code> in this clone, by hand or by commit from there.
       <a id="songLink" href="#">Link to this song</a> (the station at this moment, for a note to be checked).</p>
     </div>
   </div>

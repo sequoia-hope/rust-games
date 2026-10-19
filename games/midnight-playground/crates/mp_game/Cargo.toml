@@ -22,7 +22,7 @@ mp_scene.workspace = true
 mp_worldgen.workspace = true
 mp_audio.workspace = true
 # The radio's stations and their schedule (what plays now, for the HUD).
-mp_music.workspace = true
+music.workspace = true
 mp_track.workspace = true
 mp_levels.workspace = true
 pk_math.workspace = true

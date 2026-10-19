@@ -38,98 +38,110 @@ const MIN_FIT_SECS: f64 = 150.0;
 const MARGIN_SECS: f64 = 90.0;
 
 /// A station: its name on the dial, the DJ whose clips it plays (the
-/// `tools/dj-voice` id), the genres it draws from with their weights, and
-/// the seed its programme is made from.
+/// game's id for a voice), the genres it draws from with their weights,
+/// and the seed its programme is made from.
+///
+/// The stations are the game's, not this crate's: a game passes its table
+/// to [`Player::new`](crate::player::Player::new) (and, on the web, to the
+/// worklet wasm at start-up), usually parsed from a JSON file
+/// ([`Station::parse_list`]) that its other tools read too.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Station {
-    pub key: &'static str,
-    pub name: &'static str,
-    pub freq: &'static str,
-    pub dj: Option<&'static str>,
-    /// (genre key, weight).
-    pub genres: &'static [(&'static str, f64)],
+    pub key: String,
+    pub name: String,
+    pub freq: String,
+    pub dj: Option<String>,
+    /// (genre key, weight): keys of [`GENRES`].
+    pub genres: Vec<(String, f64)>,
     pub seed: u32,
 }
 
-/// The stations, in dial order (radio.md 7). The index in this list is
-/// the radio node's `station` param.
-pub const STATIONS: &[Station] = &[
-    Station {
-        key: "tide",
-        name: "The Tide",
-        freq: "88.1",
-        dj: Some("marisol"),
-        genres: &[("house", 0.5), ("garage", 0.2), ("dnb", 0.3)],
-        seed: 881,
-    },
-    Station {
-        key: "ridgeline",
-        name: "Ridgeline Radio",
-        freq: "97.7",
-        dj: Some("kit"),
-        genres: &[
-            ("techno", 0.3),
-            ("psytrance", 0.15),
-            ("trance", 0.2),
-            ("eurobeat", 0.2),
-            ("dnb", 0.15),
-        ],
-        seed: 977,
-    },
-    Station {
-        key: "pacifico",
-        name: "Radio Pacífico",
-        freq: "104.3",
-        // Teo brings in some house and garage of a morning (D1154).
-        dj: Some("teo"),
-        genres: &[("chicha", 0.7), ("house", 0.2), ("garage", 0.1)],
-        seed: 1043,
-    },
-    // The coast country station (radio.md 7, sound.md 3.5.1): honky-tonk,
-    // the shuffle, bluegrass and outlaw, with a little chicha from down the
-    // highway. Tess is its DJ (D1184).
-    Station {
-        key: "roadhouse",
-        name: "The Roadhouse",
-        freq: "101.7",
-        dj: Some("tess"),
-        genres: &[("country", 0.85), ("chicha", 0.15)],
-        seed: 1017,
-    },
-    // The city's club station (D1221): fast house, techno, garage and drum
-    // & bass from a loft south of Market. Dez is its DJ. The city levels'
-    // default: the others' slow DJs don't fit downtown at speed.
-    Station {
-        key: "loft",
-        name: "The Loft",
-        freq: "94.9",
-        dj: Some("dez"),
-        genres: &[
-            ("house", 0.35),
-            ("techno", 0.3),
-            ("garage", 0.15),
-            ("dnb", 0.2),
-        ],
-        seed: 949,
-    },
-];
+impl Station {
+    /// A station table from JSON: `[{key, name, freq, dj?, genres: [[key,
+    /// weight]], seed}]`, in dial order. Every genre must exist and every
+    /// weight be positive.
+    pub fn parse_list(json: &str) -> Result<Vec<Station>, String> {
+        let v = crate::json::parse(json)?;
+        let items = v.as_arr().ok_or("stations: expected an array")?;
+        items
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let text = |k: &str| {
+                    s.get(k)
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned)
+                        .ok_or_else(|| format!("station {i}: `{k}` must be a string"))
+                };
+                let key = text("key")?;
+                let genres = s
+                    .get("genres")
+                    .and_then(|g| g.as_arr())
+                    .ok_or_else(|| format!("station {key}: `genres` must be an array"))?
+                    .iter()
+                    .map(|g| {
+                        let pair = g.as_arr().unwrap_or(&[]);
+                        match pair {
+                            [k, w] => match (k.as_str(), w.as_f64()) {
+                                (Some(k), Some(w))
+                                    if w > 0.0 && GENRES.iter().any(|g| g.key == k) =>
+                                {
+                                    Ok((k.to_owned(), w))
+                                }
+                                _ => Err(format!("station {key}: bad genre {g:?}")),
+                            },
+                            _ => Err(format!("station {key}: a genre is [key, weight]")),
+                        }
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                if genres.is_empty() {
+                    return Err(format!("station {key}: no genres"));
+                }
+                let seed = s
+                    .get("seed")
+                    .and_then(|v| v.as_f64())
+                    .filter(|x| x.fract() == 0.0 && (0.0..=u32::MAX as f64).contains(x))
+                    .ok_or_else(|| format!("station {key}: `seed` must be a u32"))?;
+                Ok(Station {
+                    name: text("name")?,
+                    freq: text("freq")?,
+                    dj: s.get("dj").and_then(|v| v.as_str()).map(str::to_owned),
+                    genres,
+                    seed: seed as u32,
+                    key,
+                })
+            })
+            .collect()
+    }
 
-/// A station by key.
-pub fn station(key: &str) -> Option<&'static Station> {
-    STATIONS.iter().find(|s| s.key == key)
-}
-
-/// The station a level tunes to by default (radio.md 7: as `LEVEL_TRACK`
-/// picks a song today).
-pub fn level_station(level: &str) -> &'static str {
-    match level {
-        "coast" | "seaside" => "tide",
-        "sierra" => "ridgeline",
-        // Downtown and the night cruise: the city's club station.
-        "streets" | "cruise" => "loft",
-        // The old highway, the freight train, the dry lake bed: country.
-        "desert" => "roadhouse",
-        _ => "tide",
+    /// A station table as JSON, the form [`Station::parse_list`] reads
+    /// (canonical: keys sorted).
+    pub fn list_json(stations: &[Station]) -> String {
+        use crate::json::{Val, canon};
+        let v = Val::Arr(
+            stations
+                .iter()
+                .map(|s| {
+                    Val::obj(vec![
+                        ("key", Val::str(&s.key)),
+                        ("name", Val::str(&s.name)),
+                        ("freq", Val::str(&s.freq)),
+                        ("dj", Val::ostr(&s.dj)),
+                        (
+                            "genres",
+                            Some(Val::Arr(
+                                s.genres
+                                    .iter()
+                                    .map(|(g, w)| Val::Arr(vec![Val::Str(g.clone()), Val::Num(*w)]))
+                                    .collect(),
+                            )),
+                        ),
+                        ("seed", Val::num(s.seed as f64)),
+                    ])
+                })
+                .collect(),
+        );
+        canon(&v)
     }
 }
 
@@ -180,16 +192,16 @@ fn block_rng(st: &Station, block: u64) -> Rng {
 fn genre_by_weight(st: &Station, u: f64) -> &'static Genre {
     let total: f64 = st.genres.iter().map(|(_, w)| w).sum();
     let mut acc = u * total;
-    for (key, w) in st.genres {
+    for (key, w) in &st.genres {
         acc -= w;
         if acc < 0.0 {
             return GENRES
                 .iter()
-                .find(|g| g.key == *key)
+                .find(|g| g.key == key)
                 .expect("a station's genre exists");
         }
     }
-    let key = st.genres[0].0;
+    let key = &st.genres[0].0;
     GENRES
         .iter()
         .find(|g| g.key == key)
@@ -729,13 +741,40 @@ impl Tuner {
     }
 }
 
+/// Stations for the tests and examples (`examples/stations.json`).
+#[cfg(test)]
+pub(crate) fn test_stations() -> Vec<Station> {
+    Station::parse_list(include_str!("../examples/stations.json"))
+        .expect("the example stations parse")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn station(key: &str) -> Option<Station> {
+        test_stations().into_iter().find(|s| s.key == key)
+    }
+
+    #[test]
+    fn a_station_table_round_trips_through_json() {
+        let st = test_stations();
+        assert_eq!(Station::parse_list(&Station::list_json(&st)).unwrap(), st);
+        assert!(
+            Station::parse_list(
+                r#"[{"key":"x","name":"X","freq":"1","genres":[["polka",1]],"seed":1}]"#
+            )
+            .is_err()
+        );
+        assert!(
+            Station::parse_list(r#"[{"key":"x","name":"X","freq":"1","genres":[],"seed":1}]"#)
+                .is_err()
+        );
+    }
+
     #[test]
     fn blocks_fill_exactly_and_repeat() {
-        let st = station("tide").unwrap();
+        let st = &station("club").unwrap();
         for b in [0u64, 1, 7, 1000] {
             let slots = block(st, b);
             assert!(slots.len() >= 3, "block {b}: {} songs", slots.len());
@@ -759,7 +798,7 @@ mod tests {
 
     #[test]
     fn the_fit_nudges_the_tempo_a_little() {
-        let st = station("ridgeline").unwrap();
+        let st = &station("rave").unwrap();
         for b in 0..6u64 {
             let slots = block(st, b);
             let last = slots.last().unwrap();
@@ -775,7 +814,7 @@ mod tests {
 
     #[test]
     fn a_cue_lands_inside_its_song_and_moves_with_time() {
-        let st = station("pacifico").unwrap();
+        let st = &station("latin").unwrap();
         let wall = EPOCH + 3.0 * 86400.0 + 1234.5;
         let c = cue(st, wall);
         assert!(c.frac >= 0.0 && c.frac < 1.0);

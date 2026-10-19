@@ -3,7 +3,7 @@
 //! whole track per genre (seed 1) so a mismatch can be read, not just
 //! detected.
 
-use mp_music::genres::genre;
+use music::genres::genre;
 use sha2::{Digest, Sha256};
 
 fn golden() -> serde_json::Value {

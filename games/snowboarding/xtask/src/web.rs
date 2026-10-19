@@ -258,18 +258,19 @@ fn build_backend(b: &Backend, release: bool, profile: &str, out: &Path) -> Resul
     Ok(())
 }
 
-/// The music: `sb_music` as its own small wasm with the C-ABI exports of
-/// its `worklet` feature, which `web/music-worklet.js` (copied with the
-/// page) runs on the audio thread. Optimised even for a debug build (the
-/// `release` profile): it runs per sample. Borrowed from midnight-
-/// playground's `build_worklet`.
+/// The music: the shared engine (`crates/music`) as its own small wasm
+/// with the C-ABI exports of its `worklet` feature, and its worklet shim
+/// (`crates/music/web/music-worklet.js`), which runs it on the audio
+/// thread. Optimised even for a debug build (the `release` profile): it
+/// runs per sample. Midnight Playground builds the same through
+/// `pk_xtask`'s `SideWasm`.
 fn build_music(release: bool, out: &Path) -> Result {
     let profile = if release { "web-release" } else { "release" };
     let mut build = cargo();
     build.args([
         "build",
         "-p",
-        "sb_music",
+        "music",
         "--lib",
         "--features",
         "worklet",
@@ -280,10 +281,13 @@ fn build_music(release: bool, out: &Path) -> Result {
     ]);
     println!("web: building the music worklet");
     exec(&mut build)?;
-    let name = "sb_music.wasm";
+    let name = "music.wasm";
     let wasm = target_dir().join(TARGET).join(profile).join(name);
     let dest = out.join(name);
     std::fs::copy(&wasm, &dest).map_err(|e| format!("copying {}: {e}", wasm.display()))?;
+    let shim = root().join("../../crates/music/web/music-worklet.js");
+    std::fs::copy(&shim, out.join("music-worklet.js"))
+        .map_err(|e| format!("copying {}: {e}", shim.display()))?;
     if release {
         exec(
             Command::new("wasm-opt")
@@ -294,7 +298,7 @@ fn build_music(release: bool, out: &Path) -> Result {
                 .arg(&dest),
         )
         .map_err(|e| format!("{e}\n(install with: cargo install wasm-opt --locked)"))?;
-        precompress(out, &[name])?;
+        precompress(out, &[name, "music-worklet.js"])?;
     }
     Ok(())
 }

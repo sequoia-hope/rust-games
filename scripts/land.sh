@@ -19,7 +19,7 @@ checks() {
   run cargo clippy --workspace --all-targets --quiet -- -D warnings
   # The web clients and everything they build on, for the browser target.
   run cargo clippy --target wasm32-unknown-unknown --quiet \
-    -p mp_game -p sb_game -p pk_shell -p pk_math -p pk_lockstep -p pk_canvas -p mp_music -p sb_music \
+    -p mp_game -p sb_game -p pk_shell -p pk_math -p pk_lockstep -p pk_canvas -p music \
     -- -D warnings
   run cargo clippy -p mp_audio --target wasm32-unknown-unknown --features web --quiet -- -D warnings
   run cargo nextest run --workspace

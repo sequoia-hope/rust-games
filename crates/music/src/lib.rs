@@ -5,7 +5,8 @@
 //! grammars and the engine that mixes a song (docs/vision/sound.md 3, and
 //! 3.5 for the genres). It is the music of the radio stations (radio.md 7):
 //! a station is a deterministic schedule of generated songs on the wall
-//! clock, so every player hears the same song at the same moment.
+//! clock, so every player hears the same song at the same moment. The
+//! stations are the game's: it passes its table in ([`radio::Station`]).
 //!
 //! The lab is the oracle: `tests/golden/` (written by
 //! `node tools/music-lab/test/golden.mjs`) holds every grammar's tracks as
@@ -26,8 +27,8 @@
 //! - Stores into a `Float32Array` round to `f32`; everything else is `f64`.
 //!
 //! On the web the engine runs as its own small wasm inside an AudioWorklet
-//! (see [`wasm`] and `crates/mp_audio/web/music-worklet.js`); natively the
-//! same engine runs in `mp_audio`'s worklet processor.
+//! (see [`wasm`] and this crate's `web/music-worklet.js`); natively a game
+//! runs the same [`player::Player`] in its own audio callback.
 
 // Only the worklet wasm's C-ABI exports (`wasm`) touch raw pointers.
 #![cfg_attr(not(feature = "worklet"), forbid(unsafe_code))]
@@ -42,6 +43,7 @@ pub mod genres;
 pub mod instruments;
 pub mod json;
 pub mod kits;
+pub mod lab;
 pub mod patches;
 pub mod player;
 pub mod radio;

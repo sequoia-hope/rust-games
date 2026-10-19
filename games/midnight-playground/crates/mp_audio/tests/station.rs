@@ -351,7 +351,7 @@ fn no_dj_fetcher_no_dj() {
 #[cfg(all(feature = "native", not(target_arch = "wasm32")))]
 mod native {
     //! A tuned `GameAudio` rendered offline: the station is heard through
-    //! the music bus (needs `mp_music::radio::Player`).
+    //! the music bus (needs `music::radio::Player`).
     use super::WALL;
     use mp_audio::game::{CarState, GameAudio, InitOptions, Platform, Volume};
     use mp_audio::wa::native;

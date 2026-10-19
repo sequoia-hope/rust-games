@@ -86,10 +86,10 @@ static WEB: WebBuild = WebBuild {
         },
         // The radio node's: the Music Lab's port with the station player (D1151).
         SideWasm {
-            krate: "mp_music",
+            krate: "music",
             features: &["worklet"],
             opt_level: "-O3",
-            shim_js: Some("crates/mp_audio/web/music-worklet.js"),
+            shim_js: Some("../../crates/music/web/music-worklet.js"),
             what: "radio worklet",
         },
         // The open world's section builder for the page's worker (D1215).

@@ -121,9 +121,6 @@ seen on.
 - `crates/sb_radio`: Ten-Eighty FM's announcers: the script, and the
   director that decides from the run's events when they speak and what
   about. Engine-free, tested on its own.
-- `crates/sb_music`: midnight-playground's music engine (instruments,
-  sequencer, composer, genre grammars, mix) and the station player, also
-  built as its own small wasm for an AudioWorklet.
 - `crates/sb_game`: the Bevy client. It handles terrain meshing from the
   sim's height function, the sky, trees and gates, the rider's IK-posed
   body, the chase camera, snow particles, the HUD and menus, input
@@ -144,7 +141,7 @@ wasm-opt, brotli/gzip), the loader page (backend choice, progress,
 gesture bridge, WebGPU→WebGL2 fallback), `tools/serve.py` (the build laid
 over the root, precompressed files, no-store), the registry-aware
 `serve.sh` with its tailnet https front, the Rajdhani fonts, the
-headless-Chrome GPU flags, and the radio: the music engine (`mp_music`,
-whole, with a station of our own), its AudioWorklet shim, and the DJ voice
+headless-Chrome GPU flags, and the radio: the shared music engine (`crates/music`, with a station of our
+own, `crates/sb_game/stations.json`) and its AudioWorklet shim, and the DJ voice
 pipeline (`tools/dj-voice/`'s design and render scripts, adapted for two
 voices in conversation).

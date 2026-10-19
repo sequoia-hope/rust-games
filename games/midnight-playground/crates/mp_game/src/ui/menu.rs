@@ -159,7 +159,7 @@ pub fn select_options(sel: Sel, s: &Settings) -> (Vec<(String, String)>, String)
         // or off is the Radio checkbox.
         Sel::Station => {
             let mut o = vec![("auto".to_owned(), "Level's station".to_owned())];
-            for st in mp_music::radio::STATIONS {
+            for st in mp_audio::stations::STATIONS.iter() {
                 o.push((st.key.to_owned(), crate::play::station::label(st)));
             }
             (o, s.radio_station.clone())

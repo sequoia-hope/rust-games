@@ -19,7 +19,7 @@ here=$(git rev-parse --show-prefix)
 top=$(git rev-parse --show-toplevel)
 
 cargo xtask web --release
-git -C "$top" archive "HEAD:${here%/}" tools src vendor audio assets music.html | tar -x -C "$out"
+git -C "$top" archive "HEAD:${here%/}" tools src vendor audio assets music.html crates/mp_audio/stations.json | tar -x -C "$out"
 cp -r dist/next/. "$out/"
 find "$out" \( -name '*.br' -o -name '*.gz' \) -delete
 git -C "$top" archive "HEAD:${here%/}" | tar -x -C "$out/legacy"
