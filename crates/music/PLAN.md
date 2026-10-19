@@ -221,6 +221,9 @@ refactor does, since they touch different files.
 - **2026-10-19, sound accuracy for the first genres:** gated reverb,
   sampled 909 cymbals, the Juno chorus at its measured depth (RULES.md
   engine gaps #10, #14, #18), opt-in so the classic sound is unchanged.
+- **2026-10-19, synthwave openings:** after the owner heard every song open
+  on the kick, synthwave and outrun draw one of four sourced openings
+  (pads and arp, bass alone, filtered band, drums).
 
 ## The owner's answers (2026-10-19)
 

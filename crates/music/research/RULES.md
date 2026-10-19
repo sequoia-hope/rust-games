@@ -2077,6 +2077,18 @@ median in the research).
   | L | - | - | - | - | x | - | x | - | solo (sax/guitar-like) | - | x | x (reverb-drenched) |
   | R, X | - | - | - | r (sweep) | 1 | - | 1 | - | - | r (reversed reverb riser 95–96) | 1 | - |
 
+  Openings (the table's first four columns are one of them): of the
+  reference tracks with a sourced intro none opens on the drums, two on pads
+  or the arpeggio, two on the bass, and the guides build pads and arp first,
+  then bass, then drums. Draw per song (weights author's estimate): pads and
+  arp, bass at 9, drums at 17 after a 2-bar snare roll, 0.4
+  [synthwave#55][synthwave#56][synthwave#60][synthwave#62]; bass alone,
+  drums at 9, 0.3 [synthwave#59]; the whole band behind a low-pass opening
+  over 16 bars, 0.15 [synthwave#50]; kick and snare alone (the table), 0.15
+  [synthwave#2][synthwave#58]. Outrun: the same, drums first 0.3 (engine
+  default; no source compares the styles). Bed parts (pads, arp) play
+  +12 dB while exposed before the kick (engine default).
+
   Pop/vocal form: intro 4–8, verse 4 or 8, chorus 8, verse, chorus, middle
   eight 8–12, solo 4–8, drum break 2 + riser, chorus ×2, outro fade; target
   3:30–6:30. Design the peak first (a 6–7 s loop with all parts) and derive the

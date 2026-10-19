@@ -252,7 +252,8 @@ Patterns:
 - **Length.**
   - Synthwave singles run **3:29–6:29**: Turbo Killer 3:29, Roller Mobster 3:34, Nightcall 4:17, A Real Hero 4:28, Running in the Night 4:30, Overdrive 4:31, Future Club 4:49, Sunset 5:27, Los Angeles 6:29 [24].
   - Italo and electro 12-inch versions run **3:56–8:56**: Dolce Vita 3:56, Clear 4:55, Planet Rock 6:24–7:35, I Feel Love 8:14, I Like Chopin 8:56 [24].
-- **Energy arc.** Build from kick and snare alone, hats later [2]. Use snare/tom fills at the end of 4- or 8-bar blocks [2][12]. Drop to 2 bars of drums with a reversed riser before the last chorus [12]. A siren or rising synth in the break raises tension [12]. Change the bass timbre after a chorus (the laser-gun filter snap) [51]. A solo section (sax, guitar-like synth or coronet-like synth) sits after the second chorus, sometimes in a new key [12][34][48]. The outro is the hook bass plus a reverb-drenched lead, faded [12].
+- **How tracks open.** Of the reference tracks with a sourced intro, none opens on the drums. "Nightcall"'s arpeggio "appears from the intro" [62]; "Blinding Lights" opens on a dark synth with a lead teaser, and "the drums come in" at about 0:11, about 8 bars [60], the hook entering "in the last eight bars of the intro" [61]; "A Real Hero" "opens with a chunky bassline sound", and "Under Your Spell"'s intro is two bass parts [59]. The guides build the same way: "start with an atmospheric intro… layer in the bass and arpeggio, bring in drums, then add the lead melody", since "dropping every element in at once kills the cinematic payoff" [55]; "pads and arp first, then bass and stripped drums, then the full kit and lead" [56]; an 8-bar intro of one instrument (guitar, after The Midnight) [57]. One tutorial starts from "the Beats and Atmos tracks" [58]. No source compares outrun and darksynth openings with dreamwave's.
+- **Energy arc.** Build from kick and snare alone, hats later [2] (one of the openings above; the sourced tracks hold the drums back). Use snare/tom fills at the end of 4- or 8-bar blocks [2][12]. Drop to 2 bars of drums with a reversed riser before the last chorus [12]. A siren or rising synth in the break raises tension [12]. Change the bass timbre after a chorus (the laser-gun filter snap) [51]. A solo section (sax, guitar-like synth or coronet-like synth) sits after the second chorus, sometimes in a new key [12][34][48]. The outro is the hook bass plus a reverb-drenched lead, faded [12].
 - **Electro arrangement.** Within the rigid machine groove, a busier cowbell or percussion part is "best saved for choruses or breakdowns" [16]. "Planet Rock" uses an orchestra-hit and explosion break [14].
 
 ---
@@ -318,6 +319,7 @@ Patterns:
 - Electro FX: vocoder or robotic speech, orchestra hits, explosion/noise sweeps, sonar pings (Drexciya). [13][14][21]
 
 ### Arrangement & energy
+- Openings, drawn per song (weights author's estimate from the sourced intros): pads and arp, then bass at 9, drums at 17 after a 2-bar snare roll (0.4) [55][56][60][62]; bass alone, drums at 9 (0.3) [59]; the whole band behind an opening low-pass over 16 bars (0.15) [50]; kick and snare alone (0.15) [2][58]. Parts mixed as beds play up while exposed (engine default +12 dB).
 - Pop template (vocal synthwave and Italo): intro 4–8 bars, verse 4 or 8, chorus 8, verse, chorus, middle eight 8–12, solo 4–8, drum break 2 + riser, chorus ×2, outro fade. Target 3:30–6:30. [12][24]
 - DJ/instrumental template: start drums only (kick + snare), add hats at bar 9, bass at bar 17; add or remove one element every 4 or 8 bars; FX sweep at each 8- or 16-bar boundary. Target 4:30–9:00 for electro and Italo 12-inch versions. [2][11][24]
 - Design the peak first (a 6–7 s loop with all parts) and derive the intro and breakdown by subtraction. [50]
@@ -392,3 +394,11 @@ Patterns:
 52. Attack Magazine, "80s Bass With Reveal Sound Spire" (Synth Secrets), *Attack Magazine*, 2 Jun 2015. https://www.attackmagazine.com/technique/synth-secrets/80s-bass/
 53. Attack Magazine, "High-Octane Eurodisco Inspired By Captain Hollywood Project" (Beat Dissected), *Attack Magazine*, 19 Mar 2026. https://www.attackmagazine.com/technique/beat-dissected/high-octane-eurodisco-inspired-by-captain-hollywood-project/
 54. Wikipedia contributors, "Crockett's Theme", *Wikipedia* (accessed 2026-10-19). https://en.wikipedia.org/wiki/Crockett%27s_Theme
+55. Violet Recording Editorial Team, "How to Make Synthwave: Retro 80s Sound Guide", *Violet Recording*, 4 Jun 2026. https://violetrecording.com/how-to-make-synthwave/
+56. Music Production Wiki Team, "How to Make Synthwave (The Four Choices That Make the Sound)", *musicproductionwiki.com*, updated Jun 2026. https://musicproductionwiki.com/articles/how-to-make-synthwave
+57. Haven, Simon, "How to Make Synthwave? 7 Need-To-Know Techniques", *EDMProd*, 23 May 2025. https://www.edmprod.com/how-to-make-synthwave/
+58. Cant, Tim, "What is synthwave music? How to make a synthwave track", *Native Instruments Blog*, 21 Jul 2023. https://blog.native-instruments.com/synthwave/
+59. Reverb Machine, "Drive Synth Sounds", *Reverb Machine*, 6 Jan 2020 (the version before [39]). https://reverbmachine.com/blog/drive-synth-sounds-2019
+60. Notetracks Team, "Behind the Track: The Weeknd's Blinding Lights", *Notetracks*, undated (accessed 2026-10-19). https://notetracks.com/blog/behind-the-track-the-weeknds-blinding-lights-production-and-arrangement-breakdown
+61. Hit Songs Deconstructed, "Blinding Lights: The Art of the Hook" (PDF), 2025. https://www.hitsongsdeconstructed.com/wp-content/uploads/2025/01/blinding-lights-the-art-of-the-hook.pdf
+62. Syntorial, "Kavinsky – Nightcall Lead" (preset recipe), undated (accessed 2026-10-19). https://www.syntorial.com/preset-recipe/kavinsky-nightcall-lead/
