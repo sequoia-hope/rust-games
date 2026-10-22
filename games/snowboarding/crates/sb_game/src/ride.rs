@@ -187,6 +187,7 @@ fn pose(
         };
         *pose = RiderPose {
             pos,
+            vel: r.vel,
             yaw: r.yaw,
             normal: r.normal,
             pitch: r.pitch,
@@ -198,8 +199,11 @@ fn pose(
             grab: r.grab,
             switch: r.switch,
             airborne: r.airborne(),
+            air_time: r.air.time,
+            air_spin: r.air.spin,
             t: run.clock,
             idle: matches!(s.state, State::Countdown(_)),
+            finished: e.finish.is_some(),
         };
         // Snow off the edge.
         if !run.paused && r.phase != Phase::Air {
