@@ -32,4 +32,10 @@ phases, and `docs/DECISIONS.md` every choice the plan did not cover
 - **`skills/`** are Claude Code skills for the sub-crafts (engine sound,
   music genre, level viewer, …). Their paths assume the old standalone
   layout in places; fix what you use.
-- Status page: `index.html`, served by `proj up game-engine` (`./serve.sh`).
+- **Its page is its docs.** `proj up game-engine` (`./serve.sh`) renders every
+  tracked `.md` under this folder into `dist/docs/` with `tools/docs.py` and
+  serves that: the overview, the changelog, `docs/`, each crate's and patch's
+  notes, the skills, the template. A library has no web build to show, so the
+  documentation is what the page is for; a doc added here appears on the next
+  start, and no list in `tools/docs.py` needs touching (`git ls-files` is the
+  list). There is no status-page `index.html` any more.

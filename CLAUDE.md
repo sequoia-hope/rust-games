@@ -57,7 +57,7 @@ member), `.config/nextest.toml`, `.githooks/`, `scripts/land.sh`.
    Worktrees go in `~/Software/rust-games-worktrees/`, **outside** this
    folder: `proj port` resolves a directory by walking up to the nearest
    registered project, so a game served from a worktree inside
-   `rust-games/` would bind the `rust-games` status page's port. Outside,
+   `rust-games/` would bind the `rust-games` site's own port. Outside,
    it fails loudly, as it should; serve from a worktree only with an
    explicit `--port` the owner gives you. (Claude Code's own worktrees go
    under `.claude/worktrees/`, inside: don't serve from those.) Each
@@ -101,8 +101,11 @@ Output is viewed only through registered servers (`~/scripts/README.md`):
 `proj up <name>` or the project's own `./serve.sh`. Never start an ad-hoc
 server and never write a port number into a script, config or doc: a
 program takes `--port`, then `$PORT`, then `proj port`, then fails loudly.
-`rust-games` itself is registered (its `index.html` status page); the games
-and the kit have their own registrations.
+`rust-games` itself is registered and serves a **local mirror of the public
+site** (below); the games and the kit have their own registrations — the games
+serve their own `dist/` from their working tree, the kit serves its docs.
+No project here has a scaffolded status page any more: each port opens onto
+the thing itself.
 
 ## The public site
 
@@ -115,6 +118,14 @@ put a new game (or anything else with a page, such as a music player) on
 the site, write its `pages.sh` and add it to `site/games.toml`.
 The site is public: no private hostnames, addresses or paths in what a
 game ships.
+
+`./serve.sh` at the root serves the same site locally, on the `rust-games`
+port: `scripts/pages.py build dist/local` runs every entry's `pages.sh` and
+writes the front page over them, exactly as the workflow assembles it, so the
+site can be seen whole before a push. Building it is two release wasm builds,
+so `serve.sh` only builds when `dist/local/` is empty — `REBUILD=1 ./serve.sh`
+(or `scripts/pages.py build dist/local`) refreshes it. It mirrors what is
+committed, not the working tree; for that, serve the game.
 
 ## Commits
 
