@@ -22,14 +22,21 @@ def games():
     if len(set(names)) != len(names):
         sys.exit("pages.py: two entries share a name (site/games.toml)")
     for g in listed:
-        if not (ROOT / g["path"] / "pages.sh").is_file():
+        if ("path" in g) == ("href" in g):
+            sys.exit(f"pages.py: {g['name']} needs a path or an href, not both (site/games.toml)")
+        if "path" in g and not (ROOT / g["path"] / "pages.sh").is_file():
             sys.exit(f"pages.py: {g['path']}/pages.sh is missing (site/games.toml)")
     return listed
 
 
+def built():
+    """The entries with a folder to build; the rest only link into them."""
+    return [g for g in games() if "path" in g]
+
+
 def index(out):
     items = "\n".join(
-        f'<li><a class="game" href="{html.escape(g["name"])}/">'
+        f'<li><a class="game" href="{html.escape(g.get("href", g["name"] + "/"))}">'
         f'<strong>{html.escape(g["title"])}</strong>'
         f'<span>{html.escape(g["blurb"])}</span></a></li>'
         for g in games()
@@ -54,7 +61,7 @@ def build(out):
     # relative to the game instead of to here.
     out = Path(out).resolve()
     out.mkdir(parents=True, exist_ok=True)
-    for g in games():
+    for g in built():
         subprocess.run(
             [str(ROOT / g["path"] / "pages.sh"), str(out / g["name"])], check=True
         )
@@ -63,7 +70,7 @@ def build(out):
 
 def main(args):
     if args == ["matrix"]:
-        print(json.dumps([{"name": g["name"], "path": g["path"]} for g in games()]))
+        print(json.dumps([{"name": g["name"], "path": g["path"]} for g in built()]))
     elif len(args) == 2 and args[0] == "index":
         index(args[1])
     elif len(args) == 2 and args[0] == "build":

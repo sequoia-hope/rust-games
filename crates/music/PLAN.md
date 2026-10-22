@@ -242,6 +242,10 @@ refactor does, since they touch different files.
   `JunoVoice`'s unison put on the measured JP-8000 spread with a
   centre-weighted mix, six patches retuned, the four new-generator profiles
   widened onto them, and the full-wet gated snare halved.
+- **2026-10-22, the radio plays the new generator** (the owner's call,
+  Phase 3's gate): stations take its genres beside the classic ones;
+  Midnight Playground's Tide and Loft play deep and Chicago house,
+  Ridgeline synthwave and outrun (CHANGELOG).
 - **PARKED, owed: a listening pass on the 2026-10-22 upgrade.** Everything
   above was verified by measurement only — the crate's tests (goldens and the
   K-weighted chorus balance), the lab's headless check, and per-genre

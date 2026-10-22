@@ -5,13 +5,21 @@
 # folder it is given; the site serves that at /rust-games/<name>/.
 # `.github/workflows/pages.yml` builds each entry on a runner of its own and
 # `scripts/pages.py` writes the front page from this list. Adding something
-# to the site is a `pages.sh` and an entry here.
+# to the site is a `pages.sh` and an entry here. An entry with an `href`
+# in place of a `path` builds nothing: it is a link on the front page into
+# another entry's part of the site (a page a game ships, say).
 
 [[game]]
 name = "midnight-playground"
 path = "games/midnight-playground"
 title = "Midnight Playground"
 blurb = "A street racer: sprints from mountain switchbacks to neon downtown, an endless night-city cruise, rivals, traffic and Hot Pursuit police."
+
+[[game]]
+name = "midnight-playground-radio"
+href = "midnight-playground/tools/radio.html"
+title = "Midnight Playground Radio"
+blurb = "The game's radio stations on a dial, playing around the clock: house, synthwave, techno, chicha, country and more, made as you listen."
 
 [[game]]
 name = "snowboarding"

@@ -18,14 +18,104 @@
 //! runs a few milliseconds off its scheduled length; over a block that is
 //! under a tenth of a second against the wall clock, and any re-tune
 //! re-syncs.
+//!
+//! A slot of the new generator's is made when it starts to play (a few
+//! milliseconds, once per song) and plays on a [`SongPlayer`] beside the
+//! classic [`Engine`]: each of the two decks has one of each.
 
 use crate::engine::{Engine, EngineEvent};
-use crate::radio::{Slot, Station, Tuner, block, block_at, cue_in, next_slot, wall_from};
+use crate::radio::{Piece, Slot, Station, Tuner, block, block_at, cue_in, next_slot, wall_from};
+use crate::song::SongPlayer;
+
+/// One side of the player: a classic engine and a new song's player, one
+/// of them in use.
+struct Deck {
+    engine: Engine,
+    song: SongPlayer,
+    on_song: bool,
+}
+
+impl Deck {
+    fn new(seed: u32, sr: f64) -> Deck {
+        Deck {
+            engine: Engine::new(seed, sr),
+            song: SongPlayer::new(seed.wrapping_add(0x5EED), sr),
+            on_song: false,
+        }
+    }
+
+    /// Loads a piece, stopped.
+    fn set_piece(&mut self, p: &Piece, energy: f64) {
+        self.stop();
+        match p {
+            Piece::Track(t) => {
+                self.on_song = false;
+                self.engine.set_track(t);
+                self.engine.set_energy(energy);
+            }
+            Piece::Song { .. } => {
+                self.on_song = true;
+                self.song.set_song(p.song().expect("a new song"));
+                self.song.set_energy(energy);
+            }
+        }
+    }
+
+    fn set_energy(&mut self, e: f64) {
+        self.engine.set_energy(e);
+        self.song.set_energy(e);
+    }
+
+    fn cue(&mut self, step: u32, delay_s: f64) {
+        if self.on_song {
+            self.song.cue(step, delay_s);
+        } else {
+            self.engine.cue(step, delay_s);
+        }
+    }
+
+    fn play(&mut self) {
+        if self.on_song {
+            self.song.play(0, 0.0);
+        } else {
+            self.engine.play(0, 0.0);
+        }
+    }
+
+    fn stop(&mut self) {
+        self.engine.stop();
+        self.song.stop();
+    }
+
+    fn playing(&self) -> bool {
+        if self.on_song {
+            self.song.playing()
+        } else {
+            self.engine.playing()
+        }
+    }
+
+    fn process(&mut self, l: &mut [f32], r: &mut [f32]) {
+        if self.on_song {
+            self.song.process(l, r);
+        } else {
+            self.engine.process(l, r);
+        }
+    }
+
+    fn take_events(&mut self) -> Vec<EngineEvent> {
+        if self.on_song {
+            self.song.take_events()
+        } else {
+            self.engine.take_events()
+        }
+    }
+}
 
 pub struct Player {
-    /// The two engines: `engines[cur]` the station tuned, the other the
+    /// The two decks: `engines[cur]` the station tuned, the other the
     /// one fading out while the tuner says it is still heard.
-    engines: [Engine; 2],
+    engines: [Deck; 2],
     cur: usize,
     /// The leaving engine's block, rendered beside the tuned one's.
     spare: (Vec<f32>, Vec<f32>),
@@ -48,8 +138,8 @@ impl Player {
     pub fn new(seed: u32, sample_rate: f64, stations: Vec<Station>) -> Player {
         Player {
             engines: [
-                Engine::new(seed, sample_rate),
-                Engine::new(seed.wrapping_add(1), sample_rate),
+                Deck::new(seed, sample_rate),
+                Deck::new(seed.wrapping_add(1), sample_rate),
             ],
             cur: 0,
             spare: (Vec::new(), Vec::new()),
@@ -95,8 +185,8 @@ impl Player {
         }
     }
 
-    /// The engine playing the station tuned.
-    fn engine(&mut self) -> &mut Engine {
+    /// The deck playing the station tuned.
+    fn engine(&mut self) -> &mut Deck {
         &mut self.engines[self.cur]
     }
 
@@ -128,11 +218,10 @@ impl Player {
         let c = cue_in(b, &self.slots, into);
         self.block = c.block;
         self.slot = c.slot;
-        let step_dur = 60.0 / c.track.bpm / 4.0;
+        let step_dur = 60.0 / c.piece.bpm() / 4.0;
         let energy = self.energy as f64;
         let e = self.engine();
-        e.set_track(&c.track);
-        e.set_energy(energy);
+        e.set_piece(&c.piece, energy);
         // On the next 16th, where the station's clock says it falls.
         e.cue(c.step, (1.0 - c.frac) * step_dur);
         self.tuner.tune();
@@ -147,9 +236,8 @@ impl Player {
         self.slot = s;
         self.slots = slots;
         let e = &mut self.engines[self.cur];
-        e.set_track(&self.slots[self.slot].track);
-        e.set_energy(self.energy as f64);
-        e.play(0, 0.0);
+        e.set_piece(&self.slots[self.slot].piece, self.energy as f64);
+        e.play();
     }
 
     /// Renders one block (`l.len()` frames) of the station through the
@@ -239,6 +327,31 @@ mod tests {
         render(&mut p, (1.5 * sr / 128.0) as usize);
         let (rms, _) = render(&mut p, 20);
         assert_eq!(rms, 0.0);
+    }
+
+    #[test]
+    fn a_new_generator_station_plays_and_moves_on() {
+        let sr = 48000.0;
+        let stations = crate::radio::test_stations();
+        let night = stations.iter().position(|s| s.key == "night").unwrap();
+        let st = stations[night].clone();
+        let mut p = Player::new(2026, sr, stations);
+        // A block whose first song is a new one, tuned in mid-song and a
+        // few seconds before its end.
+        let b = (0..40u64)
+            .find(|&b| matches!(block(&st, b)[0].piece, crate::radio::Piece::Song { .. }))
+            .expect("a block opening on a new song");
+        let slots = block(&st, b);
+        let wall = crate::radio::EPOCH + b as f64 * crate::radio::BLOCK_SECS + slots[0].secs - 3.0;
+        let (day, sec) = wall_parts(wall);
+        p.set_params(night as f32, day as f32, sec as f32, 1.0, 1.0);
+        let (rms, peak) = render(&mut p, (2.5 * sr / 128.0) as usize);
+        assert!(rms > 0.005, "the new song is heard: rms {rms}");
+        assert!(peak <= 1.0, "peak {peak}");
+        render(&mut p, (2.0 * sr / 128.0) as usize);
+        assert_eq!(p.position(), Some((night, b, 1)), "the next song plays");
+        let (rms, _) = render(&mut p, (1.0 * sr / 128.0) as usize);
+        assert!(rms > 0.001, "and is heard: rms {rms}");
     }
 
     #[test]

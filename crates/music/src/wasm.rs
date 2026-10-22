@@ -125,10 +125,10 @@ pub extern "C" fn music_schedule(station: i32, wall_day: f32, wall_sec: f32) -> 
                             ("seed", Val::num(s.seed as f64)),
                             ("start", Val::num(s.start)),
                             ("secs", Val::num(s.secs)),
-                            ("bpm", Val::num(s.track.bpm)),
-                            ("bars", Val::num(s.track.bars() as f64)),
-                            ("title", Val::ostr(&s.track.title)),
-                            ("style", Val::ostr(&s.track.style)),
+                            ("bpm", Val::num(s.piece.bpm())),
+                            ("bars", Val::num(s.piece.bars() as f64)),
+                            ("title", Val::ostr(&s.piece.title())),
+                            ("style", Val::ostr(&s.piece.style())),
                         ])
                     })
                     .collect(),

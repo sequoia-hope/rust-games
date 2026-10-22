@@ -177,8 +177,12 @@ impl StationState {
         let slot = Some((i, c.block, c.slot));
         let changed = self.slot.is_some() && slot != self.slot;
         self.slot = slot;
-        let title = c.track.title.clone().unwrap_or_else(|| c.track.id.clone());
-        let style = c.track.style.clone().unwrap_or_default();
+        let title = c
+            .piece
+            .title()
+            .or_else(|| c.piece.track().map(|t| t.id.clone()))
+            .unwrap_or_default();
+        let style = c.piece.style().unwrap_or_default();
         self.text = format!("{} · {title} · {style}", label(st));
         changed
     }

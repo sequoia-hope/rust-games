@@ -1,12 +1,12 @@
 [
   {"key": "tide", "name": "The Tide", "freq": "88.1", "dj": "marisol",
-   "genres": [["house", 0.5], ["garage", 0.2], ["dnb", 0.3]], "seed": 881},
+   "genres": [["house", 0.3], ["deep", 0.25], ["chicago", 0.15], ["garage", 0.15], ["dnb", 0.15]], "seed": 881},
   {"key": "ridgeline", "name": "Ridgeline Radio", "freq": "97.7", "dj": "kit",
-   "genres": [["techno", 0.3], ["psytrance", 0.15], ["trance", 0.2], ["eurobeat", 0.2], ["dnb", 0.15]], "seed": 977},
+   "genres": [["synthwave", 0.2], ["outrun", 0.2], ["techno", 0.2], ["psytrance", 0.1], ["trance", 0.1], ["eurobeat", 0.1], ["dnb", 0.1]], "seed": 977},
   {"key": "pacifico", "name": "Radio Pacífico", "freq": "104.3", "dj": "teo",
    "genres": [["chicha", 0.7], ["house", 0.2], ["garage", 0.1]], "seed": 1043},
   {"key": "roadhouse", "name": "The Roadhouse", "freq": "101.7", "dj": "tess",
    "genres": [["country", 0.85], ["chicha", 0.15]], "seed": 1017},
   {"key": "loft", "name": "The Loft", "freq": "94.9", "dj": "dez",
-   "genres": [["house", 0.35], ["techno", 0.3], ["garage", 0.15], ["dnb", 0.2]], "seed": 949}
+   "genres": [["chicago", 0.2], ["deep", 0.15], ["house", 0.2], ["techno", 0.25], ["garage", 0.1], ["dnb", 0.1]], "seed": 949}
 ]
