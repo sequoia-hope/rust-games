@@ -135,16 +135,18 @@ impl Drop for WebSocketTransport {
 /// client runs, stalls, and this frame's ticks and drawn fraction.
 pub fn publish(
     net: bevy::prelude::NonSend<super::Net>,
+    view: Option<bevy::prelude::Res<super::NetView>>,
     play: Option<bevy::prelude::Res<crate::play::Play>>,
     cams: bevy::prelude::Query<
         &bevy::prelude::Transform,
         bevy::prelude::With<bevy::prelude::Camera3d>,
     >,
 ) {
-    // No `Play` outside the game (the level viewer, the stations).
-    let Some(race) = play.as_ref().and_then(|p| p.race.as_ref()) else {
+    let race = play.as_ref().and_then(|p| p.race.as_ref());
+    let active = view.as_ref().is_some_and(|v| v.active) || net.client.is_some();
+    if race.is_none() && !active {
         return;
-    };
+    }
     let Some(w) = web_sys::window() else { return };
     let Ok(mr) = js_sys::Reflect::get(&w, &JsValue::from_str("__mp")) else {
         return;
@@ -156,6 +158,17 @@ pub fn publish(
     let set = |k: &str, v: f64| {
         let _ = js_sys::Reflect::set(&o, &JsValue::from_str(k), &JsValue::from_f64(v));
     };
+    let set_bool = |k: &str, v: bool| {
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str(k), &JsValue::from_bool(v));
+    };
+    set_bool("active", active);
+    if let Some(v) = view.as_deref() {
+        set_bool("connected", v.connected);
+        set_bool("begun", v.begun);
+        if let Some(j) = &v.join {
+            let _ = js_sys::Reflect::set(&o, &JsValue::from_str("join"), &JsValue::from_str(j));
+        }
+    }
     if let Some(c) = &net.client {
         let s = c.stats;
         set("rtt", s.rtt);
@@ -171,25 +184,27 @@ pub fn publish(
             set("confirmed", r.confirmed() as f64);
         }
     }
-    let ss = &race.session;
-    let a = ss.alpha();
-    set("alpha", a);
-    set("ticks", ss.ticks as f64);
-    set("tick", ss.curr.tick as f64);
-    set("me", ss.me as f64);
-    // Each human's car where it is drawn (between the last two ticks).
-    let xs = js_sys::Array::new();
-    for (p, q) in ss.prev.players.iter().zip(&ss.curr.players) {
-        let x = p.v.x + (q.v.x - p.v.x) * a;
-        let z = p.v.z + (q.v.z - p.v.z) * a;
-        xs.push(&JsValue::from_f64(x));
-        xs.push(&JsValue::from_f64(z));
-    }
-    let _ = js_sys::Reflect::set(&o, &JsValue::from_str("cars"), &xs);
-    if let Some(t) = cams.iter().next() {
-        set("camX", t.translation.x as f64);
-        set("camY", t.translation.y as f64);
-        set("camZ", t.translation.z as f64);
+    if let Some(race) = race {
+        let ss = &race.session;
+        let a = ss.alpha();
+        set("alpha", a);
+        set("ticks", ss.ticks as f64);
+        set("tick", ss.curr.tick as f64);
+        set("me", ss.me as f64);
+        // Each human's car where it is drawn (between the last two ticks).
+        let xs = js_sys::Array::new();
+        for (p, q) in ss.prev.players.iter().zip(&ss.curr.players) {
+            let x = p.v.x + (q.v.x - p.v.x) * a;
+            let z = p.v.z + (q.v.z - p.v.z) * a;
+            xs.push(&JsValue::from_f64(x));
+            xs.push(&JsValue::from_f64(z));
+        }
+        let _ = js_sys::Reflect::set(&o, &JsValue::from_str("cars"), &xs);
+        if let Some(t) = cams.iter().next() {
+            set("camX", t.translation.x as f64);
+            set("camY", t.translation.y as f64);
+            set("camZ", t.translation.z as f64);
+        }
     }
     let _ = js_sys::Reflect::set(&mr, &JsValue::from_str("net"), &o);
 }
