@@ -360,23 +360,30 @@ pub const SYNTHWAVE: Profile = Profile {
     // ~1.4 beats a note, range 12–15 st [synthwave#23][synthwave#48].
     lead: (2.8, 14, 0.85),
     bass_range: (33, 45),
-    bass_sounds: &["sawBass", "darkBass", "pluckBass"],
-    pad_sounds: &["warmPad", "superPad", "darkPad"],
-    arp_sounds: &["sqArp", "pluck"],
-    lead_sounds: &["sawLead", "sqLead", "brassLead"],
+    bass_sounds: &["sawBass", "pluckBass", "darkBass", "tranceBass", "fmBass"],
+    pad_sounds: &["warmPad", "superPad", "superPadWide", "darkPad", "choir"],
+    arp_sounds: &["pluck", "modernPluck", "sqArp", "pluckTrance"],
+    lead_sounds: &[
+        "sawLead",
+        "supersaw",
+        "leadGuitar",
+        "brassLead",
+        "vocalLead",
+        "sqLead",
+    ],
     form: SYNTH_FORM,
     template: SYNTH_TEMPLATE,
     intros: SYNTH_INTROS,
     // The arp is the hook [synthwave#38]: in the chorus, K-weighted, the
     // arp about 5–7 LU under the bass and the lead 3–5 (engine default).
-    levels: &[("A", 7.0), ("L", 3.5), ("Pd", 4.5)],
+    levels: &[("A", 7.0), ("L", 3.5), ("Pd", 3.5)],
     pump: 0.3,
     tom_fills: true,
     tape: 0.4,
     glue: 0.5,
     reverb: 1.2,
-    // 100 % on the snare; 5–15 % on the kick [synthwave#3][synthwave#26].
-    gated: (1.0, 0.1),
+    // Moderate gated verb on the snare; subtle on the kick [synthwave#3][synthwave#26].
+    gated: (0.55, 0.08),
     notes: SYNTH_NOTES,
 };
 
@@ -395,10 +402,13 @@ pub const OUTRUN: Profile = Profile {
         (DORIAN, 0.1),
         (IONIAN, 0.1),
     ],
-    pad_sounds: &["darkPad", "superPad", "warmPad"],
-    lead_sounds: &["sawLead", "brassLead"],
+    bass_sounds: &["sawBass", "darkBass", "reese", "tranceBass", "pluckBass"],
+    pad_sounds: &["darkPad", "superPadWide", "superPad", "warmPad"],
+    arp_sounds: &["modernPluck", "pluckTrance", "sqArp", "pluck"],
+    lead_sounds: &["sawLead", "supersaw", "euroLead", "leadGuitar", "brassLead"],
     intros: OUTRUN_INTROS,
     pump: 0.4,
+    gated: (0.45, 0.06),
     ..SYNTHWAVE
 };
 
@@ -571,10 +581,10 @@ pub const CHICAGO: Profile = Profile {
     // A 1–2-bar riff, 3–6 onsets a bar, ≤ 12 st [house#1][house#42].
     lead: (4.0, 12, 0.7),
     bass_range: (29, 40),
-    bass_sounds: &["roundBass", "pluckBass", "sawBass"],
-    pad_sounds: &["stab", "dubChord", "organ"],
-    arp_sounds: &["pluck"],
-    lead_sounds: &["piano", "ep", "organ"],
+    bass_sounds: &["roundBass", "pluckBass", "fmBass", "sawBass"],
+    pad_sounds: &["stab", "dubChord", "piano", "organ", "modernPluck"],
+    arp_sounds: &["pluck", "modernPluck", "pluckTrance"],
+    lead_sounds: &["piano", "ep", "organ", "vocalLead", "brassLead"],
     form: CHICAGO_FORM,
     template: CHICAGO_TEMPLATE,
     // DJ intros open on the kick (G6) [arrangement#14][arrangement#16].
@@ -603,9 +613,10 @@ pub const DEEP: Profile = Profile {
     // m9 "the one main chord" [house#15][house#16].
     ext: (1.0, 0.8, 0.3),
     lead: (2.5, 12, 0.3),
-    bass_sounds: &["roundBass", "sub"],
-    pad_sounds: &["dubChord", "stab", "ep"],
-    lead_sounds: &["ep", "bell", "glass"],
+    bass_sounds: &["roundBass", "sub", "fmBass"],
+    pad_sounds: &["dubChord", "stab", "ep", "modernPluck"],
+    arp_sounds: &["modernPluck", "pluck", "glass"],
+    lead_sounds: &["ep", "modernPluck", "glass", "bell", "vocalLead"],
     form: DEEP_FORM,
     template: DEEP_TEMPLATE,
     levels: &[("Pd", 0.5), ("L", -3.0)],

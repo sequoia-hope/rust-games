@@ -6,6 +6,34 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### New lead, pluck and bass patches, and measured unison (2026-10-22)
+
+- **Five base patches added** (`patches.rs`), so every genre can reach them:
+  `fmBass` (a 4-operator stack bass), `modernPluck` (a 5-voice Juno pluck),
+  `leadGuitar` (a plucked-string lead with bend and delayed vibrato),
+  `vocalLead` (a Juno lead through the vowel formant) and `celloPad` (a bowed
+  pad). `celloPad` is reachable from the Music Lab but referenced by no
+  profile yet, as `flute`, `twang` and `whistle` already are.
+- **`JunoVoice` unison is the measured shape, not a straight ramp**
+  (`instruments.rs`): 7-voice unison uses the measured JP-8000 / Serum
+  asymmetric spread, and other voice counts keep the old power curve with the
+  positive side pulled in slightly, so the pairs either side of centre no
+  longer beat in phase lock. The oscillator mix is centre-weighted (1.25 at
+  the centre, 0.85 either side) and normalised by the RMS of those weights
+  rather than `sqrt(n)`, which keeps the patch level where it was.
+- **Patches retuned:** `supersaw` (darker and louder, with vibrato and glide),
+  `superPadWide`, `tranceBass`, `piano`, `choir` (5-voice, formant softened)
+  and `pluckTrance`.
+- **Genre pools widened** (`generator/profile.rs`): `SYNTHWAVE`, `OUTRUN`,
+  `CHICAGO` and `DEEP` draw on the new patches; `OUTRUN` gets its own bass and
+  arp pools instead of inheriting `SYNTHWAVE`'s. Gated reverb is pulled back
+  from the full-wet snare (`SYNTHWAVE` `1.0`/`0.1` to `0.55`/`0.08`, `OUTRUN`
+  `0.45`/`0.06`) and the `SYNTHWAVE` pad sits 1 LU lower.
+- `LAB_SHA256` and the track and render goldens are regenerated. Measured
+  after the change: `synthwave` −23.4, `outrun` −21.4, `chicago` −23.1 and
+  `deep` −23.7 LUFS integrated, true peak −6.3 to −8.1 dBFS, so the louder
+  patches and the new normalisation cost no headroom.
+
 ### Engine-wide patch, kit, DSP, and house/synthwave upgrade (2026-10-22)
 
 - **Upgraded base patches (`patches.rs`), kits (`kits.rs`), and DSP defaults
