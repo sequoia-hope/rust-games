@@ -233,6 +233,31 @@ refactor does, since they touch different files.
   drum tweaks (`profile::sound_patch`, `kit_tweak`); fixed `parts::arp`
   register/triad-wrap and added legato portamento and boundary reflection
   in `parts::draft`.
+- **2026-10-22, engine-wide patch, kit and DSP upgrade** (`music/improve-all`,
+  landed): the measured Juno-60 chorus as the default, glide only on legato
+  where it was asked for, ~30 base patches and the 808/909 kits upgraded, the
+  `theory::voice` and `parts::sparse` fixes, and `classic`'s goldens
+  regenerated rather than frozen (see "Where it stands"). Then five patches
+  added — `fmBass`, `modernPluck`, `leadGuitar`, `vocalLead`, `celloPad` —
+  `JunoVoice`'s unison put on the measured JP-8000 spread with a
+  centre-weighted mix, six patches retuned, the four new-generator profiles
+  widened onto them, and the full-wet gated snare halved.
+- **PARKED, owed: a listening pass on the 2026-10-22 upgrade.** Everything
+  above was verified by measurement only — the crate's tests (goldens and the
+  K-weighted chorus balance), the lab's headless check, and per-genre
+  loudness: synthwave −23.4, outrun −21.4, Chicago −23.1, deep −23.7 LUFS
+  integrated, true peak −6.3 to −8.1 dBFS. **Nobody has heard it.** That
+  breaks the standing rule in `.agents/skills/music-tuning/SKILL.md` ("never
+  tune blind"), and this log shows why it matters: the buried arp and the
+  every-song-opens-on-the-kick problems were both caught by ear and by
+  nothing else. The sessions that did the work could not play audio; Gemini
+  can, but its tokens are out until about **2026-10-29**. So on or after that
+  date, render each of the four genres with
+  `.agents/skills/music-tuning/scripts/render-clip.sh <genre> 1 50 30` and
+  listen for what the numbers cannot show: the new leads and plucks sitting
+  in the arrangement, the halved gated snare, and whether the
+  centre-weighted unison thinned or hardened the supersaw and pads. Retune
+  and regenerate goldens if it did; delete this item once it is done.
 
 ## The owner's answers (2026-10-19)
 
