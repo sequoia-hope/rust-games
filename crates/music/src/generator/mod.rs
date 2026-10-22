@@ -112,9 +112,17 @@ fn transpose(p: &Pattern, st: f64) -> Pattern {
     q
 }
 
-fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
-    let dice = Dice::new(seed).fork(p.key);
-    // Tempo near the typical (a triangle over the range), swing in range.
+/// A song's tempo and its sections, as [`generate`] would make them, without
+/// making the song (microseconds, where a song takes milliseconds): what
+/// the radio needs to plan a block. `None` for an unknown genre.
+pub fn shape(genre: &str, seed: u32, settings: &Settings) -> Option<(f64, Vec<Section>)> {
+    let p = profile::profile(genre)?;
+    let (bpm, _) = tempo(p, &Dice::new(seed).fork(p.key), settings);
+    Some((bpm, sections(p)))
+}
+
+/// Tempo near the typical (a triangle over the range), swing in range.
+fn tempo(p: &Profile, dice: &Dice, settings: &Settings) -> (f64, f64) {
     let mut dt = dice.fork("tempo");
     let (lo, hi, typ) = p.tempo;
     let bpm = settings.bpm.unwrap_or_else(|| {
@@ -127,6 +135,31 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     });
     let bpm = bpm.clamp(lo, hi).round();
     let swing = dt.range(p.swing.0, p.swing.1).round();
+    (bpm, swing)
+}
+
+/// The profile's form as sections, from bar 0.
+fn sections(p: &Profile) -> Vec<Section> {
+    let mut at = 0;
+    p.form
+        .iter()
+        .map(|b| {
+            let s = Section {
+                name: b.name.to_owned(),
+                bar: at,
+                bars: b.bars,
+                energy: b.energy,
+            };
+            at += b.bars;
+            s
+        })
+        .collect()
+}
+
+fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
+    let dice = Dice::new(seed).fork(p.key);
+    let (bpm, swing) = tempo(p, &dice, settings);
+    let (lo, hi, typ) = p.tempo;
 
     // Mode and key.
     let mut dk = dice.fork("key");
@@ -178,18 +211,8 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     song.glue = p.glue;
     song.reverb = p.reverb;
     // Block starts.
-    let mut starts = Vec::new();
-    let mut at = 0;
-    for b in p.form {
-        starts.push(at);
-        song.sections.push(Section {
-            name: b.name.to_owned(),
-            bar: at,
-            bars: b.bars,
-            energy: b.energy,
-        });
-        at += b.bars;
-    }
+    song.sections = sections(p);
+    let starts: Vec<u32> = song.sections.iter().map(|s| s.bar).collect();
     let chorus = |i: usize| matches!(p.form[i].name, "chorus" | "drop" | "main" | "solo");
 
     // The lead's hook: a call and an answer over the chorus progression
@@ -607,6 +630,54 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The radio plans a song from its shape and cuts it at section seams
+    /// (`radio::fit_song`, `Song::rearrange`): the shape must be the song's,
+    /// and no clip may run over a seam.
+    #[test]
+    fn the_shape_is_the_songs_and_clips_keep_to_sections() {
+        for p in PROFILES {
+            for seed in [1, 7, 42, 999, 31337] {
+                let song = generate(p.key, seed, &Settings::default()).unwrap();
+                let (bpm, sections) = shape(p.key, seed, &Settings::default()).unwrap();
+                assert_eq!((bpm, &sections), (song.bpm, &song.sections), "{}", p.key);
+                for l in &song.layers {
+                    for c in &l.clips {
+                        let s = &song.sections[song.section_at(c.bar).unwrap()];
+                        assert!(
+                            c.bar + c.bars <= s.bar + s.bars,
+                            "{} {seed}: {} clip {}+{} runs over {}@{}+{}",
+                            p.key,
+                            l.name,
+                            c.bar,
+                            c.bars,
+                            s.name,
+                            s.bar,
+                            s.bars
+                        );
+                    }
+                }
+                let same = song.rearrange(&(0..song.sections.len()).collect::<Vec<_>>());
+                assert_eq!(same.bars, song.bars);
+                assert_eq!(same.sections, song.sections);
+                assert_eq!(same.fx, song.fx);
+                for (a, b) in same.layers.iter().zip(&song.layers) {
+                    assert_eq!(a.clips, b.clips);
+                    for (x, y) in a.autos.iter().zip(&b.autos) {
+                        for bar in 0..song.bars * 4 {
+                            let bar = bar as f64 / 4.0;
+                            let (u, v) = (x.at(bar).unwrap(), y.at(bar).unwrap());
+                            assert!(
+                                (u - v).abs() <= 1e-6 * v.abs().max(1.0),
+                                "{} at {bar}: {u} vs {v}",
+                                x.param
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn every_template_fits_its_form() {

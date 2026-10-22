@@ -115,7 +115,9 @@ game at `/rust-games/<game>/`. `site/games.toml` is the list (URL name,
 folder, title, one-line blurb); each listed folder has a `pages.sh` that
 builds it and writes its part of the site into the folder it is given. To
 put a new game (or anything else with a page, such as a music player) on
-the site, write its `pages.sh` and add it to `site/games.toml`.
+the site, write its `pages.sh` and add it to `site/games.toml`. An entry
+with an `href` instead of a folder only links into another entry's part
+of the site (Midnight Playground's Radio page is one).
 The site is public: no private hostnames, addresses or paths in what a
 game ships.
 

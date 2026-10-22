@@ -6,6 +6,31 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### The radio plays the new generator (2026-10-22)
+
+The owner's go-ahead for PLAN.md's Phase 3 gate ("a station switches to
+the new generator only when the owner says so").
+
+- **A station's genres may be the new generator's** (`synthwave`,
+  `outrun`, `chicago`, `deep`) beside the classic grammars', in any mix;
+  `Station::parse_list` accepts both.
+- **Breaking: `radio::Slot::track` and `radio::Cue::track` are now
+  `piece: radio::Piece`**, either `Piece::Track(Box<Track>)` (a classic track,
+  as before) or `Piece::Song { genre, seed, order, bpm, bars }` (a new
+  song, planned from its shape and made only when it plays, by
+  `Piece::song()`). Migrate `slot.track.bpm` to `slot.piece.bpm()`, and
+  `bars()`, `title` and `style` likewise; `piece.track()` gives the classic
+  track where there is one. (Midnight Playground's now-playing line was
+  the one reader outside the crate; it is migrated.)
+- **A new song is fitted to its block** by `radio::fit_song`: whole
+  sections repeated or left out, then the tempo nudged (under 8 %).
+- `score::Song::rearrange` (a song's sections in another order),
+  `generator::shape` (a song's tempo and sections without making it) and
+  `song::SongPlayer::cue` (start on a 16th, mid-song) are added for it.
+- `Player` runs a `SongPlayer` beside each `Engine`. A new song is made on
+  the audio thread when it starts (about 4 ms native), once per song.
+- Stations with only classic genres play exactly what they did.
+
 ### New lead, pluck and bass patches, and measured unison (2026-10-22)
 
 - **Five base patches added** (`patches.rs`), so every genre can reach them:

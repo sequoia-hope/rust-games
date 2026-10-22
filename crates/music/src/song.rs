@@ -248,9 +248,13 @@ impl SongPlayer {
     }
 
     fn seek(&mut self, bar: u32) {
+        self.seek_step(bar * 16);
+    }
+
+    fn seek_step(&mut self, step16: u32) {
         let Some(song) = &self.song else { return };
         let step = song.step_secs() * self.sr;
-        self.t = (bar as f64 * 16.0 * step).round() as u64;
+        self.t = (step16 as f64 * step).round() as u64;
         self.next = self.evs.partition_point(|e| e.t < self.t);
         self.fx_next = self.fx_at.partition_point(|(t, _)| *t < self.t);
         self.fx.clear();
@@ -263,6 +267,17 @@ impl SongPlayer {
             return;
         }
         self.seek(bar);
+        self.wait = (delay_s.max(0.0) * self.sr).round() as u64;
+        self.playing = true;
+    }
+
+    /// Starts on the song's 16th `step` after `delay_s` seconds: the radio
+    /// tuning in mid-song, as [`crate::engine::Engine::cue`].
+    pub fn cue(&mut self, step: u32, delay_s: f64) {
+        if self.song.is_none() {
+            return;
+        }
+        self.seek_step(step);
         self.wait = (delay_s.max(0.0) * self.sr).round() as u64;
         self.playing = true;
     }

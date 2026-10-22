@@ -396,6 +396,102 @@ impl Song {
         self.sections.iter().rposition(|s| s.bar <= bar)
     }
 
+    /// The song with its sections played in another `order` (indices into
+    /// `sections`; one may repeat or be left out): the radio's way of
+    /// fitting a song to the time it has. Each section brings its clips
+    /// (those that start in it, cut at its end; the generator never lets
+    /// one run over a seam), its automation (with its values at both ends
+    /// pinned, so a cut doesn't bend a curve across the seam) and its fx.
+    /// `0..sections.len()` in order gives the same song.
+    pub fn rearrange(&self, order: &[usize]) -> Song {
+        let mut out = Song {
+            sections: Vec::with_capacity(order.len()),
+            layers: Vec::with_capacity(self.layers.len()),
+            fx: Vec::new(),
+            bus: Vec::new(),
+            ..self.clone()
+        };
+        // (from, to, where it lands) per section played.
+        let mut spans = Vec::with_capacity(order.len());
+        let mut at = 0;
+        for &i in order {
+            let s = &self.sections[i];
+            spans.push((s.bar, s.bar + s.bars, at));
+            out.sections.push(Section {
+                bar: at,
+                ..s.clone()
+            });
+            at += s.bars;
+        }
+        out.bars = at;
+        let moved = |a: &Automation| {
+            let mut b = Automation::new(&a.param);
+            if a.points.is_empty() {
+                return b;
+            }
+            for &(from, to, o) in &spans {
+                let (from, to) = (from as f64, to as f64);
+                let shift = o as f64 - from;
+                let end = to - 0.001;
+                b.points
+                    .push((from + shift, a.at(from).unwrap_or(0.0), Curve::Linear));
+                for &(bar, v, c) in &a.points {
+                    if bar > from && bar < end {
+                        b.points.push((bar + shift, v, c));
+                    }
+                }
+                // Into the end, the curve that runs through it.
+                let c = a
+                    .points
+                    .iter()
+                    .find(|p| p.0 >= end)
+                    .map_or(Curve::Step, |p| p.2);
+                b.points.push((end + shift, a.at(end).unwrap_or(0.0), c));
+            }
+            b
+        };
+        for l in &self.layers {
+            let mut clips = Vec::new();
+            for &(from, to, o) in &spans {
+                for c in l.clips.iter().filter(|c| (from..to).contains(&c.bar)) {
+                    clips.push(Clip {
+                        bar: c.bar - from + o,
+                        bars: c.bars.min(to - c.bar),
+                        ..c.clone()
+                    });
+                }
+            }
+            out.layers.push(Layer {
+                clips,
+                autos: l.autos.iter().map(moved).collect(),
+                ..l.clone()
+            });
+        }
+        out.bus = self.bus.iter().map(moved).collect();
+        for &(from, to, o) in &spans {
+            let (from, to, shift) = (from as f64, to as f64, o as f64 - from as f64);
+            for f in &self.fx {
+                let f = match f.clone() {
+                    Fx::Riser { bar, bars, level } if bar >= from && bar < to => Fx::Riser {
+                        bar: bar + shift,
+                        bars,
+                        level,
+                    },
+                    Fx::Downlifter { bar, bars, level } if bar >= from && bar < to => {
+                        Fx::Downlifter {
+                            bar: bar + shift,
+                            bars,
+                            level,
+                        }
+                    }
+                    _ => continue,
+                };
+                out.fx.push(f);
+            }
+        }
+        out
+    }
+
     /// The song as the viewer and the radio page need it, as JSON: the
     /// metadata, the sections, and every layer's clips (not its notes).
     pub fn summary(&self) -> Val {

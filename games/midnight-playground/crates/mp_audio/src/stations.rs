@@ -5,17 +5,20 @@
 //! (`tools/radio.html`) all read; the music engine plays whatever table it
 //! is given.
 //!
-//! - **The Tide** (Marisol): house, garage and drum & bass on the coast.
-//! - **Ridgeline Radio** (Kit): techno, psytrance, trance and eurobeat for
-//!   the mountain roads.
+//! - **The Tide** (Marisol): house (the classic grammar's, and the new
+//!   generator's deep and Chicago house), garage and drum & bass on the
+//!   coast.
+//! - **Ridgeline Radio** (Kit): synthwave and outrun (the new generator's),
+//!   techno, psytrance, trance and eurobeat for the mountain roads.
 //! - **Radio Pacífico** (Teo): chicha, with some house and garage of a
 //!   morning (D1154).
 //! - **The Roadhouse** (Tess, D1184): honky-tonk, the shuffle, bluegrass
 //!   and outlaw (sound.md 3.5.1), with a little chicha from down the
 //!   highway.
-//! - **The Loft** (Dez, D1221): the city's club station, fast house,
-//!   techno, garage and drum & bass from a loft south of Market; the city
-//!   levels' default, as the others' slow DJs don't fit downtown at speed.
+//! - **The Loft** (Dez, D1221): the city's club station, fast house (with
+//!   the new generator's Chicago and deep house), techno, garage and drum &
+//!   bass from a loft south of Market; the city levels' default, as the
+//!   others' slow DJs don't fit downtown at speed.
 
 use music::radio::Station;
 use std::sync::LazyLock;

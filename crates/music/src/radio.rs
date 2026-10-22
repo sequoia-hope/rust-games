@@ -11,6 +11,14 @@
 //! its groove are added or dropped, then its tempo nudged (under 4 %) so
 //! it ends on the boundary. Songs follow each other with no gap.
 //!
+//! A station's genres may be the classic grammars' ([`GENRES`]) or the new
+//! generator's ([`crate::generator::genres`]). A new generator's song is
+//! planned from its shape alone ([`crate::generator::shape`]: its tempo
+//! and sections, fitted by repeating or leaving out whole sections, then
+//! the tempo nudge) and made only when it plays ([`Piece::song`]), since
+//! making one takes milliseconds where a classic track takes a tenth of
+//! one.
+//!
 //! Nothing here reads a clock: the caller passes the wall time (the
 //! client's `Date.now()` or `SystemTime`), in seconds since the Unix epoch.
 //!
@@ -18,8 +26,10 @@
 //! static, and the static fading into the next.
 
 use crate::dsp::{Rng, Svf, TAU};
-use crate::genres::{GENRES, Genre};
+use crate::generator::{self, Settings};
+use crate::genres::GENRES;
 use crate::js_round;
+use crate::score::Song;
 use crate::track::{Section, Track};
 
 /// When the stations went on air: 2026-01-01T00:00:00Z. The schedule
@@ -51,15 +61,16 @@ pub struct Station {
     pub name: String,
     pub freq: String,
     pub dj: Option<String>,
-    /// (genre key, weight): keys of [`GENRES`].
+    /// (genre key, weight): keys of [`GENRES`] or of the new generator's
+    /// genres ([`crate::generator::genres`]).
     pub genres: Vec<(String, f64)>,
     pub seed: u32,
 }
 
 impl Station {
     /// A station table from JSON: `[{key, name, freq, dj?, genres: [[key,
-    /// weight]], seed}]`, in dial order. Every genre must exist and every
-    /// weight be positive.
+    /// weight]], seed}]`, in dial order. Every genre must exist (classic or
+    /// new) and every weight be positive.
     pub fn parse_list(json: &str) -> Result<Vec<Station>, String> {
         let v = crate::json::parse(json)?;
         let items = v.as_arr().ok_or("stations: expected an array")?;
@@ -83,9 +94,7 @@ impl Station {
                         let pair = g.as_arr().unwrap_or(&[]);
                         match pair {
                             [k, w] => match (k.as_str(), w.as_f64()) {
-                                (Some(k), Some(w))
-                                    if w > 0.0 && GENRES.iter().any(|g| g.key == k) =>
-                                {
+                                (Some(k), Some(w)) if w > 0.0 && genre_key(k).is_some() => {
                                     Ok((k.to_owned(), w))
                                 }
                                 _ => Err(format!("station {key}: bad genre {g:?}")),
@@ -150,6 +159,105 @@ pub fn song_secs(t: &Track) -> f64 {
     t.bars() as f64 * 16.0 * (60.0 / t.bpm / 4.0)
 }
 
+/// A genre's key as `'static`, if it is a classic grammar's or the new
+/// generator's.
+fn genre_key(key: &str) -> Option<&'static str> {
+    GENRES
+        .iter()
+        .map(|g| g.key)
+        .chain(generator::genres().into_iter().map(|(k, _)| k))
+        .find(|k| *k == key)
+}
+
+/// What a slot plays.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Piece {
+    /// A classic grammar's track.
+    Track(Box<Track>),
+    /// A new generator's song, planned but not made: its sections in the
+    /// order they play (indices into the generated song's, see
+    /// [`Song::rearrange`]) and its tempo, fitted. [`Piece::song`] makes it.
+    Song {
+        genre: &'static str,
+        seed: u32,
+        order: Vec<usize>,
+        bpm: f64,
+        bars: u32,
+    },
+}
+
+impl Piece {
+    pub fn bpm(&self) -> f64 {
+        match self {
+            Piece::Track(t) => t.bpm,
+            Piece::Song { bpm, .. } => *bpm,
+        }
+    }
+
+    pub fn bars(&self) -> u32 {
+        match self {
+            Piece::Track(t) => t.bars(),
+            Piece::Song { bars, .. } => *bars,
+        }
+    }
+
+    /// Its length in seconds.
+    pub fn secs(&self) -> f64 {
+        self.bars() as f64 * 16.0 * (60.0 / self.bpm() / 4.0)
+    }
+
+    /// The title the radio shows (a new song's is its genre and seed, as in
+    /// the lab).
+    pub fn title(&self) -> Option<String> {
+        match self {
+            Piece::Track(t) => t.title.clone(),
+            Piece::Song { genre, seed, .. } => generator::genres()
+                .into_iter()
+                .find(|(k, _)| k == genre)
+                .map(|(_, name)| format!("{name} {seed}")),
+        }
+    }
+
+    /// The style line the radio shows. A new song's full line (its key and
+    /// progression, `Song::style`) is only known once it is made, so the
+    /// plan gives its genre's name.
+    pub fn style(&self) -> Option<String> {
+        match self {
+            Piece::Track(t) => t.style.clone(),
+            Piece::Song { genre, .. } => generator::genres()
+                .into_iter()
+                .find(|(k, _)| k == genre)
+                .map(|(_, name)| name.to_owned()),
+        }
+    }
+
+    /// The classic track, if it is one.
+    pub fn track(&self) -> Option<&Track> {
+        match self {
+            Piece::Track(t) => Some(t),
+            Piece::Song { .. } => None,
+        }
+    }
+
+    /// A new generator's song, made and fitted (milliseconds); `None` for a
+    /// classic track.
+    pub fn song(&self) -> Option<Song> {
+        let Piece::Song {
+            genre,
+            seed,
+            order,
+            bpm,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        let mut s = generator::generate(genre, *seed, &Settings::default())?.rearrange(order);
+        s.bpm = *bpm;
+        Some(s)
+    }
+}
+
 /// One song of a block's programme.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Slot {
@@ -158,9 +266,9 @@ pub struct Slot {
     /// Seconds from the block's start.
     pub start: f64,
     pub secs: f64,
-    /// The song as it plays: the grammar's track, fitted when it is the
-    /// block's last.
-    pub track: Track,
+    /// The song as it plays: the grammar's track or the new generator's
+    /// plan, fitted when it is the block's last.
+    pub piece: Piece,
 }
 
 /// Where a station is at a moment: the block, the song and the 16th it is
@@ -169,7 +277,7 @@ pub struct Slot {
 pub struct Cue {
     pub block: u64,
     pub slot: usize,
-    pub track: Track,
+    pub piece: Piece,
     /// The 16th of the song that is playing (from 0).
     pub step: u32,
     /// How far into that 16th, 0..1.
@@ -189,23 +297,46 @@ fn block_rng(st: &Station, block: u64) -> Rng {
     Rng::new(if s == 0 { 1 } else { s })
 }
 
-fn genre_by_weight(st: &Station, u: f64) -> &'static Genre {
+fn genre_by_weight(st: &Station, u: f64) -> &'static str {
     let total: f64 = st.genres.iter().map(|(_, w)| w).sum();
     let mut acc = u * total;
-    for (key, w) in &st.genres {
-        acc -= w;
-        if acc < 0.0 {
-            return GENRES
-                .iter()
-                .find(|g| g.key == key)
-                .expect("a station's genre exists");
-        }
-    }
-    let key = &st.genres[0].0;
-    GENRES
+    let key = st
+        .genres
         .iter()
-        .find(|g| g.key == key)
-        .expect("a station's genre exists")
+        .find(|(_, w)| {
+            acc -= w;
+            acc < 0.0
+        })
+        .unwrap_or(&st.genres[0])
+        .0
+        .as_str();
+    genre_key(key).expect("a station's genre exists")
+}
+
+/// A genre's song for `seed`, as planned: a classic track, or a new
+/// song's shape in its own order.
+fn piece(genre: &'static str, seed: u32) -> Piece {
+    if let Some(g) = GENRES.iter().find(|g| g.key == genre) {
+        return Piece::Track(Box::new((g.make)(seed, None)));
+    }
+    let (bpm, sections) =
+        generator::shape(genre, seed, &Settings::default()).expect("a station's genre exists");
+    Piece::Song {
+        genre,
+        seed,
+        order: (0..sections.len()).collect(),
+        bpm,
+        bars: sections.iter().map(|s| s.bars).sum(),
+    }
+}
+
+/// Fits a piece to `target` seconds: [`fit`] for a track, [`fit_song`] for
+/// a new song.
+fn fit_piece(p: Piece, target: f64) -> Piece {
+    match p {
+        Piece::Track(t) => Piece::Track(Box::new(fit(*t, target))),
+        Piece::Song { genre, seed, .. } => fit_song(genre, seed, target),
+    }
 }
 
 /// The programme of one block: songs from its start, the last one fitted
@@ -215,36 +346,35 @@ pub fn block(st: &Station, block: u64) -> Vec<Slot> {
     let mut slots: Vec<Slot> = Vec::new();
     let mut total = 0.0;
     loop {
-        let g = genre_by_weight(st, r.next());
+        let genre = genre_by_weight(st, r.next());
         let seed = 1 + (r.next() * 99999.0).floor() as u32;
-        let track = (g.make)(seed, None);
-        let secs = song_secs(&track);
+        let piece = piece(genre, seed);
+        let secs = piece.secs();
         if total + secs <= BLOCK_SECS - MARGIN_SECS {
             slots.push(Slot {
-                genre: g.key,
+                genre,
                 seed,
                 start: total,
                 secs,
-                track,
+                piece,
             });
             total += secs;
             continue;
         }
         let left = BLOCK_SECS - total;
         if left >= MIN_FIT_SECS || slots.is_empty() {
-            let track = fit(track, left);
             slots.push(Slot {
-                genre: g.key,
+                genre,
                 seed,
                 start: total,
                 secs: left,
-                track,
+                piece: fit_piece(piece, left),
             });
         } else {
             // Too little room for a song: the last one plays on to the end.
             let last = slots.last_mut().expect("a song");
             let target = last.secs + left;
-            last.track = fit(last.track.clone(), target);
+            last.piece = fit_piece(last.piece.clone(), target);
             last.secs = target;
         }
         break;
@@ -316,6 +446,66 @@ pub fn fit(mut t: Track, target: f64) -> Track {
     t
 }
 
+/// Fits a new generator's song to `target` seconds, from its shape: whole
+/// sections repeated (the most energetic that fits, after itself) or left
+/// out (a repeated one, the calmest that fits first; never the first or
+/// the last), until it is within half an 8-bar block of the target; then
+/// the tempo nudged so it ends exactly on it.
+pub fn fit_song(genre: &'static str, seed: u32, target: f64) -> Piece {
+    let (bpm, secs) =
+        generator::shape(genre, seed, &Settings::default()).expect("a new generator's genre");
+    let n = secs.len();
+    let mut order: Vec<usize> = (0..n).collect();
+    let bars = |o: &[usize]| o.iter().map(|&i| secs[i].bars).sum::<u32>();
+    let mut need = (target * bpm / 240.0).round() as i64 - bars(&order) as i64;
+    while need >= 4 {
+        let Some(i) = (1..n.saturating_sub(1))
+            .filter(|&i| secs[i].bars as i64 <= need + 4)
+            .max_by(|&a, &b| {
+                (secs[a].energy, secs[a].bars, a)
+                    .partial_cmp(&(secs[b].energy, secs[b].bars, b))
+                    .expect("energies are numbers")
+            })
+        else {
+            break;
+        };
+        let at = order.iter().rposition(|&j| j == i).expect("in the order");
+        order.insert(at + 1, i);
+        need -= secs[i].bars as i64;
+    }
+    while need <= -4 && order.len() > 3 {
+        let repeated = |k: usize| {
+            order
+                .iter()
+                .filter(|&&j| secs[j].name == secs[k].name)
+                .count()
+                > 1
+        };
+        let Some(at) = (1..order.len() - 1)
+            .filter(|&p| (secs[order[p]].bars as i64) <= -need + 4)
+            .max_by(|&a, &b| {
+                let key = |p: usize| {
+                    let s = &secs[order[p]];
+                    (repeated(order[p]), -s.energy, s.bars, p)
+                };
+                key(a).partial_cmp(&key(b)).expect("energies are numbers")
+            })
+        else {
+            break;
+        };
+        need += secs[order[at]].bars as i64;
+        order.remove(at);
+    }
+    let bars = bars(&order);
+    Piece::Song {
+        genre,
+        seed,
+        order,
+        bpm: bars as f64 * 240.0 / target,
+        bars,
+    }
+}
+
 /// What the block index and the seconds into it are at `wall`.
 pub fn block_at(wall: f64) -> (u64, f64) {
     let since = (wall - EPOCH).max(0.0);
@@ -334,14 +524,14 @@ pub fn cue(st: &Station, wall: f64) -> Cue {
 pub fn cue_in(block: u64, slots: &[Slot], into: f64) -> Cue {
     let i = slots.iter().rposition(|s| s.start <= into).unwrap_or(0);
     let s = &slots[i];
-    let step_dur = 60.0 / s.track.bpm / 4.0;
-    let steps = s.track.bars() as f64 * 16.0;
+    let step_dur = 60.0 / s.piece.bpm() / 4.0;
+    let steps = s.piece.bars() as f64 * 16.0;
     let pos = ((into - s.start) / step_dur).clamp(0.0, steps - 1e-9);
     let step = pos.floor();
     Cue {
         block,
         slot: i,
-        track: s.track.clone(),
+        piece: s.piece.clone(),
         step: step as u32,
         frac: pos - step,
         left: s.start + s.secs - into,
@@ -774,26 +964,65 @@ mod tests {
 
     #[test]
     fn blocks_fill_exactly_and_repeat() {
-        let st = &station("club").unwrap();
-        for b in [0u64, 1, 7, 1000] {
-            let slots = block(st, b);
-            assert!(slots.len() >= 3, "block {b}: {} songs", slots.len());
-            let mut t = 0.0;
-            for s in &slots {
-                assert!((s.start - t).abs() < 1e-9, "no gap");
+        for key in ["club", "night"] {
+            let st = &station(key).unwrap();
+            for b in [0u64, 1, 7, 1000] {
+                let slots = block(st, b);
+                assert!(slots.len() >= 3, "{key} block {b}: {} songs", slots.len());
+                let mut t = 0.0;
+                for s in &slots {
+                    assert!((s.start - t).abs() < 1e-9, "no gap");
+                    assert!(
+                        (s.piece.secs() - s.secs).abs() < 1e-6,
+                        "the piece lasts its slot"
+                    );
+                    if let Piece::Track(tr) = &s.piece {
+                        assert!((song_secs(tr) - s.secs).abs() < 1e-6);
+                    }
+                    t += s.secs;
+                }
                 assert!(
-                    (song_secs(&s.track) - s.secs).abs() < 1e-6,
-                    "the track lasts its slot"
+                    (t - BLOCK_SECS).abs() < 1e-6,
+                    "{key} block {b} ends on the boundary: {t}"
                 );
-                t += s.secs;
+                assert_eq!(slots, block(st, b), "deterministic");
             }
-            assert!(
-                (t - BLOCK_SECS).abs() < 1e-6,
-                "block {b} ends on the boundary: {t}"
-            );
-            assert_eq!(slots, block(st, b), "deterministic");
+            assert_ne!(block(st, 0)[0].seed, block(st, 1)[0].seed);
         }
-        assert_ne!(block(st, 0)[0].seed, block(st, 1)[0].seed);
+    }
+
+    #[test]
+    fn a_new_song_is_planned_cheaply_and_made_to_its_plan() {
+        let st = &station("night").unwrap();
+        let mut seen = 0;
+        for b in 0..40u64 {
+            let slots = block(st, b);
+            let last = slots.last().unwrap();
+            let Piece::Song {
+                genre, seed, bpm, ..
+            } = &last.piece
+            else {
+                continue;
+            };
+            seen += 1;
+            let (fresh, _) = generator::shape(genre, *seed, &Settings::default()).unwrap();
+            let ratio = bpm / fresh;
+            assert!(
+                (ratio - 1.0).abs() < 0.08,
+                "block {b}: {genre} tempo nudged by {ratio}"
+            );
+            let song = last.piece.song().unwrap();
+            assert!(
+                (song.secs() - last.secs).abs() < 1e-6,
+                "the made song lasts its slot"
+            );
+            assert_eq!(song.bars, last.piece.bars());
+        }
+        assert!(seen >= 5, "{seen} blocks end on a new song");
+        assert!(
+            (0..20u64).any(|b| block(st, b).iter().any(|s| s.genre == "house")),
+            "a station mixes classic and new"
+        );
     }
 
     #[test]
@@ -804,7 +1033,7 @@ mod tests {
             let last = slots.last().unwrap();
             let fresh =
                 (GENRES.iter().find(|g| g.key == last.genre).unwrap().make)(last.seed, None);
-            let ratio = last.track.bpm / fresh.bpm;
+            let ratio = last.piece.bpm() / fresh.bpm;
             assert!(
                 (ratio - 1.0).abs() < 0.05,
                 "block {b}: tempo nudged by {ratio}"
@@ -819,7 +1048,7 @@ mod tests {
         let c = cue(st, wall);
         assert!(c.frac >= 0.0 && c.frac < 1.0);
         assert!(c.left > 0.0 && c.left <= BLOCK_SECS);
-        let step_dur = 60.0 / c.track.bpm / 4.0;
+        let step_dur = 60.0 / c.piece.bpm() / 4.0;
         let later = cue(st, wall + 2.0 * step_dur);
         if later.slot == c.slot {
             let moved = (later.step as f64 + later.frac) - (c.step as f64 + c.frac);
