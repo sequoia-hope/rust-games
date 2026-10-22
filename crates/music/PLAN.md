@@ -226,6 +226,13 @@ refactor does, since they touch different files.
   (pads and arp, bass alone, filtered band, drums). The arp, the
   owner heard, was buried: it and the lead now sit about 6 and 4 LU under
   the bass in the chorus.
+- **2026-10-21, synthwave and outrun instrument tune-up:** added 12 dB/oct
+  2-pole ladder mode (`slope: 12`), chorus bass high-pass (`chorusHp`),
+  mono PWM, and per-song bus mix (`tape`, `glue`, `reverb`); tuned
+  synthwave/outrun bass, arp, pad, lead patches and 80s LinnDrum/Simmons
+  drum tweaks (`profile::sound_patch`, `kit_tweak`); fixed `parts::arp`
+  register/triad-wrap and added legato portamento and boundary reflection
+  in `parts::draft`.
 
 ## The owner's answers (2026-10-19)
 

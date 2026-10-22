@@ -344,6 +344,11 @@ pub struct Song {
     /// Ping-pong delay time in beats, and its feedback.
     pub delay_beats: f64,
     pub delay_fb: f64,
+    /// Bus tape saturation, glue compression and reverb return level
+    /// (RULES.md G7).
+    pub tape: f64,
+    pub glue: f64,
+    pub reverb: f64,
     /// Master gain into the bus.
     pub gain: f64,
     /// Why the song is the way it is: the generator's choices and the rule
@@ -368,6 +373,9 @@ impl Song {
             pump_release: 0.2,
             delay_beats: 0.75,
             delay_fb: 0.35,
+            tape: 0.35,
+            glue: 0.5,
+            reverb: 1.0,
             gain: 1.0,
             notes: Vec::new(),
         }

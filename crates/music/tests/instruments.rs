@@ -618,3 +618,51 @@ fn sampled_cymbals_keep_their_level_add_grit_and_still_decay() {
         );
     }
 }
+
+#[test]
+fn the_12db_ladder_passes_more_top_end_than_the_24db_one() {
+    // Oberheim 2-pole (slope 12) vs Moog/Juno 4-pole (slope 24): above cutoff,
+    // the 2-pole roll-off leaves significantly more air in the 2–8 kHz band.
+    let mut p24 = bpatch("warmPad").unwrap();
+    p24.saw = Some(1.0);
+    p24.cutoff = Some(900.0);
+    p24.fenv = Some(0.0);
+    let mut p12 = p24.clone();
+    p12.slope = Some(12.0);
+    let (l24, _) = render_inst(&p24, &[note(0.0, &[60.0], 0.4)], 0.5);
+    let (l12, _) = render_inst(&p12, &[note(0.0, &[60.0], 0.4)], 0.5);
+    let hi24 = band_power(&l24[at(0.1)..at(0.3)], 2500.0, 7500.0);
+    let hi12 = band_power(&l12[at(0.1)..at(0.3)], 2500.0, 7500.0);
+    assert!(
+        hi12 > hi24 * 4.0,
+        "12 dB slope passes >6 dB more upper harmonics: {hi12} vs {hi24}"
+    );
+}
+
+#[test]
+fn chorus_high_pass_keeps_the_bass_fundamental_mono() {
+    // `chorusHp` high-passes the BBD delay input so low bass stays centered
+    // while upper harmonics spread to the sides (synthwave.md §4.4).
+    let side_at = |hz: f64, hp: Option<f64>| {
+        let mut c = Chorus::new(RATE);
+        c.set(1.0);
+        c.model(Some(0.5), Some(15000.0));
+        c.set_hp(hp);
+        let mut s = 0.0;
+        for i in 0..at(1.0) {
+            let x = (i as f64 * 2.0 * std::f64::consts::PI * hz / RATE).sin();
+            let mut o = [0.0; 2];
+            c.run(x, &mut o, 1.0);
+            s += (o[0] - o[1]).powi(2);
+        }
+        s
+    };
+    let low_full = side_at(55.0, None);
+    let low_hp = side_at(55.0, Some(180.0));
+    let high_hp = side_at(880.0, Some(180.0));
+    assert!(
+        low_hp < low_full * 0.2,
+        "55 Hz side energy cut by >5x: {low_hp} vs {low_full}"
+    );
+    assert!(high_hp > low_hp * 20.0, "upper harmonics still chorused");
+}

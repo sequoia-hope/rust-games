@@ -200,7 +200,8 @@ lab_nums! {
     wah_q: "wahQ", wah_rate: "wahRate", strum: "strum",
     swell: "swell", body2: "body2", body2_q: "body2Q", body2_mix: "body2Mix",
     strings: "strings", spread: "spread", dry: "dry",
-    chorus_ms: "chorusMs", chorus_lp: "chorusLp",
+    chorus_ms: "chorusMs", chorus_lp: "chorusLp", chorus_hp: "chorusHp",
+    slope: "slope",
 }
 
 /// A part's mixer channel (`part.ch`, `engine.js` `Channel`).

@@ -281,7 +281,8 @@ impl OnePole {
 /// ZDF 4-pole ladder (Zavalishin's TPT form) with a tanh on the input of
 /// the feedback sum. res 0..1 (self-oscillates near 1); drive pushes the
 /// input. `mode` 0 = 24 dB low-pass (Moog / Juno IR3109), 1 = an 18 dB tap
-/// mix that leans toward the 303's diode ladder.
+/// mix that leans toward the 303's diode ladder, 2 = 12 dB 2-pole low-pass
+/// (Oberheim SEM / OB-Xa).
 #[derive(Clone, Copy, Debug)]
 pub struct Ladder {
     s: [f64; 4],
@@ -348,6 +349,9 @@ impl Ladder {
         }
         if mode == 1 {
             return out[2] * 1.25 - out[3] * 0.3;
+        }
+        if mode == 2 {
+            return out[1] * (1.0 + k * 0.2);
         }
         // Make up some of the pass-band loss resonance costs (as the hardware
         // does).
@@ -904,6 +908,8 @@ pub struct Chorus {
     /// The sweep at depth 1, in seconds.
     sweep: f64,
     lp: OnePole,
+    hp: OnePole,
+    hp_on: bool,
     /// Unset (false) until `set`, as the JS's `this.on` is undefined.
     pub on: bool,
     sr: f64,
@@ -918,6 +924,8 @@ impl Chorus {
             depth: 1.0,
             sweep: 0.0017,
             lp: OnePole::new(9000.0, sr),
+            hp: OnePole::new(20.0, sr),
+            hp_on: false,
             on: false,
             sr,
         }
@@ -944,6 +952,15 @@ impl Chorus {
         self.lp.set_hz(lp.unwrap_or(9000.0));
     }
 
+    /// High-pass before the chorus delay (Hz), so bass fundamentals stay
+    /// mono while upper harmonics are chorused on the sides.
+    pub fn set_hp(&mut self, hp: Option<f64>) {
+        self.hp_on = hp.is_some_and(|hz| hz > 0.0);
+        if let Some(hz) = hp.filter(|v| *v > 0.0) {
+            self.hp.set_hz(hz);
+        }
+    }
+
     /// Adds into `out`. The JS default is `gain = 1`.
     pub fn run(&mut self, x: f64, out: &mut [f64; 2], gain: f64) {
         if !self.on {
@@ -952,7 +969,8 @@ impl Chorus {
             return;
         }
         let sr = self.sr;
-        let w = self.lp.lp(x);
+        let xin = if self.hp_on { self.hp.hp(x) } else { x };
+        let w = self.lp.lp(xin);
         self.d.write(w);
         self.ph += self.rate / sr;
         if self.ph > 1.0 {

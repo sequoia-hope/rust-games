@@ -6,6 +6,40 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Synthwave and outrun instrument tune-up (2026-10-21)
+
+- **12 dB/oct ladder tap (`slope: 12`):** `dsp::Ladder::run` adds `mode == 2`
+  (2-pole low-pass tap for Oberheim SEM / OB-Xa / airy Juno filter roll-off);
+  `track::Lab` adds `slope` (`"slope"`), read by `JunoVoice` and `MonoVoice`.
+- **Chorus bass high-pass (`chorusHp`):** `dsp::Chorus::set_hp` high-passes
+  the BBD delay input while leaving the dry signal full-range (`track::Lab`
+  `chorus_hp` / `"chorusHp"`), so bass fundamentals below 180 Hz stay solid
+  mono while upper harmonics spread in stereo (`synthwave.md` §4.4).
+- **Mono PWM:** `MonoVoice::run` now modulates pulse width from `p.pwm` and
+  the instrument LFO.
+- **Bus mix per song:** `score::Song` carries `tape`, `glue` and `reverb`
+  from `Profile`, applied by `SongPlayer::set_song`.
+- **Synthwave and outrun voicings (`profile::sound_patch`, `kit_tweak`,
+  `parts`):**
+  - Plucked Prophet-5 / Juno-60 8th-note bass (`sawBass`, `darkBass`,
+    `pluckBass`; `roundBass` dropped from synthwave/outrun) with saw + PWM
+    pulse + upper-octave saw + phase-locked sub, snappy filter decay, low
+    keytrack, and high-passed Chorus I.
+  - Juno-60 / OB-Xa arpeggio plucks (`pluck`, `sqArp`) with saw + PWM pulse
+    unison, 12 dB/oct filter, 400 ms filter envelope, and Chorus II; `parts::arp`
+    always spells 5 ascending chord tones in the midrange (`MIDI 55..76`,
+    fixing the 4-tone triad modulo wrap and extra `+12` octave shift) in a
+    continuous 8-note bar.
+  - Lush Juno/OB-Xa pads (`warmPad`, `superPad`, `darkPad`) with saw + PWM
+    pulse, no sub-oscillator mud, 180 Hz HPF, 12 dB/oct filter, and Chorus II.
+  - Singing solo leads (`sawLead`, `sqLead`, `brassLead`) with stereo Chorus II,
+    12 dB/oct filter, delayed vibrato, and legato portamento (`slide = true`)
+    with boundary-reflecting scale motion in `parts::draft`.
+  - 80s LinnDrum / Simmons drum voicing on `tr808` and `tr909` (`kit_tweak`):
+    tight punchy kick, full-bodied gated snare, backbeat clap on 2 & 4
+    (replacing the bar-2 16th clap burst), 8-bit sampled cymbals, and
+    pitch-swept Simmons toms with accented descending fills.
+
 ### Synthwave balance (2026-10-19)
 
 - **`Profile::levels`**: per-role level offsets (dB) on the generator's
