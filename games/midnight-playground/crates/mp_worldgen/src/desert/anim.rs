@@ -245,8 +245,8 @@ struct TrainAnim {
     /// `this.trainU` (`null` until the first frame).
     u: Option<f64>,
     rolling: bool,
-    /// `this._uCache`, `this._sCache`.
-    cache: Option<(f64, f64)>,
+    /// Rail `u` at `start` (`z1 - 500`), where the waiting train sits until triggered.
+    wait_u: Option<f64>,
 }
 
 /// `animate(dt, night, camera, s)`.
@@ -296,7 +296,7 @@ impl DesertAnimator {
                     rail: rail.clone(),
                     u: None,
                     rolling: false,
-                    cache: None,
+                    wait_u: None,
                 })
             }
             _ => None,
@@ -435,24 +435,33 @@ impl Animator for DesertAnimator {
 }
 
 impl DesertAnimator {
-    /// Road s → rail u (by projection on the nearest rail point).
+    /// Road s → rail u (by continuous projection onto the nearest rail segment).
     fn rail_u_for(track: &Track, rail: &Rail, s: f64) -> f64 {
         let f = track.frame(s);
         let x = f.x + f.rx * super::RAIL_LAT;
         let z = f.z + f.rz * super::RAIL_LAT;
         let p = &rail.pts;
-        let mut best = 0;
+        let mut best_u = p.first().map_or(0.0, |pt| pt.u);
         let mut bd = f64::INFINITY;
-        let mut i = 0;
-        while i < p.len() {
-            let d = kernel::pow(p[i].x - x, 2.0) + kernel::pow(p[i].z - z, 2.0);
+        for pair in p.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let dx = b.x - a.x;
+            let dz = b.z - a.z;
+            let l2 = dx * dx + dz * dz;
+            let t = if l2 > 1e-6 {
+                ((x - a.x) * dx + (z - a.z) * dz).clamp(0.0, l2) / l2
+            } else {
+                0.0
+            };
+            let px = a.x + dx * t;
+            let pz = a.z + dz * t;
+            let d = (px - x) * (px - x) + (pz - z) * (pz - z);
             if d < bd {
                 bd = d;
-                best = i;
+                best_u = a.u + (b.u - a.u) * t;
             }
-            i += 4;
         }
-        p[best].u
+        best_u
     }
 
     fn update_train(&mut self, dt: f64, night: f64, s: f64, out: &mut Vec<Edit>) {
@@ -462,27 +471,23 @@ impl DesertAnimator {
         let Some(tr) = &mut self.train else {
             return;
         };
-        let (uc, sc) = match tr.cache {
-            Some((uc, sc)) if (s - sc).abs() <= 20.0 => (uc, sc),
-            _ => {
-                let uc = Self::rail_u_for(&track, &tr.rail, s);
-                tr.cache = Some((uc, s));
-                (uc, s)
+        if s < start {
+            // Waiting: the whole train sits stationary ahead of the canyon
+            // mouth (`start`), with its tail 150 m ahead of `start`.
+            let wait_u = *tr
+                .wait_u
+                .get_or_insert_with(|| Self::rail_u_for(&track, &tr.rail, start));
+            tr.u = Some(wait_u + tr.len + 150.0);
+            tr.rolling = false;
+        } else {
+            if !tr.rolling || tr.u.is_none() {
+                let u0 = match tr.wait_u {
+                    Some(w) if (s - start).abs() <= 100.0 => w,
+                    _ => Self::rail_u_for(&track, &tr.rail, s),
+                };
+                tr.u = Some(u0 + tr.len + 150.0);
+                tr.rolling = true;
             }
-        };
-        let pu = uc + (s - sc);
-        if s < start || tr.u.is_none() {
-            // Waiting: the whole train sits ahead of the player, tail 150 m
-            // ahead.
-            tr.u = Some(pu + tr.len + 150.0);
-            if s < start {
-                tr.rolling = false;
-            }
-        }
-        if s >= start {
-            tr.rolling = true;
-        }
-        if tr.rolling {
             tr.u = Some(tr.u.expect("set") + tr.speed * dt);
         }
         let head = tr.u.expect("set");

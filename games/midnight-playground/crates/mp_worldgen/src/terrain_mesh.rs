@@ -511,6 +511,30 @@ pub fn terrain_stages(setup: TerrainSetup) -> (StageFn, StageFn, StageFn) {
         if let Some(p) = &plan {
             p.apply(&mut t);
         }
+        if w.section
+            .as_ref()
+            .is_some_and(|s| !s.partition && !s.base && !s.scenery)
+            && let Some([x0, z0, x1, z1]) = crate::section::bounds(w)
+        {
+            t.min_x = t
+                .min_x
+                .max(((x0 - TERRAIN_TILE) / TERRAIN_TILE).floor() * TERRAIN_TILE);
+            t.min_z = t
+                .min_z
+                .max(((z0 - TERRAIN_TILE) / TERRAIN_TILE).floor() * TERRAIN_TILE);
+            t.max_x = t
+                .max_x
+                .min(((x1 + TERRAIN_TILE) / TERRAIN_TILE).ceil() * TERRAIN_TILE);
+            t.max_z = t
+                .max_z
+                .min(((z1 + TERRAIN_TILE) / TERRAIN_TILE).ceil() * TERRAIN_TILE);
+            t.clip_bounds = Some([
+                x0 - TERRAIN_TILE,
+                z0 - TERRAIN_TILE,
+                x1 + TERRAIN_TILE,
+                z1 + TERRAIN_TILE,
+            ]);
+        }
         w.terrain = Some(t);
         Ok(Vec::new())
     });

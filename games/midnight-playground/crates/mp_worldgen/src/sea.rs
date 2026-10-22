@@ -239,8 +239,11 @@ impl Sea {
         sea_y: f64,
         bounds: Option<[f64; 4]>,
     ) -> Sea {
+        static WAVE_NORMALS: std::sync::OnceLock<Arc<Texture>> = std::sync::OnceLock::new();
         let g = sea_geometry_in(terrain, sea_y, bounds);
-        let normal_tex = Arc::new(wave_normals());
+        let normal_tex = WAVE_NORMALS
+            .get_or_init(|| Arc::new(wave_normals()))
+            .clone();
         let desc = normal_tex.desc("", 0);
         let normal_map = graph.add_texture(Image::Own(normal_tex), desc);
         let foam = graph.cached_texture(&textures.terrain_detail_texture(), Layer::Main, "");

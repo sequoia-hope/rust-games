@@ -716,8 +716,11 @@ pub fn level_jobs_with(
     } = stages;
     let survey = Job::serial("Surveying the route", 0.02, |w| {
         // Levels built from data files load them first (Seaside Raceway):
-        // the caller prepares the level before the build (D54).
-        w.track = Some(Track::new(&w.level)?);
+        // the caller prepares the level before the build (D54). If the caller
+        // already surveyed the route (e.g. menu section preview), reuse it.
+        if w.track.is_none() {
+            w.track = Some(Track::new(&w.level)?);
+        }
         Ok(Vec::new())
     });
     let shape = Job::serial("Shaping the land", 0.06, move |w| {
@@ -766,8 +769,16 @@ pub(crate) fn plan_modules(
     // final. A broken scenery module logs and is skipped rather than
     // stopping the level from loading.
     let n_own = modules.len();
+    let skip_non_raceway_plan = w
+        .section
+        .as_ref()
+        .is_some_and(|sec| !sec.scenery && !sec.partition && !sec.base);
     let mut kept = Vec::new();
     for (k, mut s) in modules.into_iter().chain(extra(&w.level)).enumerate() {
+        if skip_non_raceway_plan && s.name() != "Raceway" {
+            kept.push((s, k >= n_own));
+            continue;
+        }
         match s.plan(w) {
             Ok(()) => kept.push((s, k >= n_own)),
             Err(e) => w.graph.log.push(format!("{}.plan failed {e}", s.name())),

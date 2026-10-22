@@ -451,10 +451,18 @@ impl People {
                 Kind::Walker { path, p0, speed } => {
                     let near = cam.is_none_or(|c| dist2d(c, p.pos) < WALK_NEAR);
                     if !near {
+                        if p.moved {
+                            self.write(i, p.pos, p.yaw, p.scale, &REST, out);
+                            self.people[i].moved = false;
+                        }
                         continue;
                     }
-                    let (pos, yaw) = walker_at(&self.paths[path], p0, speed, time);
-                    let stride = (p0 + speed.abs() * time) / 0.72 * PI;
+                    let next_p0 = p0 + speed * u.dt;
+                    if let Kind::Walker { p0: stored_p0, .. } = &mut self.people[i].kind {
+                        *stored_p0 = next_p0;
+                    }
+                    let (pos, yaw) = walker_at(&self.paths[path], next_p0, speed, 0.0);
+                    let stride = (next_p0 * speed.signum()) / 0.72 * PI;
                     let sw = kernel::sin(stride + p.phase);
                     let pose = Pose {
                         bob: 0.03 * sw.abs(),
@@ -465,6 +473,7 @@ impl People {
                     };
                     self.people[i].pos = pos;
                     self.people[i].yaw = yaw;
+                    self.people[i].moved = true;
                     self.write(i, pos, yaw, p.scale, &pose, out);
                 }
                 Kind::Still => {}
