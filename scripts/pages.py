@@ -3,9 +3,11 @@
 
     scripts/pages.py matrix       the entries as JSON ({name, path}), for the build matrix
     scripts/pages.py index <dir>  write <dir>/index.html, the front page
+    scripts/pages.py build <dir>  the whole site into <dir>: every entry, then the front page
 """
 import html
 import json
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -38,11 +40,34 @@ def index(out):
     Path(out, "index.html").write_text(page.replace(MARK, items))
 
 
+def build(out):
+    """The whole site into <out>, the way the workflow assembles it.
+
+    The workflow gives each entry a runner of its own and merges the pieces;
+    here they run one after another into the same folder. Same `pages.sh`
+    calls and the same layout either way, so what `./serve.sh` shows locally
+    is what Pages deploys — which is the point of building it rather than
+    serving a page of links to the games' own servers.
+    """
+    # Absolute, as the workflow's $RUNNER_TEMP path is: a `pages.sh` changes
+    # directory to its own folder, so a relative output path would be written
+    # relative to the game instead of to here.
+    out = Path(out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    for g in games():
+        subprocess.run(
+            [str(ROOT / g["path"] / "pages.sh"), str(out / g["name"])], check=True
+        )
+    index(out)
+
+
 def main(args):
     if args == ["matrix"]:
         print(json.dumps([{"name": g["name"], "path": g["path"]} for g in games()]))
     elif len(args) == 2 and args[0] == "index":
         index(args[1])
+    elif len(args) == 2 and args[0] == "build":
+        build(args[1])
     else:
         sys.exit(__doc__)
 

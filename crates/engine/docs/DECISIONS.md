@@ -323,3 +323,34 @@ waits for the JS garbage collector, and Bevy re-makes buffers every frame.
   D2 asked; its wgpu-hal was the copy without the 2026-10-16 bind-cache
   fixes.
 - Upstream: `docs/upstream/wgpu-webgpu-destroy-on-drop.md`, not posted.
+
+## D10 (2026-10-22). The kit's page is its docs, rendered from the markdown
+
+`proj up game-engine` (port 8046) opened onto the status page `proj add`
+scaffolds — a card saying the project exists and nothing else. A game's
+registration earns its port by serving the game; a library has no web build
+to serve, so the kit's port was showing a placeholder months after there was
+plenty worth reading.
+
+- **`tools/docs.py <dir>`** renders every tracked `.md` under
+  `crates/engine/` into a browsable site: the overview, `CHANGELOG.md`,
+  `docs/` (plan, decisions, inventory, ecosystem, the design notes, the
+  upstream drafts), each `pk_*` crate's README, each patch's `PATCHED.md`,
+  the skills and the template — 44 documents today. Relative `*.md` links
+  between them are rewritten to the rendered pages, so the cross-references
+  the docs already carry work in the browser.
+- **The file list is `git ls-files`, not a list in the script.** A doc added
+  here appears on the next start; nothing generated, vendored or ignored gets
+  in. Sections come from the folder, with `pk_*` grouped as "Crates", so a new
+  crate needs no change either.
+- **`./serve.sh` builds then serves `dist/docs/`.** A few dozen markdown
+  files is cheap enough to render on every start, which is what keeps the page
+  from falling behind the docs. `index.html`, the scaffold, is gone.
+- **Python `markdown` (with Pygments) does the rendering**, rather than a
+  vendored JS renderer: it is already on the machine, it keeps the output
+  static, and the page needs no network. The script says so when it is
+  missing instead of failing with a traceback.
+- The kit is *not* on the public site (`site/games.toml` lists what is, and
+  deliberately leaves the libraries off). This page is local only, which is
+  also why it may render docs that cite private paths — `dist/` is ignored
+  and nothing here is published.

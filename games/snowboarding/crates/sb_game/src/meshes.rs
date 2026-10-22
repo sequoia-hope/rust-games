@@ -63,7 +63,12 @@ impl MeshBuilder {
 
     /// An axis-aligned box about `center` with half extents `h`.
     pub fn cuboid(&mut self, center: Vec3, h: Vec3, col: [f32; 4]) {
-        let p = |x: f32, y: f32, z: f32| center + Vec3::new(x * h.x, y * h.y, z * h.z);
+        self.cuboid_rot(center, Quat::IDENTITY, h, col);
+    }
+
+    /// A box about `center`, rotated by `rot`, with half extents `h`.
+    pub fn cuboid_rot(&mut self, center: Vec3, rot: Quat, h: Vec3, col: [f32; 4]) {
+        let p = |x: f32, y: f32, z: f32| center + rot * Vec3::new(x * h.x, y * h.y, z * h.z);
         let faces = [
             [
                 p(-1., -1., 1.),
@@ -201,5 +206,154 @@ impl MeshBuilder {
         m.insert_attribute(Mesh::ATTRIBUTE_COLOR, self.col);
         m.insert_indices(Indices::U32(self.idx));
         m
+    }
+
+    /// A smooth-shaded triangle with explicit per-vertex normals and colours.
+    pub fn tri_smooth(
+        &mut self,
+        a: (Vec3, Vec3, [f32; 4]),
+        b: (Vec3, Vec3, [f32; 4]),
+        c: (Vec3, Vec3, [f32; 4]),
+    ) {
+        let i = self.vertex(a.0, a.1, a.2);
+        self.vertex(b.0, b.1, b.2);
+        self.vertex(c.0, c.1, c.2);
+        self.idx.extend([i, i + 1, i + 2]);
+    }
+
+    /// Lofts a smooth tube/garment through cross-section [`Ring`]s from
+    /// bottom to top, with optional hemispherical end-caps so joints stay
+    /// sealed at any bend angle.
+    pub fn loft(&mut self, rings: &[Ring], seg: u32, cap_bot: bool, cap_top: bool) {
+        if rings.len() < 2 || seg < 3 {
+            return;
+        }
+        let sample = |r: &Ring, i: u32| -> (Vec3, Vec3, [f32; 4]) {
+            let a = TAU * (i % seg) as f32 / seg as f32;
+            let (ca, sa) = (a.cos(), a.sin());
+            let wave = if r.freq > 0.0 {
+                (a * r.freq).cos()
+            } else {
+                0.0
+            };
+            let fold = 1.0 + r.ripple * wave;
+            let rot = Quat::from_rotation_z(r.tilt_z) * Quat::from_rotation_x(r.tilt_x);
+            let local = Vec3::new(ca * r.rx * fold, 0.0, sa * r.rz * fold);
+            let n_local = Vec3::new(
+                ca / r.rx.max(1e-3) - r.ripple * r.freq * (a * r.freq).sin() * sa * 0.25,
+                0.0,
+                sa / r.rz.max(1e-3) + r.ripple * r.freq * (a * r.freq).sin() * ca * 0.25,
+            )
+            .normalize_or(Vec3::X);
+            let front_t = ((ca + 0.15) * 1.4).clamp(0.0, 1.0);
+            let mut col = mix(r.col, r.front_col, front_t);
+            if r.ripple.abs() > 1e-3 && wave < 0.0 {
+                col = mix(col, [0.0, 0.0, 0.0, 1.0], (-wave * 0.16).min(0.22));
+            }
+            (
+                r.center + rot * local,
+                (rot * n_local).normalize_or(Vec3::X),
+                col,
+            )
+        };
+
+        let nr = rings.len();
+        for k in 0..nr - 1 {
+            let (r0, r1) = (&rings[k], &rings[k + 1]);
+            let dy = (r1.center.y - r0.center.y).max(1e-3);
+            let dr = ((r0.rx - r1.rx) + (r0.rz - r1.rz)) * 0.5;
+            let ny = (dr / dy).clamp(-0.8, 0.8);
+            for i in 0..seg {
+                let mut a0 = sample(r0, i);
+                let mut a1 = sample(r0, i + 1);
+                let mut b0 = sample(r1, i);
+                let mut b1 = sample(r1, i + 1);
+                for v in [&mut a0, &mut a1, &mut b0, &mut b1] {
+                    v.1 = (v.1 + Vec3::Y * ny).normalize_or(v.1);
+                }
+                self.tri_smooth(a0, b1, a1);
+                self.tri_smooth(a0, b0, b1);
+            }
+        }
+
+        if cap_bot {
+            let r = &rings[0];
+            let h = (r.rx + r.rz) * 0.48;
+            let rot = Quat::from_rotation_z(r.tilt_z) * Quat::from_rotation_x(r.tilt_x);
+            let pole = (
+                r.center - rot * (Vec3::Y * h),
+                rot * Vec3::NEG_Y,
+                mix(r.col, [0.0, 0.0, 0.0, 1.0], 0.12),
+            );
+            let mid_ring = Ring {
+                center: r.center - rot * (Vec3::Y * (h * 0.55)),
+                rx: r.rx * 0.78,
+                rz: r.rz * 0.78,
+                ripple: r.ripple * 0.4,
+                ..*r
+            };
+            for i in 0..seg {
+                let a0 = sample(&mid_ring, i);
+                let a1 = sample(&mid_ring, i + 1);
+                let b0 = sample(r, i);
+                let b1 = sample(r, i + 1);
+                self.tri_smooth(a0, b1, a1);
+                self.tri_smooth(a0, b0, b1);
+                self.tri_smooth(pole, a1, a0);
+            }
+        }
+
+        if cap_top {
+            let r = &rings[nr - 1];
+            let h = (r.rx + r.rz) * 0.48;
+            let rot = Quat::from_rotation_z(r.tilt_z) * Quat::from_rotation_x(r.tilt_x);
+            let pole = (r.center + rot * (Vec3::Y * h), rot * Vec3::Y, r.col);
+            let mid_ring = Ring {
+                center: r.center + rot * (Vec3::Y * (h * 0.55)),
+                rx: r.rx * 0.78,
+                rz: r.rz * 0.78,
+                ripple: r.ripple * 0.4,
+                ..*r
+            };
+            for i in 0..seg {
+                let a0 = sample(r, i);
+                let a1 = sample(r, i + 1);
+                let b0 = sample(&mid_ring, i);
+                let b1 = sample(&mid_ring, i + 1);
+                self.tri_smooth(a0, b1, a1);
+                self.tri_smooth(a0, b0, b1);
+                self.tri_smooth(b0, pole, b1);
+            }
+        }
+    }
+}
+
+/// Cross-section slice for [`MeshBuilder::loft`].
+#[derive(Clone, Copy)]
+pub struct Ring {
+    pub center: Vec3,
+    pub rx: f32,
+    pub rz: f32,
+    pub tilt_z: f32,
+    pub tilt_x: f32,
+    pub col: [f32; 4],
+    pub front_col: [f32; 4],
+    pub ripple: f32,
+    pub freq: f32,
+}
+
+impl Ring {
+    pub fn new(y: f32, rx: f32, rz: f32, col: [f32; 4]) -> Self {
+        Self {
+            center: Vec3::Y * y,
+            rx,
+            rz,
+            tilt_z: 0.0,
+            tilt_x: 0.0,
+            col,
+            front_col: col,
+            ripple: 0.0,
+            freq: 0.0,
+        }
     }
 }
