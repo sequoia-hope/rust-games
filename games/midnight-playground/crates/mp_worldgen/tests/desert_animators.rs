@@ -27,12 +27,39 @@ use std::collections::BTreeMap;
 
 use mp_scene::digest::sha256_hex;
 use mp_scene::{BufferData, Scene};
+use mp_worldgen::anim::{PositionTracker, TrackedTarget};
 use mp_worldgen::scenery::scenery_factory;
 use mp_worldgen::stages::{LevelSetup, level_stages};
 use mp_worldgen::world::{
     Build, CameraView, Change, SceneEdit, SceneRef, UpdateCtx, World, WorldBuild, level_jobs,
 };
 use serde_json::Value;
+
+/// Train car instance matrices and locomotive light/beam positions: these now
+/// use binary search on rail chord lengths (`Rail::at`) and continuous segment
+/// projection (`DesertAnimator::rail_u_for`) instead of the JS `floor(u / 5)`
+/// staircase and 20 m cache jumps (DEVIATIONS, DECISIONS).
+fn is_train_pos_key(key: &str) -> bool {
+    matches!(
+        key,
+        "n299.instanceMatrix"
+            | "n300.instanceMatrix"
+            | "n301.instanceMatrix"
+            | "n302.instanceMatrix"
+            | "n303.instanceMatrix"
+            | "n304.instanceMatrix"
+            | "n305.instanceMatrix"
+            | "n306.instanceMatrix"
+            | "n307.instanceMatrix"
+            | "n308.instanceMatrix"
+            | "n309.instanceMatrix"
+            | "n310.position"
+            | "n311.position"
+            | "n312.position"
+            | "n313.position"
+            | "n314.position"
+    )
+}
 
 fn golden() -> Value {
     serde_json::from_str(include_str!("../../../parity/golden/animators/desert.json"))
@@ -234,7 +261,13 @@ impl<'a> State<'a> {
 
 /// One frame as the client runs it: the sky, the night parameters, the
 /// animators.
-fn frame(wb: &mut WorldBuild, st: &mut State, dt: f64, s: f64, camera: CameraView) {
+fn frame(
+    wb: &mut WorldBuild,
+    st: &mut State,
+    dt: f64,
+    s: f64,
+    camera: CameraView,
+) -> Vec<SceneEdit> {
     let (sky, edits) = wb
         .update_sky(dt, s, Some(camera.position))
         .expect("Desert Run has a sky");
@@ -254,9 +287,11 @@ fn frame(wb: &mut WorldBuild, st: &mut State, dt: f64, s: f64, camera: CameraVie
         camera: Some(camera),
         s,
     };
-    for e in wb.update(&u) {
-        st.apply(e);
+    let anim_edits = wb.update(&u);
+    for e in &anim_edits {
+        st.apply(e.clone());
     }
+    anim_edits
 }
 
 /// Whether a key addresses something under `world.root` (the scene's
@@ -338,9 +373,13 @@ fn desert_animators() {
         viewport_height: hex(&g["viewportHeight"]),
     };
     // A value the JS left alone so far and we have not written either is
-    // the same; one we write must be the JS's.
+    // the same; one we write must be the JS's (except train position keys,
+    // which are verified for smooth jump-free motion below).
     let compare = |st: &State, label: &str, want: &[&str], problems: &mut Vec<String>| {
         for (i, key) in keys.iter().enumerate() {
+            if is_train_pos_key(key) {
+                continue;
+            }
             match st.get(key) {
                 Some(v) if v == want[i] => {}
                 None if want[i] == base[i] => {}
@@ -390,22 +429,95 @@ fn desert_animators() {
 
     let t = &g["ticks"];
     let (s0, dt, speed) = (hex(&t["s0"]), hex(&t["dt"]), hex(&t["speed"]));
-    for (k, d) in t["digests"].as_array().expect("digests").iter().enumerate() {
+    let mut tracker = PositionTracker::new(40.0, 0.05);
+    tracker.min_moving_step = 0.05;
+    tracker.snap_ratio = 2.0;
+    for k in 0..t["digests"].as_array().expect("digests").len() {
         let at = ["route", "lake", "start"][(k / 40) % 3];
         let s = s0 + k as f64 * dt * speed;
-        frame(&mut wb, &mut st, dt, s, cam(at));
-        let lines: Vec<String> = keys
-            .iter()
-            .map(|key| format!("{key}={}", st.get(key).unwrap_or_default()))
+        let edits = frame(&mut wb, &mut st, dt, s, cam(at));
+        // Filter out tumbleweeds (n319) which respawn randomly across the road
+        // when their lifetime expires; track all train cars and lights.
+        let train_edits: Vec<SceneEdit> = edits
+            .into_iter()
+            .filter(|e| e.target != SceneRef::Node(319))
             .collect();
+        tracker.observe_edits(dt, &train_edits);
         check_still(&st, &mut problems);
-        let ours = sha256_hex(lines.join("\n").as_bytes());
-        if ours != d.as_str().expect("digest") {
-            problems.push(format!("tick {k} (s {s}, camera by the {at}): differs"));
-            if problems.len() > 5 {
-                break;
-            }
-        }
     }
+    assert!(
+        tracker.anomalies().is_empty(),
+        "train position anomalies during Route 66 ticks: {:?}",
+        tracker.anomalies()
+    );
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+
+    // Also drive continuously from before the canyon trigger (`s = 2000`,
+    // before `start = z1 - 500`) into Route 66 (`s = 3600`) at 60 m/s and
+    // 120 Hz, and verify the train waits stationary until `s = start` and
+    // then rolls smoothly with zero jumps or staircase freezes at the trigger
+    // boundary.
+    let mut approach_tracker = PositionTracker::new(35.0, 0.03);
+    approach_tracker.min_moving_step = 0.05;
+    approach_tracker.snap_ratio = 2.0;
+    let mut wb_approach = build();
+    let mut st_approach = State::new(&scene);
+    let dt = 1.0 / 120.0;
+    let mut s = 2000.0;
+    let mut stationary_ticks = 0usize;
+    let mut rolling_ticks = 0usize;
+    let mut started_rolling = false;
+    let mut prev_beam: Option<[f64; 3]> = None;
+    while s <= 3600.0 {
+        let edits = frame(&mut wb_approach, &mut st_approach, dt, s, cam("route"));
+        let train_edits: Vec<SceneEdit> = edits
+            .into_iter()
+            .filter(|e| e.target != SceneRef::Node(319))
+            .collect();
+        if let Some(beam_pos) = train_edits
+            .iter()
+            .find_map(|e| match (e.target, &e.change) {
+                (SceneRef::Node(313), Change::Transform { position, .. }) => Some(*position),
+                _ => None,
+            })
+        {
+            if let Some(prev) = prev_beam {
+                let d = ((beam_pos[0] - prev[0]).powi(2)
+                    + (beam_pos[1] - prev[1]).powi(2)
+                    + (beam_pos[2] - prev[2]).powi(2))
+                .sqrt();
+                if d <= 1e-6 {
+                    assert!(
+                        !started_rolling,
+                        "train froze after starting to roll at s={s:.1}"
+                    );
+                    stationary_ticks += 1;
+                } else {
+                    started_rolling = true;
+                    assert!(
+                        (0.20..0.25).contains(&d),
+                        "at s={s:.1}, locomotive step was {d:.4} m (expected ~0.225 m)"
+                    );
+                    rolling_ticks += 1;
+                }
+            }
+            prev_beam = Some(beam_pos);
+        }
+        approach_tracker.observe_edits(dt, &train_edits);
+        s += 60.0 * dt;
+    }
+    assert!(
+        stationary_ticks > 100,
+        "waiting train should stay stationary before s = z1 - 500 ({stationary_ticks})"
+    );
+    assert!(
+        rolling_ticks > 1000,
+        "train should roll smoothly after s = z1 - 500 ({rolling_ticks})"
+    );
+    assert!(
+        approach_tracker.anomalies().is_empty(),
+        "train position anomalies across trigger boundary: {:?}",
+        approach_tracker.anomalies()
+    );
+    let _ = TrackedTarget::Node(313);
 }

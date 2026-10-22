@@ -21,6 +21,8 @@ pub struct Pose {
     /// `yaw + visualYaw`.
     pub yaw: f64,
     pub s: f64,
+    pub road: usize,
+    pub road_s: f64,
     pub vx: f64,
     pub vy: f64,
     pub vz: f64,
@@ -41,6 +43,8 @@ impl Pose {
             z: v.z,
             yaw: v.yaw + v.visual_yaw,
             s: v.s,
+            road: v.road,
+            road_s: v.road_s,
             vx: v.vx,
             vy: v.vy,
             vz: v.vz,
@@ -61,6 +65,14 @@ impl Pose {
         if t >= 1.0 {
             return *b;
         }
+        // If a car slot was recycled (despawned behind and respawned ahead in
+        // the same tick) or reset across the map (> 25 m in a 1/120 s tick),
+        // snap to the new pose instead of interpolating through the camera.
+        let dx = b.x - a.x;
+        let dz = b.z - a.z;
+        if dx * dx + dz * dz > 25.0 * 25.0 {
+            return *b;
+        }
         let l = |p: f64, q: f64| p + (q - p) * t;
         Pose {
             x: l(a.x, b.x),
@@ -71,6 +83,12 @@ impl Pose {
                 track.wrap(a.s + track.ds(a.s, b.s) * t)
             } else {
                 l(a.s, b.s)
+            },
+            road: b.road,
+            road_s: if a.road == b.road {
+                l(a.road_s, b.road_s)
+            } else {
+                b.road_s
             },
             vx: l(a.vx, b.vx),
             vy: l(a.vy, b.vy),
@@ -104,7 +122,8 @@ pub fn root(track: &Track, p: &Pose) -> (DVec3, DQuat) {
         let q = DQuat::from_array(o) * DQuat::from_rotation_y(core::f64::consts::FRAC_PI_2);
         return (DVec3::new(p.x, p.y, p.z), q.normalize());
     }
-    let f = track.frame(p.s);
+    let r = track.road(p.road.min(track.branches.len()));
+    let f = r.frame(if p.road == 0 { p.s } else { p.road_s });
     // Surface normal from the road frame (grade along, bank across).
     let t = norm(DVec3::new(f.fx, f.grade, f.fz));
     let a = norm(DVec3::new(f.rx, -f.bank, f.rz));
@@ -268,6 +287,8 @@ mod tests {
             z: f.z,
             yaw,
             s: t.start_s,
+            road: 0,
+            road_s: t.start_s,
             vx: 0.0,
             vy: 0.0,
             vz: 0.0,
@@ -296,5 +317,89 @@ mod tests {
         );
         s.touchdown(5.0);
         assert!(s.pitch_v < -0.09);
+    }
+
+    #[test]
+    fn recycled_traffic_and_reset_poses_do_not_interpolate_across_map() {
+        use mp_worldgen::anim::{PositionTracker, TrackedTarget};
+
+        let lr = LevelRuntime::new(mp_levels::level_by_id("desert")).unwrap();
+        let t = &*lr.track;
+        let fa = t.frame(1000.0);
+        let fb = t.frame(2050.0);
+        let a = Pose {
+            x: fa.x,
+            y: fa.y,
+            z: fa.z,
+            yaw: 0.0,
+            s: 1000.0,
+            road: 0,
+            road_s: 1000.0,
+            vx: 20.0,
+            vy: 0.0,
+            vz: 0.0,
+            on_ground: true,
+            speed: 20.0,
+            steer_angle: 0.0,
+            orient: None,
+        };
+        let b = Pose {
+            x: fb.x,
+            y: fb.y,
+            z: fb.z,
+            yaw: 0.0,
+            s: 2050.0,
+            road: 0,
+            road_s: 2050.0,
+            ..a
+        };
+        // Any intermediate sub-tick interpolation factor snaps directly to `b`
+        // rather than placing a phantom car halfway across the map.
+        for alpha in [0.1, 0.25, 0.5, 0.75, 0.9] {
+            let mid = Pose::lerp(t, &a, &b, alpha);
+            assert_eq!(mid, b);
+        }
+
+        // Track continuous sub-tick poses of an autopilot car for 600 frames
+        // and verify zero position anomalies.
+        let mut st = SimState::new(
+            &lr,
+            RaceOpts {
+                car: "sports",
+                seed: 7,
+                pursuit: false,
+                heat: 1.0,
+                physics: mp_sim::model::Physics::Arcade,
+            },
+        );
+        let mut ev = Vec::new();
+        let mut tracker = PositionTracker::new(95.0, 0.1);
+        for frame_idx in 0..600 {
+            let prev = Pose::of(&st.players[0].v);
+            let mut inp = Input::default();
+            autopilot(&mut inp, &st.players[0].v, t);
+            step(&lr, &mut st, &[InputFrame::quantise(&inp)], &mut ev);
+            let curr = Pose::of(&st.players[0].v);
+            let sub = Pose::lerp(t, &prev, &curr, 0.5);
+            tracker.observe_target(
+                TrackedTarget::Entity(0),
+                frame_idx * 2,
+                1.0 / 240.0,
+                [sub.x, sub.y, sub.z],
+                true,
+            );
+            tracker.observe_target(
+                TrackedTarget::Entity(0),
+                frame_idx * 2 + 1,
+                1.0 / 240.0,
+                [curr.x, curr.y, curr.z],
+                true,
+            );
+        }
+        assert!(
+            tracker.anomalies().is_empty(),
+            "unexpected vehicle pose anomalies: {:?}",
+            tracker.anomalies()
+        );
     }
 }

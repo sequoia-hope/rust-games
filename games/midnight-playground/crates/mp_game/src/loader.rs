@@ -127,7 +127,7 @@ pub struct Build {
 pub type ImageCache = Arc<Mutex<HashMap<u64, Handle<Image>>>>;
 
 /// A texture's identity: its pixels, size, channels and flip.
-fn texture_hash(scene: &Scene, t: &mp_scene::TextureDesc) -> u64 {
+pub fn texture_hash(scene: &Scene, t: &mp_scene::TextureDesc) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     if let Some(b) = scene.buffers.get(t.pixels as usize)

@@ -23,7 +23,6 @@ use mp_worldgen::flora::{
 use mp_worldgen::material::Material;
 use mp_worldgen::mountain::kit::{Item, instanced};
 use mp_worldgen::object::{GeoId, Image, MaterialId, NodeId};
-use mp_worldgen::section::Section;
 use mp_worldgen::terrain::Terrain;
 use mp_worldgen::textures::Texture;
 use mp_worldgen::three_geom::{BufferGeometry, box_geometry, cylinder_geometry, merge_geometries};
@@ -101,7 +100,16 @@ fn add(w: &mut World) {
     let (Some(sec), Some(track), Some(terrain)) = (&w.section, &w.track, &w.terrain) else {
         return;
     };
-    let Section { s0, s1, .. } = *sec;
+    let s0 = if track.is_loop {
+        sec.s0 - 100.0
+    } else {
+        (sec.s0 - 100.0).max(0.0)
+    };
+    let s1 = if track.is_loop {
+        sec.s1 + sec.scenery_radius
+    } else {
+        (sec.s1 + sec.scenery_radius).min(track.length)
+    };
     let seed = match id {
         "sierra" => 101,
         "coast" => 202,

@@ -328,6 +328,10 @@ pub struct Terrain {
     pub open_level: bool,
     /// `level.groundColor` (the colouriser's raceway landform).
     pub ground_color: Option<ColorFn>,
+    /// Optional `[x0, z0, x1, z1]` bounding box for a non-partitioned section:
+    /// restricts `build_fields` and `resolve_flattens` to the region the
+    /// section's tiles can sample while keeping full-level grid coordinates.
+    pub clip_bounds: Option<[f64; 4]>,
     far: FarField,
     near_tiles: Vec<NearTile>,
     /// "tx,tz" → index in `near_tiles` (only looked up, never iterated).
@@ -441,6 +445,7 @@ impl Terrain {
             cover: level.cover.clone(),
             open_level: level.open,
             ground_color: None,
+            clip_bounds: None,
             far: FarField::default(),
             near_tiles: Vec::new(),
             near_index: BTreeMap::new(),
@@ -635,6 +640,15 @@ impl Terrain {
         let mut flat = vec![0f32; fw * fh]; // signed lateral distance
         let mut fzone = vec![0u8; fw * fh];
         const R: f64 = 3000.0;
+        let (ci0, ci1, cj0, cj1) = match self.clip_bounds {
+            Some([bx0, bz0, bx1, bz1]) => (
+                js::max(0.0, ((bx0 - self.min_x) / FAR).floor() - 2.0) as i64,
+                js::min((fw - 1) as f64, ((bx1 - self.min_x) / FAR).ceil() + 2.0) as i64,
+                js::max(0.0, ((bz0 - self.min_z) / FAR).floor() - 2.0) as i64,
+                js::min((fh - 1) as f64, ((bz1 - self.min_z) / FAR).ceil() + 2.0) as i64,
+            ),
+            None => (0, (fw - 1) as i64, 0, (fh - 1) as i64),
+        };
         // The level's road sets every field; its branches (an open level's
         // network) only the distance and height of the nearest road, which
         // the land's shaping, the mesh's detail and scenery placement read.
@@ -645,10 +659,14 @@ impl Terrain {
             while i < t.n {
                 let x = f64::from(t.px[i]);
                 let z = f64::from(t.pz[i]);
-                let i0 = js::max(0.0, ((x - R - self.min_x) / FAR).floor()) as i64;
-                let i1 = js::min((fw - 1) as f64, ((x + R - self.min_x) / FAR).ceil()) as i64;
-                let j0 = js::max(0.0, ((z - R - self.min_z) / FAR).floor()) as i64;
-                let j1 = js::min((fh - 1) as f64, ((z + R - self.min_z) / FAR).ceil()) as i64;
+                let i0 = js::max(ci0 as f64, ((x - R - self.min_x) / FAR).floor()) as i64;
+                let i1 = js::min(ci1 as f64, ((x + R - self.min_x) / FAR).ceil()) as i64;
+                let j0 = js::max(cj0 as f64, ((z - R - self.min_z) / FAR).floor()) as i64;
+                let j1 = js::min(cj1 as f64, ((z + R - self.min_z) / FAR).ceil()) as i64;
+                if i0 > i1 || j0 > j1 {
+                    i += 12;
+                    continue;
+                }
                 let (rx, rz) = (f64::from(t.rx[i]), f64::from(t.rz[i]));
                 let py = t.py[i];
                 for j in j0..=j1 {
@@ -673,8 +691,11 @@ impl Terrain {
                 i += 12;
             }
         }
-        for v in fd.iter_mut() {
-            *v = f64::from(*v).sqrt() as f32;
+        for j in cj0..=cj1 {
+            for ii in ci0..=ci1 {
+                let k = j as usize * fw + ii as usize;
+                fd[k] = f64::from(fd[k]).sqrt() as f32;
+            }
         }
         self.far = FarField {
             fw,
@@ -702,6 +723,14 @@ impl Terrain {
         for road in t.roads() {
             let mut i = 0;
             while i < road.n {
+                if let Some([bx0, bz0, bx1, bz1]) = self.clip_bounds {
+                    let x = f64::from(road.px[i]);
+                    let z = f64::from(road.pz[i]);
+                    if x < bx0 - 512.0 || x > bx1 + 512.0 || z < bz0 - 512.0 || z > bz1 + 512.0 {
+                        i += 2;
+                        continue;
+                    }
+                }
                 self.near_sample(road, i, corridor);
                 i += 2;
             }
@@ -1328,6 +1357,14 @@ impl Terrain {
 
     /// Resolve flatten targets that were given without a height.
     pub fn resolve_flattens(&mut self) {
+        if let Some([bx0, bz0, bx1, bz1]) = self.clip_bounds {
+            self.flattens.retain(|f| {
+                let rad = f.r + f.falloff;
+                f.x + rad >= bx0 && f.x - rad <= bx1 && f.z + rad >= bz0 && f.z - rad <= bz1
+            });
+            self.carves
+                .retain(|c| c.max_x >= bx0 && c.min_x <= bx1 && c.max_z >= bz0 && c.min_z <= bz1);
+        }
         let resolved: Vec<Option<f64>> = self
             .flattens
             .iter()

@@ -96,6 +96,11 @@ impl Car {
         if t >= 1.0 {
             return *b;
         }
+        let dx = b.x - a.x;
+        let dz = b.z - a.z;
+        if dx * dx + dz * dz > 25.0 * 25.0 {
+            return *b;
+        }
         let l = |p: f64, q: f64| p + (q - p) * t;
         Car {
             x: l(a.x, b.x),

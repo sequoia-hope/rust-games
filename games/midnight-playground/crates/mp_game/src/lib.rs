@@ -203,7 +203,7 @@ fn no_light_clustering(mut settings: ResMut<GlobalClusterSettings>) {
 /// Builds the level's Track (Seaside once its survey is in) and its sky.
 /// Without a level (the models), the sky is Sierra's at the start.
 fn make_track(mut tr: ResMut<TrackRes>, mut sky: ResMut<SkyRes>, opts: Res<Opts>) {
-    if tr.track.is_some() || tr.none {
+    if tr.track.is_some() || tr.none || preview::active() {
         return;
     }
     let id = opts.o.level.as_str();
@@ -249,7 +249,7 @@ fn make_track(mut tr: ResMut<TrackRes>, mut sky: ResMut<SkyRes>, opts: Res<Opts>
             // The scenery's runout past the last sample (the world data the
             // simulation uses too), so the fly camera reaches the road's end
             // as the JS one does.
-            t.runout = mp_levels::world::world_data(level.id).runout;
+            t.runout = mp_levels::world::level_world_data(&level, &t).runout;
             info!("track {id}: {:.0} m", t.length);
             let mut s = SkyState::new(&level, t.is_loop, t.length).with_zones(&t);
             s.override_p = opts.o.t;

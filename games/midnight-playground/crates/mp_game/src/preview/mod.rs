@@ -168,7 +168,7 @@ enum Stage {
     Thread,
     /// The world build, a few jobs a frame (web).
     #[cfg(target_arch = "wasm32")]
-    Stepping(Box<Mutex<Build>>),
+    Stepping(Box<(Mutex<Build>, Track, Level)>),
     /// Built; its entities being spawned.
     Spawning(Box<Spawn>),
     Up(Box<Up>),
@@ -210,6 +210,8 @@ pub struct Previews {
     t0: Option<Instant>,
     pub first_ms: Option<f64>,
     pub all_ms: Option<f64>,
+    /// Shared procedural textures across menu sections, keyed by pixel hash.
+    image_cache: loader::ImageCache,
 }
 
 /// A section's world build, done: natively with its Track and level and
@@ -251,6 +253,7 @@ impl Previews {
             t0: None,
             first_ms: None,
             all_ms: None,
+            image_cache: Arc::default(),
         }
     }
 
@@ -362,7 +365,7 @@ fn level_ready(id: &str) -> Option<Result<Level, String>> {
 
 /// A section's world build: the level's own (`animate::section_build`) if
 /// world generation builds it, else terrain, road, sky and sea.
-fn new_build(level: &Level, section: Section) -> Build {
+fn new_build(level: &Level, track: Track, section: Section) -> Build {
     use mp_worldgen::stages::{LevelSetup, level_stages};
     use mp_worldgen::terrain_mesh::{TerrainSetup, seaside_ground_color};
     use mp_worldgen::world::{World, level_jobs};
@@ -372,10 +375,12 @@ fn new_build(level: &Level, section: Section) -> Build {
     let small_photo = cfg!(target_arch = "wasm32") && level.id == "seaside";
     if animate::generated(level.id) && !small_photo {
         let mut b = animate::section_build(level.id, section);
+        b.world.track = Some(track);
         b.push_job(hints::job());
         return b;
     }
     let mut world = World::new(level.clone());
+    world.track = Some(track);
     let mut terrain = TerrainSetup {
         plan: None,
         ..TerrainSetup::default()
@@ -427,20 +432,32 @@ fn new_build(level: &Level, section: Section) -> Build {
 /// for a level with a City or Harbor) and Seaside's photo converted in one
 /// step.
 #[cfg(not(target_arch = "wasm32"))]
-fn build_on_thread(level: Level, t: Option<f64>) -> Result<Built, String> {
+fn build_on_thread(
+    level: Level,
+    t: Option<f64>,
+    cache: loader::ImageCache,
+) -> Result<Built, String> {
     let mut track = Track::new(&level)?;
-    let mut b = new_build(&level, section_of(&track));
+    let sec = section_of(&track);
+    let mut b = new_build(&level, track.clone(), sec);
     while !b.is_done() {
         animate::section_step(&mut b, t)?;
     }
     // As `make_track` keeps it: the race may start on this Track.
-    track.runout = mp_levels::world::world_data(level.id).runout;
+    track.runout = mp_levels::world::level_world_data(&level, &track).runout;
     let world = Box::new(finish_build(b));
     let images = world
         .scene
         .textures
         .iter()
-        .map(|d| crate::convert::build_image(&world.scene, d))
+        .map(|d| {
+            let key = loader::texture_hash(&world.scene, d);
+            if cache.lock().ok().is_some_and(|m| m.contains_key(&key)) {
+                None
+            } else {
+                crate::convert::build_image(&world.scene, d)
+            }
+        })
         .collect();
     Ok(Built {
         world,
@@ -489,8 +506,12 @@ fn drive(
             }
             Some(Ok(level)) => {
                 #[cfg(target_arch = "wasm32")]
-                let b = match Track::new(&level) {
-                    Ok(track) => new_build(&level, section_of(&track)),
+                let (b, track) = match Track::new(&level) {
+                    Ok(mut track) => {
+                        track.runout = mp_levels::world::level_world_data(&level, &track).runout;
+                        let sec = section_of(&track);
+                        (new_build(&level, track.clone(), sec), track)
+                    }
                     Err(e) => {
                         warn!("section {id}: {e}");
                         pv.secs[k].stage = Stage::Failed;
@@ -503,9 +524,9 @@ fn drive(
                 pv.t0.get_or_insert_with(Instant::now);
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let (g, t) = (pv.generation, opts.o.t);
+                    let (g, t, cache) = (pv.generation, opts.o.t, pv.image_cache.clone());
                     std::thread::spawn(move || {
-                        let r = build_on_thread(level, t);
+                        let r = build_on_thread(level, t, cache);
                         THREAD_OUT
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -515,7 +536,7 @@ fn drive(
                 }
                 #[cfg(target_arch = "wasm32")]
                 {
-                    s.stage = Stage::Stepping(Box::new(Mutex::new(b)));
+                    s.stage = Stage::Stepping(Box::new((Mutex::new(b), track, level)));
                 }
                 if loading {
                     status.state = crate::status::LoadState::Building;
@@ -537,10 +558,10 @@ fn drive(
     }
     #[cfg(target_arch = "wasm32")]
     for (k, s) in pv.secs.iter_mut().enumerate() {
-        let Stage::Stepping(b) = &mut s.stage else {
+        let Stage::Stepping(step_box) = &mut s.stage else {
             continue;
         };
-        let b = b.get_mut().unwrap_or_else(|e| e.into_inner());
+        let b = step_box.0.get_mut().unwrap_or_else(|e| e.into_inner());
         let budget = if loading {
             BUDGET_LOADING_MS
         } else {
@@ -557,13 +578,14 @@ fn drive(
         match r {
             Err(e) => built.push((k, Err(e))),
             Ok(()) if b.is_done() => {
-                if let Stage::Stepping(b) = std::mem::replace(&mut s.stage, Stage::Queued) {
+                if let Stage::Stepping(step_box) = std::mem::replace(&mut s.stage, Stage::Queued) {
+                    let (b, track, level) = *step_box;
                     let b = b.into_inner().unwrap_or_else(|e| e.into_inner());
                     built.push((
                         k,
                         Ok(Built {
                             world: Box::new(finish_build(b)),
-                            made: None,
+                            made: Some((track, level)),
                             images: Vec::new(),
                         }),
                     ));
@@ -602,7 +624,7 @@ fn drive(
                         };
                         // As `make_track` keeps it: the race may start on
                         // this Track.
-                        track.runout = mp_levels::world::world_data(level.id).runout;
+                        track.runout = mp_levels::world::level_world_data(&level, &track).runout;
                         (track, level)
                     }
                 };
@@ -628,7 +650,8 @@ fn drive(
                 s.stage = Stage::Spawning(Box::new(Spawn {
                     build: loader::Build::new(scene, shared.clone())
                         .under(root)
-                        .with_images(images),
+                        .with_images(images)
+                        .with_image_cache(pv.image_cache.clone()),
                     world: *wb,
                     root,
                     track,
@@ -775,6 +798,9 @@ fn switch(world: &mut World) {
                 }
             }
             pv.t0 = None;
+            if let Ok(mut c) = pv.image_cache.lock() {
+                c.clear();
+            }
         }
         let warm: Vec<Entity> = world
             .query_filtered::<Entity, With<SectionWarm>>()

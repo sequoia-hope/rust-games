@@ -126,6 +126,17 @@ impl Section {
         d >= 0.0 && d < self.len()
     }
 
+    /// Whether `s` lies within `margin` metres of the stretch on `t`.
+    pub fn holds_within(&self, t: &Track, s: f64, margin: f64) -> bool {
+        let s0 = self.s0 - margin;
+        let len = self.len() + 2.0 * margin;
+        if t.is_loop && len >= t.length {
+            return true;
+        }
+        let d = if t.is_loop { t.wrap(s - s0) } else { s - s0 };
+        d >= 0.0 && d < len
+    }
+
     /// The place of (x, z) in the level's network: the nearest road within
     /// [`NEAR_ROAD`] and the metres along it.
     pub fn s_of(track: &Track, x: f64, z: f64) -> Option<(usize, f64)> {
@@ -156,9 +167,17 @@ impl Section {
 
     /// The parts of the range `[a, b]` of the road that lie on the
     /// stretch (none, one, or two round a loop's wrap), for the road's
-    /// chunks: a partitioned section builds exactly its own metres.
+    /// chunks: a partitioned section builds exactly its own metres; a
+    /// non-partitioned section clips to `scenery_radius` around its stretch.
     pub fn clip(&self, track: &Track, a: f64, b: f64) -> Vec<[f64; 2]> {
-        if !self.partition {
+        let margin = if self.partition {
+            0.0
+        } else {
+            self.scenery_radius
+        };
+        let base_s0 = self.s0 - margin;
+        let base_s1 = self.s1 + margin;
+        if track.is_loop && base_s1 - base_s0 >= track.length {
             return vec![[a, b]];
         }
         let mut out = Vec::new();
@@ -168,7 +187,7 @@ impl Section {
             &[0.0]
         };
         for off in candidates {
-            let (s0, s1) = (self.s0 + off, self.s1 + off);
+            let (s0, s1) = (base_s0 + off, base_s1 + off);
             let (lo, hi) = (a.max(s0), b.min(s1));
             if hi > lo {
                 out.push([lo, hi]);

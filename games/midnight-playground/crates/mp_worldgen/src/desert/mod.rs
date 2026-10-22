@@ -651,7 +651,10 @@ pub struct Rail {
 impl Rail {
     pub fn at(&self, u: f64) -> RailPt {
         let p = &self.pts;
-        let i = clamp((u / 5.0).floor(), 0.0, (p.len() - 2) as f64) as usize;
+        let i = p
+            .partition_point(|pt| pt.u <= u)
+            .saturating_sub(1)
+            .min(p.len() - 2);
         let f = clamp((u - p[i].u) / js::max(1e-3, p[i + 1].u - p[i].u), 0.0, 1.0);
         let (a, b) = (p[i], p[i + 1]);
         RailPt {

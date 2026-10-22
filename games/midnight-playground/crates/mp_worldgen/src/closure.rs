@@ -74,12 +74,16 @@ pub fn build(
     let group = graph.group("closed");
     let mut any = false;
     for (r, t) in ends {
-        // A streamed section builds only its own road's end.
-        if let Some(sec) = section
-            && sec.partition
-            && (sec.road != r || !sec.holds_on(t, t.length - BACK))
-        {
-            continue;
+        // A section builds only a road end that reaches its stretch.
+        if let Some(sec) = section {
+            let keep = if sec.partition {
+                sec.road == r && sec.holds_on(t, t.length - BACK)
+            } else {
+                sec.road == r && sec.holds_within(t, t.length - BACK, sec.scenery_radius)
+            };
+            if !keep {
+                continue;
+            }
         }
         let s = t.length - BACK;
         let f = t.frame(s);

@@ -392,7 +392,7 @@ impl RoadCtx<'_> {
     /// The parts of `[a, b]` this build makes.
     fn pieces(&self, a: f64, b: f64) -> Vec<[f64; 2]> {
         match &self.clip {
-            Some(sec) if sec.partition && sec.road != self.road => Vec::new(),
+            Some(sec) if sec.road != self.road => Vec::new(),
             Some(sec) => sec.clip(self.track, a, b),
             None => vec![[a, b]],
         }
@@ -429,10 +429,10 @@ impl RoadCtx<'_> {
     /// Whether the metre ending at `s` is this build's.
     fn wants(&self, s: f64) -> bool {
         match &self.clip {
-            Some(sec) if sec.partition => {
-                sec.road == self.road && sec.holds_on(self.track, s - 0.5)
-            }
-            _ => true,
+            Some(sec) if sec.road != self.road => false,
+            Some(sec) if sec.partition => sec.holds_on(self.track, s - 0.5),
+            Some(sec) => sec.holds_within(self.track, s - 0.5, sec.scenery_radius),
+            None => true,
         }
     }
 }
@@ -1175,11 +1175,14 @@ impl Road {
         extra: f64,
     ) {
         let t = c.track;
+        let filter_non_partition = c.clip.as_ref().is_some_and(|sec| !sec.partition);
         let mut list = Vec::new();
         for &[s0, s1] in ranges {
             let mut s = s0;
             while s <= s1 {
-                list.push(s);
+                if !filter_non_partition || c.wants(s) {
+                    list.push(s);
+                }
                 s += spacing;
             }
         }
@@ -1317,11 +1320,14 @@ impl Road {
             );
             self.add_mesh(c, g, concrete, false, false);
         }
+        let filter_non_partition = c.clip.as_ref().is_some_and(|sec| !sec.partition);
         let mut piers = Vec::new();
         for &[s0, s1] in &ranges {
             let mut s = s0 + 15.0;
             while s < s1 - 5.0 {
-                if !spans.iter().any(|g| s > g[0] - 10.0 && s < g[1] + 10.0) {
+                if (!filter_non_partition || c.wants(s))
+                    && !spans.iter().any(|g| s > g[0] - 10.0 && s < g[1] + 10.0)
+                {
                     piers.push(s);
                 }
                 s += 32.0;

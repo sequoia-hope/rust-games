@@ -250,3 +250,75 @@ fn seabright_walkers_walk() {
         "a second's walk is a metre or so ({d})"
     );
 }
+
+#[test]
+fn seabright_walkers_do_not_jump_when_camera_returns() {
+    use mp_worldgen::anim::{PositionTracker, TrackedTarget};
+
+    let mut w = coast().lock().unwrap();
+    let nodes = group(&w, "life:people");
+    let torso = nodes[2];
+    let t = w.track.as_ref().unwrap().clone();
+    let z = w
+        .level
+        .zones
+        .iter()
+        .position(|z| z.scenery == "Beach")
+        .unwrap();
+    let mid = t.zone_start[z] as f64 + 900.0;
+    let dt = 1.0 / 60.0;
+
+    let mut tracker = PositionTracker::new(4.0, 0.08);
+    let mut observe = |frame_idx: usize, edits: &[Edit]| {
+        for e in edits {
+            if let (Handle::Node(n), Change::InstanceMatrix { index, matrix }) =
+                (e.target, &e.change)
+                && n == torso
+            {
+                let pos = [
+                    f64::from(matrix[12]),
+                    f64::from(matrix[13]),
+                    f64::from(matrix[14]),
+                ];
+                tracker.observe_target(
+                    TrackedTarget::Instance {
+                        node: n.0,
+                        index: *index,
+                    },
+                    frame_idx,
+                    dt,
+                    pos,
+                    true,
+                );
+            }
+        }
+    };
+
+    // Observe walkers near the camera, then move the camera 2 km away for 10 s
+    // and smoothly bring it back into range: walkers must not teleport from a
+    // stale pre-cull position.
+    let mut step_idx = 0usize;
+    for _ in 0..30 {
+        let u = ctx(&w, mid, dt, 0.0);
+        let edits = frame(&mut w, &u);
+        observe(step_idx, &edits);
+        step_idx += 1;
+    }
+    for k in 0..600 {
+        // Camera is far away for most of the 10 s, then approaches `mid`.
+        let s = if k < 480 {
+            mid - 1500.0
+        } else {
+            mid - 400.0 + f64::from(k - 480) * (400.0 / 120.0)
+        };
+        let u = ctx(&w, s, dt, 0.0);
+        let edits = frame(&mut w, &u);
+        observe(step_idx, &edits);
+        step_idx += 1;
+    }
+    assert!(
+        tracker.anomalies().is_empty(),
+        "walker position anomalies when camera leaves and re-enters range: {:?}",
+        tracker.anomalies()
+    );
+}
