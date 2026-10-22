@@ -161,7 +161,8 @@ const FREE_FRAMES: u32 = 4;
 
 /// A Race tap in progress (`startRace`): waiting for the level to load,
 /// then for the field's pipelines (at most three seconds, as the JS's
-/// `compileAsync` race).
+/// `compileAsync` race), and online for every other player to finish
+/// loading before the race begins.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Starting {
     /// The menu's views are being freed; the level is asked for once they
@@ -173,6 +174,10 @@ enum Starting {
         quiet: u32,
         t: f64,
     },
+    /// Multiplayer: this player has built the level and compiled the cars'
+    /// pipelines; waiting for the host's `Msg::Begin` once everyone else is
+    /// ready too.
+    Players,
 }
 
 /// One line of the results table.
@@ -511,6 +516,7 @@ fn flow(
     mut cs: ResMut<CameraState>,
     mut previews: ResMut<crate::preview::Previews>,
     netv: Res<crate::net::NetView>,
+    mut netc: ResMut<crate::net::NetCmds>,
     mut cut_short: Local<f32>,
 ) {
     let ui = &mut *ui;
@@ -526,8 +532,10 @@ fn flow(
         *cut_short += time.delta_secs();
         if *cut_short > 1.5 {
             *cut_short = 0.0;
+            play.hold = false;
             play.stop = true;
             play.armed = false;
+            ui.starting = None;
             to_attract(&mut cs, &tr);
             ui.screen = Screen::Lobby;
             ui.dirty = true;
@@ -570,7 +578,8 @@ fn flow(
         ui.preview = false;
     }
     // Race: the views freed, then the level, then the field and its
-    // pipelines (D751).
+    // pipelines (D751); online, everyone's load finishes before the race
+    // begins.
     match ui.starting {
         Some(Starting::Free(n)) => {
             if n >= FREE_FRAMES {
@@ -593,6 +602,7 @@ fn flow(
                     quiet: 0,
                     t: time.elapsed_secs_f64(),
                 });
+                ui.dirty = true;
             }
         }
         Some(Starting::Build { frames, quiet, t }) if play.race.is_some() => {
@@ -603,15 +613,44 @@ fn flow(
             };
             let waited = time.elapsed_secs_f64() - t;
             if (frames >= 3 && quiet >= 3) || waited > 3.0 {
-                play.hold = false;
-                ui.starting = None;
-                ui.races += 1;
+                if play.race.as_ref().is_some_and(|r| r.online_now()) {
+                    netc.0.push(crate::net::NetCmd::Loaded);
+                    if netv.begun {
+                        play.hold = false;
+                        ui.starting = None;
+                        ui.races += 1;
+                    } else {
+                        ui.starting = Some(Starting::Players);
+                        ui.dirty = true;
+                    }
+                } else {
+                    play.hold = false;
+                    ui.starting = None;
+                    ui.races += 1;
+                }
             } else {
                 ui.starting = Some(Starting::Build {
                     frames: frames + 1,
                     quiet,
                     t,
                 });
+            }
+        }
+        Some(Starting::Players) => {
+            if netv.begun {
+                play.hold = false;
+                ui.starting = None;
+                ui.races += 1;
+            } else if !netv.active
+                || !netv.connected
+                || (netv.ended && netv.pending_level.is_none())
+            {
+                play.hold = false;
+                play.stop = true;
+                play.armed = false;
+                ui.starting = None;
+                to_attract(&mut cs, &tr);
+                ui.dirty = true;
             }
         }
         _ => {}
@@ -1587,7 +1626,9 @@ fn multiplayer(ui: &mut UiState, ctx: &mut ActCtx, m: lobby::MpAct, busy: bool) 
         MpAct::Leave => {
             ui.clicks.push("click");
             ctx.netc.0.push(NetCmd::Leave);
-            if ctx.play.race.as_ref().is_some_and(|r| r.online_now()) {
+            if ctx.play.race.as_ref().is_some_and(|r| r.online_now()) || ui.starting.is_some() {
+                ui.starting = None;
+                ctx.play.hold = false;
                 ctx.play.stop = true;
                 ctx.play.armed = false;
                 to_attract(&mut ctx.cs, &ctx.tr);
@@ -2669,5 +2710,78 @@ pub(crate) mod tests {
             t: 0.0,
         });
         assert_eq!(mode_name(&ui, &play, &status), "menu");
+        ui.starting = Some(Starting::Players);
+        assert_eq!(mode_name(&ui, &play, &status), "menu");
+    }
+
+    /// Online, a fast player who finishes `Starting::Build` sends
+    /// `NetCmd::Loaded` and waits in `Starting::Players` (`play.hold` true,
+    /// `Screen::Lobby` up) until every player has loaded and `netv.begun`
+    /// arrives from the host.
+    #[test]
+    fn multiplayer_waits_until_all_players_load_before_starting() {
+        let mut net = lobby_of_two(0);
+        net.pending_level = Some("coast".into());
+        let mut w = world(
+            Screen::Lobby,
+            net,
+            Options {
+                level: "coast".into(),
+                ..Options::default()
+            },
+        );
+        w.init_resource::<Time>();
+        w.insert_resource(crate::preview::tests::previews_with_full("coast"));
+        w.resource_mut::<Status>().ready = true;
+        let step = |w: &mut World| {
+            w.run_system_once(flow).unwrap();
+        };
+
+        // 1. Host starts the race on "coast" (already loaded): `Starting::Level`
+        //    arms the race and enters `Starting::Build`, with `play.hold` true.
+        step(&mut w);
+        assert!(matches!(
+            w.resource::<UiState>().starting,
+            Some(Starting::Build { frames: 0, .. })
+        ));
+        assert!(w.resource::<Play>().hold);
+        assert!(w.resource::<NetCmds>().0.is_empty(), "not Loaded yet");
+
+        // 2. `play::start` builds the online race, consuming `pending_level`,
+        //    and the car pipelines compile over 3 quiet frames.
+        w.resource_mut::<NetView>().pending_level = None;
+        w.resource_mut::<Play>().race = Some(crate::play::flow::tests::second_of_two());
+        for _ in 0..3 {
+            step(&mut w);
+            assert!(w.resource::<Play>().hold);
+            assert!(w.resource::<NetCmds>().0.is_empty());
+        }
+
+        // 3. Pipelines are compiled: `NetCmd::Loaded` goes out, but because
+        //    the other player hasn't loaded yet (`!netv.begun`), the race
+        //    stays held in `Starting::Players` on `Screen::Lobby`.
+        step(&mut w);
+        assert_eq!(
+            std::mem::take(&mut w.resource_mut::<NetCmds>().0),
+            [NetCmd::Loaded]
+        );
+        assert_eq!(w.resource::<UiState>().starting, Some(Starting::Players));
+        assert!(w.resource::<Play>().hold, "still waiting for Bob");
+        assert_eq!(w.resource::<UiState>().screen, Screen::Lobby);
+        assert_eq!(w.resource::<UiState>().races, 0);
+
+        // Further frames while Bob is still loading keep waiting.
+        step(&mut w);
+        assert_eq!(w.resource::<UiState>().starting, Some(Starting::Players));
+        assert!(w.resource::<Play>().hold);
+
+        // 4. Bob finishes loading and the host sends `Msg::Begin` (`netv.begun`):
+        //    the hold releases and the race begins.
+        w.resource_mut::<NetView>().begun = true;
+        step(&mut w);
+        assert_eq!(w.resource::<UiState>().starting, None);
+        assert!(!w.resource::<Play>().hold);
+        assert_eq!(w.resource::<UiState>().screen, Screen::None);
+        assert_eq!(w.resource::<UiState>().races, 1);
     }
 }

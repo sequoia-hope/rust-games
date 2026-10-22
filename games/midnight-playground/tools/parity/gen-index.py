@@ -70,7 +70,8 @@ B2 = r'''<!-- ===== BRANDING (2 of 3): the screens' words. ===== -->
 </div>
 <div id="crashed" class="screen" hidden>
   <div class="logo">WRECKED</div>
-  <p>The game hit an error and stopped. Reloading starts it again.</p>
+  <p id="crash-note">The game hit an error and stopped. Reloading starts it again.</p>
+  <button id="fallback-webgl2" hidden>FALL BACK TO WEBGL2</button>
   <button id="reload">RELOAD</button>
   <code id="crash-msg"></code>
 </div>
@@ -107,6 +108,22 @@ HOOKS = r'''// ===== GAME HOOKS: Midnight Playground's additions to the loader. 
   }
   let level = '';
   let loadScene = null;
+  let onWgpuCrash = null;
+  if (typeof GPUAdapter !== 'undefined' && GPUAdapter.prototype.requestDevice) {
+    const origRequestDevice = GPUAdapter.prototype.requestDevice;
+    GPUAdapter.prototype.requestDevice = function (...args) {
+      return origRequestDevice.apply(this, args).then((device) => {
+        if (device && device.lost) {
+          device.lost.then((info) => {
+            if ((!info || info.reason !== 'destroyed') && onWgpuCrash) {
+              onWgpuCrash(`The WebGPU device was lost (${info && (info.message || info.reason) || 'lost'}).`);
+            }
+          });
+        }
+        return device;
+      });
+    };
+  }
   const hooks = {
     // The way to the tools and the JavaScript game: beside dist/next/ (the
     // registered server) those are two levels up; on Pages, where this
@@ -116,6 +133,63 @@ HOOKS = r'''// ===== GAME HOOKS: Midnight Playground's additions to the loader. 
     },
     glue(glue, G, params, page) {
       const { $, show, nextFrame, download } = page;
+      // If a multiplayer session crashes on WebGPU (a wasm trap in wgpu or a
+      // lost GPUDevice), ask whether to fall back to WebGL2 and preserve the
+      // session's join link or server address.
+      const webgl2Available = (page.build.backends || ['webgpu', 'webgl2']).includes('webgl2') && hasWebGL2();
+      const inMultiplayer = () => Boolean(
+        (G.net && G.net.active) || G.screen === 'lobby' || params.has('join') || /(?:^|[#&])join=/.test(location.hash)
+      );
+      const webgl2Url = () => {
+        const extra = { backend: 'webgl2', fallback: 'webgpu-crashed' };
+        const join = G.net && G.net.join;
+        let hash = location.hash;
+        if (join && !hash && !params.has('join')) {
+          const i = join.indexOf('#');
+          if (i >= 0) hash = join.slice(i);
+          else if (/^wss?:\/\//.test(join)) extra.join = join;
+          else hash = `#join=${join}`;
+        }
+        const q = new URLSearchParams(location.search);
+        for (const [k, v] of Object.entries(extra)) q.set(k, v);
+        return location.pathname + '?' + q.toString() + hash;
+      };
+      const fallbackBtn = $('fallback-webgl2');
+      if (fallbackBtn) fallbackBtn.addEventListener('click', () => location.replace(webgl2Url()));
+      let askedWebGL2 = false;
+      const handleCrash = (why) => {
+        if (G.state !== 'crashed') {
+          if (!G.frames) return;
+          G.state = 'crashed'; G.error = why;
+          console.error('crashed:', why);
+          $('crash-msg').textContent = why;
+          $('crashed').hidden = false;
+        }
+        $('loading').hidden = true;
+        if (G.backend === 'webgpu' && webgl2Available && inMultiplayer() && !askedWebGL2) {
+          askedWebGL2 = true;
+          const note = $('crash-note');
+          if (note) note.textContent = 'The multiplayer session crashed on WebGPU. Fall back to WebGL2 to rejoin with WebGL2, or reload.';
+          if (fallbackBtn) fallbackBtn.hidden = false;
+          if (typeof window.confirm === 'function'
+              && window.confirm('Multiplayer crashed on WebGPU. Is it okay to fall back to WebGL2?')) {
+            location.replace(webgl2Url());
+          }
+        }
+      };
+      onWgpuCrash = handleCrash;
+      window.addEventListener('error', (e) => {
+        const err = e.error || e.message;
+        if (G.state === 'crashed' || err instanceof WebAssembly.RuntimeError || /unreachable|RuntimeError|panicked/.test(String(err))) {
+          handleCrash(String(err && err.stack || err || G.error || 'crashed'));
+        }
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        const r = e.reason;
+        if (G.state === 'crashed' || r instanceof WebAssembly.RuntimeError || /unreachable|RuntimeError|panicked/.test(String(r))) {
+          handleCrash(String(r && r.stack || r || G.error || 'crashed'));
+        }
+      });
       // ?perf=1: the measurement (perf.js) flies the fly camera; give it
       // the JS baseline's parameters unless the address has its own.
       if (params.has('perf') && !params.has('s')) {
@@ -208,11 +282,12 @@ HOOKS = r'''// ===== GAME HOOKS: Midnight Playground's additions to the loader. 
         $('loading').hidden = false; $('msg').className = '';
         show(0.3, `Unloading ${level}…`);
         glue.unload_scene(lv);
-        while (G.state !== 'waiting' && G.state !== 'failed') await nextFrame();
+        while (G.state !== 'waiting' && G.state !== 'failed' && G.state !== 'crashed') await nextFrame();
+        if (G.state === 'crashed') throw new Error(G.error || 'crashed');
         page.poll();
         await loadScene(lv, false);
-        while (G.state !== 'running' && G.state !== 'failed') await nextFrame();
-        if (G.state === 'failed') throw new Error(G.error || 'failed');
+        while (G.state !== 'running' && G.state !== 'failed' && G.state !== 'crashed') await nextFrame();
+        if (G.state === 'failed' || G.state === 'crashed') throw new Error(G.error || G.state);
         return { level: lv, ms: Math.round(performance.now() - t0), downloadMs: G.downloadMs, parseMs: G.parseMs };
       };
     },

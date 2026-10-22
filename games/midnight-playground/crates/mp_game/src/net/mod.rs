@@ -57,6 +57,9 @@ pub struct NetView {
     pub lobby: LobbyView,
     /// The host started a race: its level, until the client has built it.
     pub pending_level: Option<String>,
+    /// Every player has loaded (or the wait is over) and the host has told
+    /// the race to begin (`Msg::Begin`).
+    pub begun: bool,
     /// The race in hand is over on the host (back to the lobby next).
     pub ended: bool,
     /// The names, cars and colours of the race's humans, in race order
@@ -64,6 +67,9 @@ pub struct NetView {
     pub humans: Vec<PlayerInfo>,
     /// This tab hosts, and this is the invitation to hand out.
     pub invite: Option<String>,
+    /// The address or invitation this player joined with (for rejoining if
+    /// the page falls back from WebGPU to WebGL2).
+    pub join: Option<String>,
 }
 
 impl NetView {
@@ -102,6 +108,8 @@ pub enum NetCmd {
     Ready(bool),
     Configure(Settings),
     Go(bool),
+    /// This player's level and car pipelines are built and ready to race.
+    Loaded,
 }
 
 #[derive(Resource, Default)]
@@ -239,6 +247,7 @@ pub fn frame(
                     *view = NetView {
                         active: true,
                         status: "Reaching the signalling server…".into(),
+                        join: Some(code.to_string()),
                         ..NetView::default()
                     };
                     continue;
@@ -255,6 +264,7 @@ pub fn frame(
                         *view = NetView {
                             active: true,
                             status: format!("Connecting to {url}…"),
+                            join: Some(url.clone()),
                             ..NetView::default()
                         };
                         let _ = &url;
@@ -329,6 +339,11 @@ pub fn frame(
                     c.go(g);
                 }
             }
+            NetCmd::Loaded => {
+                if let Some(c) = net.client.as_mut() {
+                    c.loaded();
+                }
+            }
         }
     }
     // The tab's host steps on the page's clock every frame, races included
@@ -346,11 +361,10 @@ pub fn frame(
         view_res.set_if_neq(v);
         return;
     };
-    // Between races the lobby needs pings and messages; in a race the
-    // race's frame drives the client.
-    if c.race.is_none() {
-        c.update(now, |_, _| mp_sim::input::InputFrame::default());
-    }
+    // Poll the transport and keep pings going every frame (even while the
+    // race is held waiting for everyone to load); once the race runs its
+    // own frame steps the simulation.
+    c.poll(now);
     for e in c.events.drain(..) {
         match e {
             ClientEvent::Welcome(_) => view.status = String::new(),
@@ -379,6 +393,7 @@ pub fn frame(
     view.lobby = c.lobby.clone();
     stats.0 = c.stats;
     view.pending_level = c.pending.as_ref().map(|p| p.settings.level.clone());
+    view.begun = c.has_begun();
     if let Some(p) = &c.pending {
         view.humans = p.humans.clone();
     } else if let Some(r) = &c.race {
@@ -827,6 +842,7 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(v.pending_level.as_deref(), Some("coast"));
+        assert!(!v.begun, "not until both players have loaded");
         assert_eq!(v.lobby.settings.as_ref().map(|s| s.ai), Some(AiFill::None));
         assert!(!v.ended);
         let names: Vec<&str> = v.humans.iter().map(|h| h.name.as_str()).collect();
@@ -835,6 +851,24 @@ pub(crate) mod tests {
             names.contains(&"Ann") && names.contains(&"Bob"),
             "{names:?}"
         );
+
+        // Ann builds the race and sends Loaded, but Bob hasn't loaded yet:
+        // the host still waits (`v.begun` is false).
+        assert!(client_of(&mut w).build_race(lan.lr.clone()));
+        v = step(&mut lan, &mut w, vec![NetCmd::Loaded]);
+        for _ in 0..10 {
+            v = step(&mut lan, &mut w, vec![]);
+        }
+        assert_eq!(v.pending_level, None);
+        assert!(!v.begun, "Bob is still loading");
+
+        // Once Bob finishes loading too, the host sends Begin and `v.begun`
+        // flips to true even while Ann's race hasn't stepped a frame yet.
+        assert!(lan.clients[0].attach(lan.lr.clone()));
+        for _ in 0..10 {
+            v = step(&mut lan, &mut w, vec![]);
+        }
+        assert!(v.begun);
     }
 
     /// What the client hears becomes the lobby's status line, and the race

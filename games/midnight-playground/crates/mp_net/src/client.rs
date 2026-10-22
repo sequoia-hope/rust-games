@@ -301,10 +301,11 @@ impl<T: Transport> Client<T> {
         }
     }
 
-    /// Builds the race the host started, once the app has its level, and
-    /// tells the host this player is ready to go. Returns false if there is
-    /// no such race or the level differs.
-    pub fn attach(&mut self, lr: Arc<LevelRuntime>) -> bool {
+    /// Builds the race the host started, once the app has its level,
+    /// without telling the host this player is ready yet (the client does
+    /// [`Client::loaded`] once the cars' pipelines have compiled too).
+    /// Returns false if there is no such race or the level differs.
+    pub fn build_race(&mut self, lr: Arc<LevelRuntime>) -> bool {
         let Some(start) = self.pending.take() else {
             return false;
         };
@@ -313,14 +314,34 @@ impl<T: Transport> Client<T> {
             return false;
         }
         self.begin(start, lr);
-        self.send(Channel::Reliable, &Msg::Loaded);
         true
     }
 
-    /// Handles the network, keeps the clock, and in a race steps forward to
-    /// where this client should be, asking `input` for this player's
-    /// controls once per new tick (with the state it will be applied to).
-    pub fn update(&mut self, now: f64, mut input: impl FnMut(&SimState, usize) -> InputFrame) {
+    /// Tells the host this player has finished loading the race.
+    pub fn loaded(&mut self) {
+        self.send(Channel::Reliable, &Msg::Loaded);
+    }
+
+    /// Whether the host has told the race to begin (`Msg::Begin` arrived).
+    pub fn has_begun(&self) -> bool {
+        self.begin_at.is_some()
+    }
+
+    /// Builds the race the host started, once the app has its level, and
+    /// tells the host this player is ready to go. Returns false if there is
+    /// no such race or the level differs.
+    pub fn attach(&mut self, lr: Arc<LevelRuntime>) -> bool {
+        if self.build_race(lr) {
+            self.loaded();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Polls the transport, handles incoming messages and keeps the clock
+    /// alive, without stepping the simulation.
+    pub fn poll(&mut self, now: f64) {
         let mut inbox = std::mem::take(&mut self.inbox);
         self.net.poll(&mut inbox);
         for ev in inbox.drain(..) {
@@ -331,6 +352,8 @@ impl<T: Transport> Client<T> {
                 NetEvent::Disconnected(_) => {
                     self.connected = false;
                     self.race = None;
+                    self.pending = None;
+                    self.begin_at = None;
                     self.events.push(ClientEvent::Disconnected);
                 }
                 NetEvent::Message(_, bytes) => {
@@ -372,6 +395,16 @@ impl<T: Transport> Client<T> {
                 t: now,
             };
             self.send(Channel::Reliable, &m);
+        }
+    }
+
+    /// Handles the network, keeps the clock, and in a race steps forward to
+    /// where this client should be, asking `input` for this player's
+    /// controls once per new tick (with the state it will be applied to).
+    pub fn update(&mut self, now: f64, mut input: impl FnMut(&SimState, usize) -> InputFrame) {
+        self.poll(now);
+        if !self.connected {
+            return;
         }
         self.reconcile();
         self.advance(now, &mut input);

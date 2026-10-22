@@ -89,13 +89,15 @@ pub fn races_label(n: u8) -> String {
 }
 
 /// `#lobby`.
-pub fn lobby(p: &mut ChildSpawnerCommands, cx: &mut Cx, _ui: &UiState, net: &NetView) -> Entity {
+pub fn lobby(p: &mut ChildSpawnerCommands, cx: &mut Cx, ui: &UiState, net: &NetView) -> Entity {
     let bp = cx.bp;
     screen(p, cx, Kind::Other, |p, cx| {
         title(p, &bp, "lobby-title", "Multiplayer");
         let dim = T::new(16.0).ls(0.05).c(w::dim());
         let status = if !net.connected && net.status.is_empty() {
             "Connecting…".to_string()
+        } else if net.status.is_empty() && ui.starting.is_some() {
+            "Waiting for all players to load…".to_string()
         } else {
             net.status.clone()
         };
@@ -145,7 +147,7 @@ pub fn lobby(p: &mut ChildSpawnerCommands, cx: &mut Cx, _ui: &UiState, net: &Net
                 bp.k,
             ));
         }
-        if net.lobby.racing && net.pending_level.is_none() {
+        if net.lobby.racing && net.pending_level.is_none() && ui.starting.is_none() {
             p.spawn(w::text(
                 "A race is on: you'll join the next one.",
                 dim,
@@ -664,6 +666,36 @@ mod tests {
             !build(&v, None).texts.iter().any(|t| t == race_on),
             "not when that race is this player's"
         );
+        v.pending_level = None;
+        let mut ui = ui_state(Screen::Lobby);
+        ui.starting = Some(super::super::Starting::Players);
+        let mut w = World::new();
+        let icons = Icons {
+            check: Handle::default(),
+            star: Handle::default(),
+            next: Handle::default(),
+            note: Handle::default(),
+            chevron: Handle::default(),
+        };
+        let mut cx = Cx {
+            bp: Bp::new(1280.0, 800.0, 1.0, false, 0.0),
+            icons: &icons,
+            focus: None,
+            order: Vec::new(),
+        };
+        w.commands().spawn(Node::default()).with_children(|p| {
+            lobby(p, &mut cx, &ui, &v);
+        });
+        w.flush();
+        let status = w
+            .query::<&Control>()
+            .iter(&w)
+            .find(|c| c.id == "lobby-status")
+            .and_then(|c| match &c.value {
+                Value::Text(t) => Some(t.clone()),
+                _ => None,
+            });
+        assert_eq!(status.as_deref(), Some("Waiting for all players to load…"));
     }
 
     /// The session's points, in order, this player's row in bold, with

@@ -1300,4 +1300,11 @@ pub(crate) mod tests {
     pub(crate) fn previews(level: &str) -> super::Previews {
         super::Previews::new(level)
     }
+
+    /// `level` already drawn whole.
+    pub(crate) fn previews_with_full(level: &str) -> super::Previews {
+        let mut p = super::Previews::new(level);
+        p.full = Some(level.to_owned());
+        p
+    }
 }

@@ -408,11 +408,17 @@ fn start(
         touch: play.touch_ui,
     };
     // Multiplayer: the host started this race; the network client builds it
-    // now that the level is here (and tells the host this player is ready).
+    // now that the level is here (`ui::flow` tells the host this player is
+    // ready once the cars' pipelines have compiled).
     let built = match net.client.as_mut() {
         Some(c) if c.pending.is_some() => {
             let lr = std::sync::Arc::new(lr);
-            if !c.attach(lr.clone()) {
+            let ok = if play.hold {
+                c.build_race(lr.clone())
+            } else {
+                c.attach(lr.clone())
+            };
+            if !ok {
                 return;
             }
             let r = c.race.as_ref().expect("attached");
