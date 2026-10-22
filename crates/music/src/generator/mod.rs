@@ -18,7 +18,6 @@ pub mod profile;
 pub mod surprise;
 pub mod theory;
 
-use crate::patches::bpatch;
 use crate::score::{
     Automation, Clip, Curve, Fx, Gated, Layer, Mark, Pattern, Role, Section, Song, Sound,
 };
@@ -175,6 +174,9 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     song.title = format!("{} {}", p.name, seed);
     song.style = format!("{} · {} · {}", p.name, key_name, prog_name(0));
     song.pump_release = (60.0 / bpm / 2.0 - 0.03).max(0.1);
+    song.tape = p.tape;
+    song.glue = p.glue;
+    song.reverb = p.reverb;
     // Block starts.
     let mut starts = Vec::new();
     let mut at = 0;
@@ -297,19 +299,9 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                     _ => p.lead_sounds,
                 };
                 let name = *dice.fork(&format!("sound {rk}")).pick(sounds);
-                let Some(mut lab) = bpatch(name) else {
+                let Some(lab) = profile::sound_patch(p.key, name) else {
                     continue;
                 };
-                // The Juno chorus at its measured depth: ±0.5 ms (I),
-                // ±1.1 ms (II), through 15 kHz (sound-design.md §6).
-                match lab.chorus {
-                    Some(1.0) => lab.chorus_ms = Some(0.5),
-                    Some(2.0) => lab.chorus_ms = Some(1.1),
-                    _ => {}
-                }
-                if lab.chorus.is_some_and(|c| c > 0.0) {
-                    lab.chorus_lp = Some(15000.0);
-                }
                 Layer::new(
                     match *rk {
                         "B" => "bass",
@@ -344,17 +336,17 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
             },
             "A" => Ch {
                 level: Some(0.45),
-                rev: Some(0.2),
-                dly: Some(0.25),
-                pan: Some(0.15),
+                rev: Some(0.25),
+                dly: Some(0.28),
+                pan: Some(0.12),
                 hp: Some(150.0),
                 ..Ch::default()
             },
             "L" => Ch {
                 level: Some(0.5),
-                rev: Some(0.25),
-                dly: Some(0.2),
-                hp: Some(200.0),
+                rev: Some(0.32),
+                dly: Some(0.25),
+                hp: Some(180.0),
                 ..Ch::default()
             },
             _ => Ch::default(),
@@ -656,7 +648,11 @@ mod tests {
                 .chain(p.arp_sounds)
                 .chain(p.lead_sounds)
             {
-                assert!(bpatch(n).is_some(), "{} sound {n}", p.key);
+                assert!(
+                    profile::sound_patch(p.key, n).is_some(),
+                    "{} sound {n}",
+                    p.key
+                );
             }
         }
     }

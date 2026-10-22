@@ -236,6 +236,12 @@ impl SongPlayer {
         self.fx_at.sort_by_key(|(t, _)| *t);
         self.delay.time = (song.delay_beats * 60.0 / song.bpm).min(2.0);
         self.delay.fb = song.delay_fb;
+        self.set_mix(Mix {
+            tape: song.tape,
+            glue: song.glue,
+            reverb: song.reverb,
+            ..self.mix
+        });
         self.song = Some(song);
         self.playing = false;
         self.seek(0);

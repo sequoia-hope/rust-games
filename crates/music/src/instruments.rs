@@ -428,7 +428,8 @@ impl JunoVoice {
             x += (self.r.next() * 2.0 - 1.0) * noise;
         }
         x = self.hp.hp(x);
-        let y = self.f.run(x * 0.5, 1.0 + p.drive.unwrap_or(0.2), 0);
+        let fmode = if p.slope == Some(12.0) { 2 } else { 0 };
+        let y = self.f.run(x * 0.5, 1.0 + p.drive.unwrap_or(0.2), fmode);
         y * a * self.vel
     }
 }
@@ -549,7 +550,7 @@ impl MonoVoice {
         !self.on
     }
 
-    fn run(&mut self, p: &Lab) -> f64 {
+    fn run(&mut self, p: &Lab, lfo: f64) -> f64 {
         let sr = self.sr;
         if self.left > 0 {
             self.left -= 1;
@@ -594,6 +595,7 @@ impl MonoVoice {
         }
         let mut x = 0.0;
         let sub = truthy(p.sub);
+        let pwm = tru(p.pwm);
         for i in 0..oscs.len() {
             let spec = &oscs[i];
             let hz = self.inc[i];
@@ -609,12 +611,11 @@ impl MonoVoice {
             } else {
                 OSC_SAW
             };
-            o.run(
-                hz,
-                spec.pw.unwrap_or(0.5),
-                wave | (if i == 0 && sub { OSC_SUB } else { 0 }),
-                sr,
-            );
+            let pw = match pwm {
+                Some(m) => clamp(spec.pw.or(p.pw).unwrap_or(0.5) + m * lfo * 0.45, 0.05, 0.95),
+                None => spec.pw.unwrap_or(0.5),
+            };
+            o.run(hz, pw, wave | (if i == 0 && sub { OSC_SUB } else { 0 }), sr);
             x += (if spec.w == "pulse" {
                 o.pulse
             } else if spec.w == "tri" {
@@ -630,7 +631,8 @@ impl MonoVoice {
             let w = self.r.next() * 2.0 - 1.0;
             x += self.breath.lp(w) * nz * (0.4 + a);
         }
-        self.f.run(x * 0.45, 1.0 + p.drive.unwrap_or(0.5), 0) * a * self.vel
+        let fmode = if p.slope == Some(12.0) { 2 } else { 0 };
+        self.f.run(x * 0.45, 1.0 + p.drive.unwrap_or(0.5), fmode) * a * self.vel
     }
 }
 
@@ -1431,6 +1433,7 @@ impl Poly {
         let mut ch = Chorus::new(sr);
         ch.set(patch.chorus.unwrap_or(0.0));
         ch.model(patch.chorus_ms, patch.chorus_lp);
+        ch.set_hp(patch.chorus_hp);
         Poly {
             p: patch,
             kind: k,
@@ -1450,6 +1453,7 @@ impl Poly {
     pub fn set_patch(&mut self, p: Lab) {
         self.ch.set(p.chorus.unwrap_or(0.0));
         self.ch.model(p.chorus_ms, p.chorus_lp);
+        self.ch.set_hp(p.chorus_hp);
         self.p = p;
     }
 
@@ -1631,7 +1635,7 @@ impl Poly {
             Kind::Mono | Kind::Fm => {
                 for v in &mut self.voices {
                     match v {
-                        Voice::Mono(m) if !m.done() => x += m.run(&self.p),
+                        Voice::Mono(m) if !m.done() => x += m.run(&self.p, lfo),
                         Voice::Fm(f) if !f.done() => x += f.run(&self.p),
                         _ => {}
                     }

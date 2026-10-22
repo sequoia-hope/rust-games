@@ -170,22 +170,20 @@ pub fn fill(p: &Pattern, role: &str, toms: bool, d: &mut Dice) -> Pattern {
     match (role, toms) {
         ("C", true) => {
             notes.retain(|n| n.at < 8.0);
-            if d.chance(0.5) {
+            if d.chance(0.45) {
                 for (i, s) in (12..16).enumerate() {
                     notes.push(Note::hit(s as f64, "snare", 0.55 + 0.12 * i as f64));
                 }
             } else {
-                for (s, lane) in [
-                    (8, "tomH"),
-                    (9, "tomH"),
-                    (10, "tomM"),
-                    (11, "tomM"),
-                    (12, "tomL"),
-                    (13, "tomL"),
-                    (14, "tomL"),
-                    (15, "tomL"),
+                for (s, lane, v) in [
+                    (8, "tomH", 0.85),
+                    (9, "tomH", 0.65),
+                    (10, "tomM", 0.85),
+                    (12, "tomM", 0.8),
+                    (13, "tomL", 0.7),
+                    (14, "tomL", 0.9),
                 ] {
-                    notes.push(Note::hit(s as f64, lane, 0.75));
+                    notes.push(Note::hit(s as f64, lane, v));
                 }
             }
         }
@@ -373,8 +371,8 @@ pub fn chords(style: ChordStyle, voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
     }
 }
 
-/// The arpeggio: eight 8ths a bar spelling the chord ("Nightcall"), or
-/// off-beat 8ths only ("A Real Hero") [synthwave#38][synthwave#39].
+/// The arpeggio: eight 8ths a bar spelling the chord ("Nightcall"), with
+/// downbeat or off-beat emphasis ("A Real Hero") [synthwave#38][synthwave#39].
 pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
     let offbeat = d.chance(0.3);
     let shape: &[usize] = d.pick(&[
@@ -385,19 +383,17 @@ pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
     let mut notes = Vec::new();
     for (bar, v) in voiced.iter().enumerate() {
         let mut tones: Vec<i32> = v.clone();
-        tones.push(v[0] + 12);
+        let mut oct = 0;
+        while tones.len() < 5 {
+            let src = v[oct % v.len()] + 12 * (oct / v.len() + 1) as i32;
+            tones.push(src);
+            oct += 1;
+        }
         let b0 = bar as f64 * 16.0;
         for k in 0..8 {
-            if offbeat && k % 2 == 0 {
-                continue;
-            }
-            let m = tones[shape[k] % tones.len()] + 12;
-            notes.push(Note::pitched(
-                b0 + k as f64 * 2.0,
-                1.6,
-                vec![m as f64],
-                if k % 2 == 0 { 0.8 } else { 0.65 },
-            ));
+            let m = tones[shape[k] % tones.len()];
+            let vel = if (k % 2 == 1) == offbeat { 0.82 } else { 0.68 };
+            notes.push(Note::pitched(b0 + k as f64 * 2.0, 1.6, vec![m as f64], vel));
         }
     }
     Pattern {
@@ -498,7 +494,13 @@ fn draft(
         };
         for (e, step) in fig {
             let strong = e % 4 == 0;
-            let mut next = (cur + step).clamp(0, scale.len() as i32 - 1);
+            let n_sc = scale.len() as i32;
+            let raw = cur + step;
+            let mut next = if raw < 0 || raw >= n_sc {
+                (cur - step).clamp(0, n_sc - 1)
+            } else {
+                raw
+            };
             if strong {
                 // Snap to the nearest chord tone.
                 let mut bestd = i32::MAX;
@@ -543,10 +545,23 @@ fn draft(
         vec![scale[target as usize] as f64],
         0.8,
     ));
-    // Legato: each note lasts to the next onset (at most a half bar).
+    // Legato: consecutive notes within a beat overlap slightly and glide;
+    // repeated notes or notes before a rest articulate cleanly.
     for i in 0..notes.len() {
-        let next = notes.get(i + 1).map_or(prog.len() as f64 * 16.0, |n| n.at);
-        notes[i].len = (next - notes[i].at - 0.3).clamp(0.8, 8.0);
+        let next_at = notes.get(i + 1).map_or(prog.len() as f64 * 16.0, |n| n.at);
+        let gap = next_at - notes[i].at;
+        let step_dist = notes
+            .get(i + 1)
+            .and_then(|n| n.midis.first().zip(notes[i].midis.first()))
+            .map_or(0.0, |(a, b)| (a - b).abs());
+        if gap <= 4.0 && (0.5..=7.5).contains(&step_dist) {
+            notes[i].len = (gap + 0.15).clamp(0.8, 8.0);
+            if let Some(n1) = notes.get_mut(i + 1) {
+                n1.slide = true;
+            }
+        } else {
+            notes[i].len = (gap - 0.25).clamp(0.8, 8.0);
+        }
     }
     (notes, ds.iter().map(|x| iv_sym(*x)).collect())
 }
