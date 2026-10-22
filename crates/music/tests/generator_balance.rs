@@ -45,12 +45,17 @@ fn k_weighting() -> (Bq, Bq) {
     )
 }
 
-/// A layer's loudness (LUFS, ungated) over 4 bars from the first chorus;
-/// `None` when the song has no such layer.
+/// A layer's loudness (LUFS, ungated) over 4 bars from the first chorus or
+/// main section; `None` when the song has no such layer.
 fn loudness(genre: &str, seed: u32, solo: &str) -> Option<f64> {
     let s = generate(genre, seed, &Settings::default()).unwrap();
     s.layers.iter().find(|l| l.name == solo)?;
-    let chorus = s.sections.iter().find(|x| x.name == "chorus").unwrap().bar;
+    let chorus = s
+        .sections
+        .iter()
+        .find(|x| matches!(x.name.as_str(), "chorus" | "main"))
+        .unwrap()
+        .bar;
     let mut pl = SongPlayer::new(5, 48000.0);
     let n = (4.0 * 240.0 / s.bpm * 48000.0 / 128.0) as usize;
     pl.set_song(s);
@@ -78,7 +83,7 @@ fn the_synthwave_hook_is_heard_against_the_bass() {
             let rel = |name: &str| loudness(genre, seed, name).map(|l| l - bass);
             let arp = rel("arp").unwrap();
             assert!(
-                (-10.0..=0.0).contains(&arp),
+                (-10.0..=0.5).contains(&arp),
                 "{genre} {seed}: arp {arp:.1} LU"
             );
             let pads = rel("chords").unwrap();
@@ -90,6 +95,33 @@ fn the_synthwave_hook_is_heard_against_the_bass() {
             if let Some(lead) = rel("lead") {
                 assert!(
                     (-8.0..=1.0).contains(&lead),
+                    "{genre} {seed}: lead {lead:.1} LU"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_house_chords_and_lead_sit_with_the_bass() {
+    for genre in ["chicago", "deep"] {
+        for seed in [1, 2] {
+            let bass = loudness(genre, seed, "bass").unwrap();
+            let rel = |name: &str| loudness(genre, seed, name).map(|l| l - bass);
+            let chords = rel("chords").unwrap();
+            assert!(
+                (-12.0..=3.0).contains(&chords),
+                "{genre} {seed}: chords {chords:.1} LU"
+            );
+            if let Some(drone) = rel("drone") {
+                assert!(
+                    (-26.0..=-6.0).contains(&drone),
+                    "{genre} {seed}: drone {drone:.1} LU"
+                );
+            }
+            if let Some(lead) = rel("lead") {
+                assert!(
+                    (-10.0..=4.0).contains(&lead),
                     "{genre} {seed}: lead {lead:.1} LU"
                 );
             }

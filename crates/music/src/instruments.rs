@@ -305,18 +305,15 @@ impl JunoVoice {
         self.age = t;
         self.on = true;
         self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
-        self.hz0 = if let Some(g) = glide_from {
+        let has_glide = glide_from.is_some() && tru(p.glide).is_some();
+        self.hz0 = if let Some(g) = glide_from.filter(|_| has_glide) {
             mtof(g + 12.0 * p.oct.unwrap_or(0.0))
         } else if let Some(b) = tru(p.bend) {
             self.hz * 2f64.powf(-b / 12.0)
         } else {
             self.hz
         };
-        let gt = if glide_from.is_some() {
-            p.glide
-        } else {
-            p.bend_t
-        };
+        let gt = if has_glide { p.glide } else { p.bend_t };
         self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.06) * sr / 3.0)).exp();
         self.cur = self.hz0;
         self.env.set_all(
@@ -732,18 +729,15 @@ impl FmVoice {
         self.left = to_i32(dur_s).max(1);
         self.on = true;
         self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
-        self.cur = if let Some(g) = glide_from {
+        let has_glide = glide_from.is_some() && tru(p.glide).is_some();
+        self.cur = if let Some(g) = glide_from.filter(|_| has_glide) {
             mtof(g + 12.0 * p.oct.unwrap_or(0.0))
         } else if let Some(b) = tru(p.bend) {
             self.hz * 2f64.powf(-b / 12.0)
         } else {
             self.hz
         };
-        let gt = if glide_from.is_some() {
-            p.glide
-        } else {
-            p.bend_t
-        };
+        let gt = if has_glide { p.glide } else { p.bend_t };
         self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.06) * sr / 3.0)).exp();
         self.k = 0;
         if let Some(ops) = &p.ops {
@@ -751,6 +745,7 @@ impl FmVoice {
                 let Some(Some(o)) = ops.get(i) else { continue };
                 // Higher notes decay faster (rate scaling).
                 let rs = 2f64.powf(-((midi - 60.0) / 12.0) * o.rs.unwrap_or(0.3));
+                let was_silent = self.env[i].v < 1e-3;
                 self.env[i].set_all(
                     o.a.unwrap_or(0.002),
                     o.d.unwrap_or(0.5) * rs,
@@ -758,7 +753,9 @@ impl FmVoice {
                     o.rel.or(p.r).unwrap_or(0.3),
                 );
                 self.env[i].on();
-                self.ph[i] = 0.0;
+                if was_silent {
+                    self.ph[i] = 0.0;
+                }
             }
         }
     }

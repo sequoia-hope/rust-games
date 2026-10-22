@@ -220,14 +220,14 @@ pub fn voice(
     hi: i32,
     prev: Option<&[i32]>,
 ) -> Vec<i32> {
-    // Which tones to keep: the 3rd and 7th first, then extensions, the
-    // root, the 5th last.
+    // Which tones to keep: the root, 3rd and 7th first, then extensions,
+    // the 5th last.
     let mut tones = chord.tones.clone();
     let rank = |t: i32| match t {
-        3 | 4 => 0,
-        10 | 11 => 1,
-        14 | 17 | 2 | 5 | 9 => 2,
-        0 => 3,
+        0 => 0,
+        3 | 4 => 1,
+        10 | 11 => 2,
+        14 | 17 | 2 | 5 | 9 => 3,
         _ => 4,
     };
     tones.sort_by_key(|t| rank(*t));
@@ -236,12 +236,19 @@ pub fn voice(
         .iter()
         .map(|t| (tonic + chord.root + t).rem_euclid(12))
         .collect();
+    let third_pc = (tonic + chord.root + if chord.minor { 3 } else { 4 }).rem_euclid(12);
+    let ninth_pc = chord
+        .tones
+        .contains(&14)
+        .then_some((tonic + chord.root + 2).rem_euclid(12));
     // Every way of placing those pitch classes in range, closest-packed:
-    // start the lowest at each candidate and stack upward.
+    // start the lowest at each candidate and stack upward (placing a 9th
+    // above the 3rd so minor-9th chords voice as root–3rd–7th–9th instead
+    // of a 2nd–3rd semitone cluster).
     let mut best: Option<(i32, Vec<i32>)> = None;
     for start in lo..lo + 12 {
         let pc0 = start.rem_euclid(12);
-        if !pcs.contains(&pc0) {
+        if !pcs.contains(&pc0) || ninth_pc == Some(pc0) {
             continue;
         }
         let mut notes = vec![start];
@@ -251,6 +258,9 @@ pub fn voice(
             cur += 1;
             let pc = cur.rem_euclid(12);
             if pcs.contains(&pc) && !used.contains(&pc) {
+                if ninth_pc == Some(pc) && !used.contains(&third_pc) && cur + 12 <= hi {
+                    continue;
+                }
                 notes.push(cur);
                 used.push(pc);
             }

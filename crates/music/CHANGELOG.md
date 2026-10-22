@@ -6,6 +6,35 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Engine-wide patch, kit, DSP, and house/synthwave upgrade (2026-10-22)
+
+- **Upgraded base patches (`patches.rs`), kits (`kits.rs`), and DSP defaults
+  (`dsp.rs`) across all genres:**
+  - `dsp::Chorus` defaults to the hardware-measured Juno-60 BBD timing
+    (`±0.5 ms` mode I, `±1.1 ms` mode II, `15 kHz` low-pass) for all genres.
+  - `JunoVoice::start` and `FmVoice::start` only pitch-glide on legato notes
+    when `p.glide` is explicitly set, fixing unintended pitch slides on FM
+    pianos, electric pianos, organs, bells, and Juno plucks; `FmVoice::start`
+    preserves operator phase when retriggering active voices to prevent clicks.
+  - Base patches (`sawBass`, `pluckBass`, `reese`, `sub`, `darkBass`, `acid`,
+    `roundBass`, `superPad`, `warmPad`, `darkPad`, `stab`, `hit`, `ep`, `bell`,
+    `glass`, `pluck`, `sqArp`, `brassLead`, `sawLead`, `sqLead`, `organ`,
+    `dubChord`, `supersaw`, `superPadWide`, `tranceBass`, `psyBass`,
+    `euroLead`, `piano`, `pluckTrance`, `honkyPiano`) and base kits (`tr808`,
+    `tr909` with 6-bit sampled cymbals, fuller snares, and natural tom pitch
+    sweeps) are upgraded directly, and golden hashes/renders regenerated.
+- **House and harmonic generator fixes (`generator/`):**
+  - `theory::voice` preserves the chord root (`0`) in 4-note voicings and
+    places 9ths (`14`) above the 3rd in the upper octave instead of forming
+    1-semitone `[2, 3]` clusters on minor-9th chords; `parts::pool` keeps
+    extensions consistent across repeated numerals in a progression.
+  - `parts::sparse` retains every second event when downbeat filtering would
+    empty offbeat syncopated patterns (`ChordStyle::Stabs`).
+  - `CHICAGO` and `DEEP` profiles tuned (`CHICAGO_DRUMS` rimshot, `DEEP_DRUMS`
+    subtle low tom, `DEEP` `roundBass`/`sub` and `dubChord`/`stab`/`ep`
+    stabs with stereo ping-pong delay and reverb, chord-following `darkPad`
+    drone).
+
 ### Synthwave and outrun instrument tune-up (2026-10-21)
 
 - **12 dB/oct ladder tap (`slope: 12`):** `dsp::Ladder::run` adds `mode == 2`

@@ -294,7 +294,8 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
             _ => {
                 let sounds = match *rk {
                     "B" => p.bass_sounds,
-                    "Pd" | "Atm" => p.pad_sounds,
+                    "Pd" => p.pad_sounds,
+                    "Atm" => &["darkPad"],
                     "A" => p.arp_sounds,
                     _ => p.lead_sounds,
                 };
@@ -324,14 +325,15 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
             },
             "Pd" => Ch {
                 level: Some(0.55),
-                rev: Some(0.3),
+                rev: Some(0.32),
+                dly: Some(0.22),
                 pan: Some(0.0),
                 ..Ch::default()
             },
             "Atm" => Ch {
-                level: Some(0.35),
-                rev: Some(0.5),
-                hp: Some(200.0),
+                level: Some(0.32),
+                rev: Some(0.6),
+                hp: Some(180.0),
                 ..Ch::default()
             },
             "A" => Ch {
@@ -409,7 +411,7 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                             "B" => parts::bass(p.bass, pr, tonic, blo, &mut dp),
                             "Pd" => parts::chords(p.chords, &voiced, &mut dp),
                             "A" => parts::arp(&voiced, &mut dp),
-                            "Atm" => parts::drone(tonic - 12, pr.len()),
+                            "Atm" => parts::drone(&voiced),
                             _ => hook_pat.clone(),
                         };
                         let core = transpose(&core, tr);

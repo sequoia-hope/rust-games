@@ -33,24 +33,7 @@ fn main() {
     let mut data = Vec::new();
     let mut l = vec![0f32; BLOCK];
     let mut r = vec![0f32; BLOCK];
-    if classic {
-        let t = music::lab::generate(genre, seed, None).expect("a classic genre");
-        println!(
-            "{} · {} · {} bpm",
-            t.title.as_deref().unwrap_or(""),
-            t.style.as_deref().unwrap_or(""),
-            t.bpm
-        );
-        let len = secs.unwrap_or(t.bars() as f64 * 16.0 * 60.0 / t.bpm / 4.0);
-        let mut e = Engine::new(5, SR);
-        e.set_track(&t);
-        e.play(0, 0.0);
-        for _ in 0..(len * SR / BLOCK as f64) as usize {
-            e.process(&mut l, &mut r);
-            interleave(&mut data, &l, &r);
-        }
-    } else {
-        let s = generate(genre, seed, &Settings::default()).expect("a genre of the new generator");
+    if !classic && let Some(s) = generate(genre, seed, &Settings::default()) {
         println!(
             "{} · {} · {} bpm, swing {} %, {} bars",
             s.title, s.style, s.bpm, s.swing, s.bars
@@ -70,6 +53,22 @@ fn main() {
         p.play(0, 0.0);
         for _ in 0..(len * SR / BLOCK as f64) as usize {
             p.process(&mut l, &mut r);
+            interleave(&mut data, &l, &r);
+        }
+    } else {
+        let t = music::lab::generate(genre, seed, None).expect("a known genre");
+        println!(
+            "{} · {} · {} bpm",
+            t.title.as_deref().unwrap_or(""),
+            t.style.as_deref().unwrap_or(""),
+            t.bpm
+        );
+        let len = secs.unwrap_or(t.bars() as f64 * 16.0 * 60.0 / t.bpm / 4.0);
+        let mut e = Engine::new(5, SR);
+        e.set_track(&t);
+        e.play(0, 0.0);
+        for _ in 0..(len * SR / BLOCK as f64) as usize {
+            e.process(&mut l, &mut r);
             interleave(&mut data, &l, &r);
         }
     }
