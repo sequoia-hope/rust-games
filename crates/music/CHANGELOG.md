@@ -6,6 +6,63 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### New lead, pluck and bass patches, and measured unison (2026-10-22)
+
+- **Five base patches added** (`patches.rs`), so every genre can reach them:
+  `fmBass` (a 4-operator stack bass), `modernPluck` (a 5-voice Juno pluck),
+  `leadGuitar` (a plucked-string lead with bend and delayed vibrato),
+  `vocalLead` (a Juno lead through the vowel formant) and `celloPad` (a bowed
+  pad). `celloPad` is reachable from the Music Lab but referenced by no
+  profile yet, as `flute`, `twang` and `whistle` already are.
+- **`JunoVoice` unison is the measured shape, not a straight ramp**
+  (`instruments.rs`): 7-voice unison uses the measured JP-8000 / Serum
+  asymmetric spread, and other voice counts keep the old power curve with the
+  positive side pulled in slightly, so the pairs either side of centre no
+  longer beat in phase lock. The oscillator mix is centre-weighted (1.25 at
+  the centre, 0.85 either side) and normalised by the RMS of those weights
+  rather than `sqrt(n)`, which keeps the patch level where it was.
+- **Patches retuned:** `supersaw` (darker and louder, with vibrato and glide),
+  `superPadWide`, `tranceBass`, `piano`, `choir` (5-voice, formant softened)
+  and `pluckTrance`.
+- **Genre pools widened** (`generator/profile.rs`): `SYNTHWAVE`, `OUTRUN`,
+  `CHICAGO` and `DEEP` draw on the new patches; `OUTRUN` gets its own bass and
+  arp pools instead of inheriting `SYNTHWAVE`'s. Gated reverb is pulled back
+  from the full-wet snare (`SYNTHWAVE` `1.0`/`0.1` to `0.55`/`0.08`, `OUTRUN`
+  `0.45`/`0.06`) and the `SYNTHWAVE` pad sits 1 LU lower.
+- `LAB_SHA256` and the track and render goldens are regenerated. Measured
+  after the change: `synthwave` −23.4, `outrun` −21.4, `chicago` −23.1 and
+  `deep` −23.7 LUFS integrated, true peak −6.3 to −8.1 dBFS, so the louder
+  patches and the new normalisation cost no headroom.
+
+### Engine-wide patch, kit, DSP, and house/synthwave upgrade (2026-10-22)
+
+- **Upgraded base patches (`patches.rs`), kits (`kits.rs`), and DSP defaults
+  (`dsp.rs`) across all genres:**
+  - `dsp::Chorus` defaults to the hardware-measured Juno-60 BBD timing
+    (`±0.5 ms` mode I, `±1.1 ms` mode II, `15 kHz` low-pass) for all genres.
+  - `JunoVoice::start` and `FmVoice::start` only pitch-glide on legato notes
+    when `p.glide` is explicitly set, fixing unintended pitch slides on FM
+    pianos, electric pianos, organs, bells, and Juno plucks; `FmVoice::start`
+    preserves operator phase when retriggering active voices to prevent clicks.
+  - Base patches (`sawBass`, `pluckBass`, `reese`, `sub`, `darkBass`, `acid`,
+    `roundBass`, `superPad`, `warmPad`, `darkPad`, `stab`, `hit`, `ep`, `bell`,
+    `glass`, `pluck`, `sqArp`, `brassLead`, `sawLead`, `sqLead`, `organ`,
+    `dubChord`, `supersaw`, `superPadWide`, `tranceBass`, `psyBass`,
+    `euroLead`, `piano`, `pluckTrance`, `honkyPiano`) and base kits (`tr808`,
+    `tr909` with 6-bit sampled cymbals, fuller snares, and natural tom pitch
+    sweeps) are upgraded directly, and golden hashes/renders regenerated.
+- **House and harmonic generator fixes (`generator/`):**
+  - `theory::voice` preserves the chord root (`0`) in 4-note voicings and
+    places 9ths (`14`) above the 3rd in the upper octave instead of forming
+    1-semitone `[2, 3]` clusters on minor-9th chords; `parts::pool` keeps
+    extensions consistent across repeated numerals in a progression.
+  - `parts::sparse` retains every second event when downbeat filtering would
+    empty offbeat syncopated patterns (`ChordStyle::Stabs`).
+  - `CHICAGO` and `DEEP` profiles tuned (`CHICAGO_DRUMS` rimshot, `DEEP_DRUMS`
+    subtle low tom, `DEEP` `roundBass`/`sub` and `dubChord`/`stab`/`ep`
+    stabs with stereo ping-pong delay and reverb, chord-following `darkPad`
+    drone).
+
 ### Synthwave and outrun instrument tune-up (2026-10-21)
 
 - **12 dB/oct ladder tap (`slope: 12`):** `dsp::Ladder::run` adds `mode == 2`

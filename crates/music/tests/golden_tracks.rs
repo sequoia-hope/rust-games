@@ -40,23 +40,40 @@ fn diff(ours: &str, theirs: &str) -> String {
 
 #[test]
 fn every_genre_and_seed_hashes_as_the_lab() {
-    let g = golden();
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/tracks.json");
+    let mut g = golden();
+    let regen = std::env::var_os("REGEN_GOLDENS").is_some();
     let seeds: Vec<u64> = g["seeds"]
         .as_array()
         .expect("seeds")
         .iter()
         .map(|s| s.as_u64().expect("a seed"))
         .collect();
+    let keys: Vec<String> = g["hashes"]
+        .as_object()
+        .expect("hashes")
+        .keys()
+        .cloned()
+        .collect();
     let mut failures = Vec::new();
     let mut checked = 0;
-    for (key, hashes) in g["hashes"].as_object().expect("hashes") {
+    for key in &keys {
         let genre = genre(key).unwrap_or_else(|| panic!("no genre {key}"));
         for seed in &seeds {
             let t = (genre.make)(*seed as u32, None);
             let text = t.canon();
             let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
-            let want = hashes[&seed.to_string()].as_str().expect("a hash");
             checked += 1;
+            if regen {
+                g["hashes"][key][seed.to_string()] = serde_json::Value::String(hash);
+                if *seed == seeds[0] {
+                    g["sample"][key] = serde_json::Value::String(text);
+                }
+                continue;
+            }
+            let want = g["hashes"][key][&seed.to_string()]
+                .as_str()
+                .expect("a hash");
             if hash != want {
                 let mut msg = format!("{key} seed {seed}: {hash} != {want}");
                 if *seed == seeds[0] {
@@ -67,6 +84,9 @@ fn every_genre_and_seed_hashes_as_the_lab() {
                 failures.push(msg);
             }
         }
+    }
+    if regen {
+        std::fs::write(path, serde_json::to_string_pretty(&g).unwrap() + "\n").unwrap();
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
     assert!(checked >= 8 * 6, "{checked} tracks checked");

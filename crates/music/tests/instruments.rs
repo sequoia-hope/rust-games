@@ -254,8 +254,8 @@ fn the_measured_juno_chorus_sweeps_less_than_the_classic_one() {
         }
         s
     };
-    let classic = side(None);
-    let measured = side(Some(0.5));
+    let classic = side(Some(1.7));
+    let measured = side(None);
     assert!(
         measured < classic * 0.5,
         "{measured} against {classic}: a shallower sweep"
@@ -598,12 +598,13 @@ fn sampled_cymbals_keep_their_level_add_grit_and_still_decay() {
         (x, d.hits()[h].done)
     };
     for lane in ["hat", "ohat", "ride", "crash"] {
-        let base = kit_voice("tr909", lane, None).expect("a lane");
-        let mut s = base;
-        s.set("bits", 6.0);
-        s.set("clock", 30000.0);
-        s.set("noise", 0.6);
-        let (a, _) = render(&base, lane);
+        let s = kit_voice("tr909", lane, None).expect("a lane");
+        let mut synth = s;
+        synth.bits = None;
+        synth.clock = None;
+        synth.dac_lp = None;
+        synth.noise = Some(0.35);
+        let (a, _) = render(&synth, lane);
         let (b, done) = render(&s, lane);
         assert!(finite(&b) && done, "{lane} ends");
         let db = 20.0 * (rms(&b[..4800]) / rms(&a[..4800])).log10();
@@ -627,6 +628,7 @@ fn the_12db_ladder_passes_more_top_end_than_the_24db_one() {
     p24.saw = Some(1.0);
     p24.cutoff = Some(900.0);
     p24.fenv = Some(0.0);
+    p24.slope = Some(24.0);
     let mut p12 = p24.clone();
     p12.slope = Some(12.0);
     let (l24, _) = render_inst(&p24, &[note(0.0, &[60.0], 0.4)], 0.5);

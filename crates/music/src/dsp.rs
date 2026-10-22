@@ -896,9 +896,8 @@ impl Limiter {
 
 /// Juno-style BBD chorus: two delay taps swept by one triangle LFO in
 /// opposite directions, wet only on the sides (mode I 0.51 Hz, II 0.86 Hz).
-/// Both modes sweep ±1.7 ms through a 9 kHz low-pass unless
-/// [`Chorus::model`] sets the measured ±0.5 ms (I), ±1.1 ms (II) and
-/// 15 kHz (research/sound-design.md §6).
+/// Mode I sweeps ±0.5 ms and mode II ±1.1 ms through a 15 kHz low-pass
+/// (research/sound-design.md §6); [`Chorus::model`] can override both.
 #[derive(Clone, Debug)]
 pub struct Chorus {
     d: Delay,
@@ -922,8 +921,8 @@ impl Chorus {
             ph: 0.0,
             rate: 0.513,
             depth: 1.0,
-            sweep: 0.0017,
-            lp: OnePole::new(9000.0, sr),
+            sweep: 0.0005,
+            lp: OnePole::new(15000.0, sr),
             hp: OnePole::new(20.0, sr),
             hp_on: false,
             on: false,
@@ -941,15 +940,22 @@ impl Chorus {
         } else {
             0.513
         };
+        self.sweep = if mode == 2.0 || mode == 3.0 {
+            0.0011
+        } else {
+            0.0005
+        };
         self.depth = if mode == 3.0 { 0.25 } else { 1.0 };
         self.on = mode > 0.0;
     }
 
     /// The sweep (± ms at depth 1) and the low-pass before the delay (Hz);
-    /// `None` keeps the classic ±1.7 ms and 9 kHz.
+    /// `None` keeps the measured mode default and 15 kHz.
     pub fn model(&mut self, ms: Option<f64>, lp: Option<f64>) {
-        self.sweep = ms.map_or(0.0017, |ms| ms / 1000.0);
-        self.lp.set_hz(lp.unwrap_or(9000.0));
+        if let Some(ms) = ms {
+            self.sweep = ms / 1000.0;
+        }
+        self.lp.set_hz(lp.unwrap_or(15000.0));
     }
 
     /// High-pass before the chorus delay (Hz), so bass fundamentals stay

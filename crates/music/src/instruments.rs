@@ -305,18 +305,15 @@ impl JunoVoice {
         self.age = t;
         self.on = true;
         self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
-        self.hz0 = if let Some(g) = glide_from {
+        let has_glide = glide_from.is_some() && tru(p.glide).is_some();
+        self.hz0 = if let Some(g) = glide_from.filter(|_| has_glide) {
             mtof(g + 12.0 * p.oct.unwrap_or(0.0))
         } else if let Some(b) = tru(p.bend) {
             self.hz * 2f64.powf(-b / 12.0)
         } else {
             self.hz
         };
-        let gt = if glide_from.is_some() {
-            p.glide
-        } else {
-            p.bend_t
-        };
+        let gt = if has_glide { p.glide } else { p.bend_t };
         self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.06) * sr / 3.0)).exp();
         self.cur = self.hz0;
         self.env.set_all(
@@ -369,18 +366,23 @@ impl JunoVoice {
             } else {
                 0.0
             };
+            // Measured JP-8000 / Serum asymmetric unison spread (Szabo,
+            // sound-design#13) so positive and negative pairs do not beat in
+            // phase lock.
+            const JP_SPREAD: [f64; 7] = [-1.0, -0.554, -0.168, 0.0, 0.172, 0.515, 0.876];
             let det = p.detune.unwrap_or(0.0);
             let mut i = 0usize;
             while (i as f64) < n {
-                // Spread over ±detune/2, the outer oscillators further apart.
-                let u = if n > 1.0 {
-                    (i as f64 / (n - 1.0)) * 2.0 - 1.0
+                let sp = if (n - 7.0).abs() < 1e-6 {
+                    JP_SPREAD[i]
+                } else if n > 1.0 {
+                    let u = (i as f64 / (n - 1.0)) * 2.0 - 1.0;
+                    let asym = if u > 0.0 { 0.89 } else { 1.0 };
+                    js_sign(u) * u.abs().powf(1.3) * asym
                 } else {
                     0.0
                 };
-                let c = js_sign(u) * u.abs().powf(1.3) * det * 0.5
-                    + self.drift[i].run(&mut self.r, 16)
-                    + vib_amt;
+                let c = sp * det * 0.5 + self.drift[i].run(&mut self.r, 16) + vib_amt;
                 self.inc[i] = self.cur * cents(c);
                 i += 1;
             }
@@ -405,8 +407,18 @@ impl JunoVoice {
             0
         }) | (if truthy(p.pulse) { OSC_PULSE } else { 0 });
         let sub = truthy(p.sub);
+        let mid = (n as usize) / 2;
+        let mut w_sq = 0.0;
         let mut i = 0usize;
         while (i as f64) < n {
+            let w = if n >= 3.0 && i == mid {
+                1.25
+            } else if n >= 3.0 {
+                0.85
+            } else {
+                1.0
+            };
+            w_sq += w * w;
             let o = &mut self.osc[i];
             o.run(
                 self.inc[i],
@@ -414,8 +426,7 @@ impl JunoVoice {
                 if i == 0 && sub { m | OSC_SUB } else { m },
                 sr,
             );
-            x += o.saw * saw
-                + o.pulse * p.pulse.unwrap_or(0.0)
+            x += (o.saw * saw + o.pulse * p.pulse.unwrap_or(0.0)) * w
                 + (if i == 0 {
                     o.sub * p.sub.unwrap_or(0.0)
                 } else {
@@ -423,7 +434,7 @@ impl JunoVoice {
                 });
             i += 1;
         }
-        x /= n.sqrt();
+        x /= w_sq.sqrt().max(1.0);
         if let Some(noise) = tru(p.noise) {
             x += (self.r.next() * 2.0 - 1.0) * noise;
         }
@@ -732,18 +743,15 @@ impl FmVoice {
         self.left = to_i32(dur_s).max(1);
         self.on = true;
         self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
-        self.cur = if let Some(g) = glide_from {
+        let has_glide = glide_from.is_some() && tru(p.glide).is_some();
+        self.cur = if let Some(g) = glide_from.filter(|_| has_glide) {
             mtof(g + 12.0 * p.oct.unwrap_or(0.0))
         } else if let Some(b) = tru(p.bend) {
             self.hz * 2f64.powf(-b / 12.0)
         } else {
             self.hz
         };
-        let gt = if glide_from.is_some() {
-            p.glide
-        } else {
-            p.bend_t
-        };
+        let gt = if has_glide { p.glide } else { p.bend_t };
         self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.06) * sr / 3.0)).exp();
         self.k = 0;
         if let Some(ops) = &p.ops {
@@ -751,6 +759,7 @@ impl FmVoice {
                 let Some(Some(o)) = ops.get(i) else { continue };
                 // Higher notes decay faster (rate scaling).
                 let rs = 2f64.powf(-((midi - 60.0) / 12.0) * o.rs.unwrap_or(0.3));
+                let was_silent = self.env[i].v < 1e-3;
                 self.env[i].set_all(
                     o.a.unwrap_or(0.002),
                     o.d.unwrap_or(0.5) * rs,
@@ -758,7 +767,9 @@ impl FmVoice {
                     o.rel.or(p.r).unwrap_or(0.3),
                 );
                 self.env[i].on();
-                self.ph[i] = 0.0;
+                if was_silent {
+                    self.ph[i] = 0.0;
+                }
             }
         }
     }

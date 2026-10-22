@@ -7,7 +7,7 @@
 use crate::instruments::{HitType, KitVoice};
 
 /// The SHA-256 of the lab's `canon(KITS)`.
-pub const KITS_SHA256: &str = "4d59bc5426576182745166a43ec8f1799867ed8b45af72310c7a8255eed27971";
+pub const KITS_SHA256: &str = "ea464e20c100d1240ce573c2cfb4d8de4b2aceb76452b0e6bd09485bdb57074b";
 
 /// `KITS[kit]`: the lanes of a kit, in the lab's order.
 pub fn kit(name: &str) -> Option<&'static [(&'static str, KitVoice)]> {
@@ -48,10 +48,10 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 KitVoice {
                     t: HitType::Snare808,
                     tune: Some(185.0),
-                    tone: Some(0.45),
-                    snappy: Some(0.13),
-                    decay: Some(0.11),
-                    nhp: Some(1800.0),
+                    tone: Some(0.5),
+                    snappy: Some(0.16),
+                    decay: Some(0.15),
+                    nhp: Some(950.0),
                     nlp: Some(9000.0),
                     lvl: Some(0.8),
                     ..KitVoice::NONE
@@ -156,10 +156,12 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 KitVoice {
                     t: HitType::Tom,
                     tune: Some(82.0),
-                    pitch: Some(1.25),
-                    pt: Some(0.05),
-                    decay: Some(0.45),
-                    noise: Some(0.03),
+                    pitch: Some(1.65),
+                    pt: Some(0.045),
+                    decay: Some(0.42),
+                    click: Some(0.22),
+                    drive: Some(1.25),
+                    noise: Some(0.05),
                     lvl: Some(0.7),
                     pan: Some(-0.3),
                     ..KitVoice::NONE
@@ -170,10 +172,12 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 KitVoice {
                     t: HitType::Tom,
                     tune: Some(118.0),
-                    pitch: Some(1.25),
-                    pt: Some(0.05),
-                    decay: Some(0.38),
-                    noise: Some(0.03),
+                    pitch: Some(1.65),
+                    pt: Some(0.045),
+                    decay: Some(0.36),
+                    click: Some(0.22),
+                    drive: Some(1.25),
+                    noise: Some(0.05),
                     lvl: Some(0.65),
                     ..KitVoice::NONE
                 },
@@ -183,10 +187,12 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 KitVoice {
                     t: HitType::Tom,
                     tune: Some(165.0),
-                    pitch: Some(1.25),
-                    pt: Some(0.05),
-                    decay: Some(0.32),
-                    noise: Some(0.03),
+                    pitch: Some(1.65),
+                    pt: Some(0.045),
+                    decay: Some(0.30),
+                    click: Some(0.22),
+                    drive: Some(1.25),
+                    noise: Some(0.05),
                     lvl: Some(0.6),
                     pan: Some(0.3),
                     ..KitVoice::NONE
@@ -252,12 +258,12 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 "snare",
                 KitVoice {
                     t: HitType::Snare909,
-                    tune: Some(195.0),
-                    tone: Some(0.55),
-                    snappy: Some(0.17),
-                    decay: Some(0.09),
-                    nhp: Some(2200.0),
-                    nlp: Some(11000.0),
+                    tune: Some(185.0),
+                    tone: Some(0.58),
+                    snappy: Some(0.22),
+                    decay: Some(0.14),
+                    nhp: Some(900.0),
+                    nlp: Some(9500.0),
                     lvl: Some(0.8),
                     ..KitVoice::NONE
                 },
@@ -282,7 +288,10 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                     decay: Some(0.05),
                     bp: Some(12000.0),
                     hp: Some(8500.0),
-                    noise: Some(0.35),
+                    noise: Some(0.6),
+                    bits: Some(6.0),
+                    clock: Some(30000.0),
+                    dac_lp: Some(12000.0),
                     lvl: Some(0.45),
                     ..KitVoice::NONE
                 },
@@ -295,7 +304,10 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                     decay: Some(0.3),
                     bp: Some(11000.0),
                     hp: Some(8000.0),
-                    noise: Some(0.35),
+                    noise: Some(0.6),
+                    bits: Some(6.0),
+                    clock: Some(30000.0),
+                    dac_lp: Some(12000.0),
                     lvl: Some(0.35),
                     ..KitVoice::NONE
                 },
@@ -308,7 +320,10 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                     decay: Some(1.1),
                     bp: Some(9000.0),
                     hp: Some(5500.0),
-                    noise: Some(0.25),
+                    noise: Some(0.6),
+                    bits: Some(6.0),
+                    clock: Some(30000.0),
+                    dac_lp: Some(12000.0),
                     lvl: Some(0.27),
                     ..KitVoice::NONE
                 },
@@ -323,7 +338,10 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                     hp: Some(4800.0),
                     bp2: Some(4200.0),
                     decay2: Some(0.2),
-                    noise: Some(0.45),
+                    noise: Some(0.6),
+                    bits: Some(6.0),
+                    clock: Some(30000.0),
+                    dac_lp: Some(12000.0),
                     lvl: Some(0.35),
                     ..KitVoice::NONE
                 },
@@ -362,13 +380,15 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 "tomL",
                 KitVoice {
                     t: HitType::Tom,
-                    tune: Some(90.0),
-                    pitch: Some(1.5),
-                    pt: Some(0.03),
-                    decay: Some(0.35),
-                    noise: Some(0.08),
-                    lvl: Some(0.7),
-                    pan: Some(-0.3),
+                    tune: Some(86.0),
+                    pitch: Some(1.4),
+                    pt: Some(0.025),
+                    decay: Some(0.32),
+                    click: Some(0.10),
+                    drive: Some(1.15),
+                    noise: Some(0.04),
+                    lvl: Some(0.65),
+                    pan: Some(-0.25),
                     ..KitVoice::NONE
                 },
             ),
@@ -376,12 +396,14 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 "tomM",
                 KitVoice {
                     t: HitType::Tom,
-                    tune: Some(130.0),
-                    pitch: Some(1.5),
-                    pt: Some(0.03),
-                    decay: Some(0.3),
-                    noise: Some(0.08),
-                    lvl: Some(0.65),
+                    tune: Some(118.0),
+                    pitch: Some(1.4),
+                    pt: Some(0.025),
+                    decay: Some(0.28),
+                    click: Some(0.10),
+                    drive: Some(1.15),
+                    noise: Some(0.04),
+                    lvl: Some(0.6),
                     ..KitVoice::NONE
                 },
             ),
@@ -389,13 +411,15 @@ pub static KITS: &[(&str, &[(&str, KitVoice)])] = &[
                 "tomH",
                 KitVoice {
                     t: HitType::Tom,
-                    tune: Some(180.0),
-                    pitch: Some(1.5),
-                    pt: Some(0.03),
-                    decay: Some(0.26),
-                    noise: Some(0.08),
-                    lvl: Some(0.6),
-                    pan: Some(0.3),
+                    tune: Some(158.0),
+                    pitch: Some(1.4),
+                    pt: Some(0.025),
+                    decay: Some(0.24),
+                    click: Some(0.10),
+                    drive: Some(1.15),
+                    noise: Some(0.04),
+                    lvl: Some(0.55),
+                    pan: Some(0.25),
                     ..KitVoice::NONE
                 },
             ),

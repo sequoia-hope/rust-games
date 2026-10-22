@@ -8,7 +8,7 @@
 
 use super::theory::{AEOLIAN, DORIAN, IONIAN, MIXOLYDIAN, Mode, PHRYGIAN};
 use crate::patches::bpatch;
-use crate::track::{Lab, OscSpec};
+use crate::track::Lab;
 
 /// A drum lane of a profile: which kit lane, which layer (role key), its
 /// steps on the 16-grid of a 1- or 2-bar loop, its velocity, and how
@@ -360,23 +360,30 @@ pub const SYNTHWAVE: Profile = Profile {
     // ~1.4 beats a note, range 12–15 st [synthwave#23][synthwave#48].
     lead: (2.8, 14, 0.85),
     bass_range: (33, 45),
-    bass_sounds: &["sawBass", "darkBass", "pluckBass"],
-    pad_sounds: &["warmPad", "superPad", "darkPad"],
-    arp_sounds: &["sqArp", "pluck"],
-    lead_sounds: &["sawLead", "sqLead", "brassLead"],
+    bass_sounds: &["sawBass", "pluckBass", "darkBass", "tranceBass", "fmBass"],
+    pad_sounds: &["warmPad", "superPad", "superPadWide", "darkPad", "choir"],
+    arp_sounds: &["pluck", "modernPluck", "sqArp", "pluckTrance"],
+    lead_sounds: &[
+        "sawLead",
+        "supersaw",
+        "leadGuitar",
+        "brassLead",
+        "vocalLead",
+        "sqLead",
+    ],
     form: SYNTH_FORM,
     template: SYNTH_TEMPLATE,
     intros: SYNTH_INTROS,
     // The arp is the hook [synthwave#38]: in the chorus, K-weighted, the
     // arp about 5–7 LU under the bass and the lead 3–5 (engine default).
-    levels: &[("A", 9.5), ("L", 4.0), ("Pd", 4.0)],
+    levels: &[("A", 7.0), ("L", 3.5), ("Pd", 3.5)],
     pump: 0.3,
     tom_fills: true,
     tape: 0.4,
     glue: 0.5,
     reverb: 1.2,
-    // 100 % on the snare; 5–15 % on the kick [synthwave#3][synthwave#26].
-    gated: (1.0, 0.1),
+    // Moderate gated verb on the snare; subtle on the kick [synthwave#3][synthwave#26].
+    gated: (0.55, 0.08),
     notes: SYNTH_NOTES,
 };
 
@@ -395,10 +402,13 @@ pub const OUTRUN: Profile = Profile {
         (DORIAN, 0.1),
         (IONIAN, 0.1),
     ],
-    pad_sounds: &["darkPad", "superPad", "warmPad"],
-    lead_sounds: &["sawLead", "brassLead"],
+    bass_sounds: &["sawBass", "darkBass", "reese", "tranceBass", "pluckBass"],
+    pad_sounds: &["darkPad", "superPadWide", "superPad", "warmPad"],
+    arp_sounds: &["modernPluck", "pluckTrance", "sqArp", "pluck"],
+    lead_sounds: &["sawLead", "supersaw", "euroLead", "leadGuitar", "brassLead"],
     intros: OUTRUN_INTROS,
     pump: 0.4,
+    gated: (0.45, 0.06),
     ..SYNTHWAVE
 };
 
@@ -444,8 +454,8 @@ const CHICAGO_DRUMS: &[DrumLane] = &[
     },
     lane("ohat", "H", &[3, 7, 11, 15], 0.8),
     DrumLane {
-        p: 0.6,
-        ..lane("rim", "P", &[2, 4, 6, 8, 10, 12, 14, 16], 0.35)
+        p: 0.5,
+        ..lane("rim", "P", &[4, 10, 14], 0.25)
     },
     DrumLane {
         p: 0.7,
@@ -480,12 +490,12 @@ const DEEP_DRUMS: &[DrumLane] = &[
     },
     lane("ohat", "H", &[3, 7, 11, 15], 0.6),
     DrumLane {
-        p: 0.7,
-        ..lane("tomM", "P", &[3, 9, 11], 0.6)
+        p: 0.45,
+        ..lane("tomL", "P", &[4, 12], 0.28)
     },
     DrumLane {
         p: 0.5,
-        ..lane("shaker", "P", &[2, 10], 0.5)
+        ..lane("shaker", "P", &[2, 10], 0.45)
     },
 ];
 
@@ -571,15 +581,15 @@ pub const CHICAGO: Profile = Profile {
     // A 1–2-bar riff, 3–6 onsets a bar, ≤ 12 st [house#1][house#42].
     lead: (4.0, 12, 0.7),
     bass_range: (29, 40),
-    bass_sounds: &["roundBass", "pluckBass", "sawBass"],
-    pad_sounds: &["stab", "dubChord", "organ"],
-    arp_sounds: &["pluck"],
-    lead_sounds: &["piano", "ep", "organ"],
+    bass_sounds: &["roundBass", "pluckBass", "fmBass", "sawBass"],
+    pad_sounds: &["stab", "dubChord", "piano", "organ", "modernPluck"],
+    arp_sounds: &["pluck", "modernPluck", "pluckTrance"],
+    lead_sounds: &["piano", "ep", "organ", "vocalLead", "brassLead"],
     form: CHICAGO_FORM,
     template: CHICAGO_TEMPLATE,
     // DJ intros open on the kick (G6) [arrangement#14][arrangement#16].
     intros: &[],
-    levels: &[],
+    levels: &[("Pd", 1.0), ("L", -3.0)],
     // −3 to −4.5 dB [sound-design#29][house#28].
     pump: 0.35,
     tom_fills: false,
@@ -603,10 +613,13 @@ pub const DEEP: Profile = Profile {
     // m9 "the one main chord" [house#15][house#16].
     ext: (1.0, 0.8, 0.3),
     lead: (2.5, 12, 0.3),
-    pad_sounds: &["warmPad", "dubChord", "ep"],
-    lead_sounds: &["ep", "bell", "glass"],
+    bass_sounds: &["roundBass", "sub", "fmBass"],
+    pad_sounds: &["dubChord", "stab", "ep", "modernPluck"],
+    arp_sounds: &["modernPluck", "pluck", "glass"],
+    lead_sounds: &["ep", "modernPluck", "glass", "bell", "vocalLead"],
     form: DEEP_FORM,
     template: DEEP_TEMPLATE,
+    levels: &[("Pd", 0.5), ("L", -3.0)],
     pump: 0.3,
     tape: 0.3,
     glue: 0.45,
@@ -741,376 +754,29 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
                 ],
             ),
         ],
-        "tr909" => {
-            let mut v: Vec<_> = ["hat", "ohat", "ride", "crash"]
-                .iter()
-                .map(|l| {
-                    lane(
-                        l,
-                        &[
-                            ("bits", 6.0),
-                            ("clock", 30000.0),
-                            ("dacLp", 12000.0),
-                            ("noise", 0.6),
-                        ],
-                    )
-                })
-                .collect();
-            for (l, tune, dec) in [
-                ("tomH", 170.0, 0.24),
-                ("tomM", 125.0, 0.28),
-                ("tomL", 90.0, 0.32),
-            ] {
-                v.push(lane(
+        "tr909" => ["hat", "ohat", "ride", "crash"]
+            .iter()
+            .map(|l| {
+                lane(
                     l,
                     &[
-                        ("tune", tune),
-                        ("decay", dec),
-                        ("pitch", 1.9),
-                        ("pt", 0.035),
-                        ("click", 0.3),
-                        ("drive", 1.35),
-                        ("noise", 0.05),
+                        ("bits", 6.0),
+                        ("clock", 30000.0),
+                        ("dacLp", 12000.0),
+                        ("noise", 0.6),
                     ],
-                ));
-            }
-            v
-        }
+                )
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
 
-/// Loads a base patch from [`crate::patches::bpatch`], sets its `name` and
-/// measured Juno chorus parameters (sound-design.md §6), and applies the
-/// genre's instrument voicing (synthwave.md §4.4–4.7).
-pub fn sound_patch(genre: &str, name: &str) -> Option<Lab> {
+/// Loads a base patch from [`crate::patches::bpatch`] and sets its `name`
+/// and measured Juno chorus parameters (sound-design.md §6).
+pub fn sound_patch(_genre: &str, name: &str) -> Option<Lab> {
     let mut lab = bpatch(name)?;
     lab.name = Some(name.to_owned());
-    if matches!(genre, "synthwave" | "outrun") {
-        let osc =
-            |w: &str, det: Option<f64>, oct: Option<f64>, lvl: Option<f64>, pw: Option<f64>| {
-                OscSpec {
-                    w: w.to_owned(),
-                    det,
-                    oct,
-                    lvl,
-                    pw,
-                }
-            };
-        match name {
-            // Prophet-5 / Juno-60 plucked 8th-note bass ("A Real Hero" /
-            // "Nightcall"): saw + PWM pulse + upper-octave saw + phase-locked
-            // sub, snappy filter decay, and Juno Chorus I high-passed above
-            // 180 Hz so the bottom stays mono [synthwave#2][synthwave#38][synthwave#39].
-            "sawBass" => {
-                lab.osc = Some(vec![
-                    osc("saw", None, None, Some(1.0), None),
-                    osc("pulse", Some(7.0), None, Some(0.55), Some(0.42)),
-                    osc("saw", Some(-6.0), Some(1.0), Some(0.35), None),
-                ]);
-                lab.sub = Some(0.6);
-                lab.pwm = Some(0.25);
-                lab.lfo_rate = Some(0.45);
-                lab.cutoff = Some(360.0);
-                lab.res = Some(0.22);
-                lab.fenv = Some(2.85);
-                lab.keytrack = Some(0.15);
-                lab.drive = Some(1.65);
-                lab.a = Some(0.003);
-                lab.d = Some(0.42);
-                lab.s = Some(0.30);
-                lab.r = Some(0.14);
-                lab.fa = Some(0.002);
-                lab.fd = Some(0.40);
-                lab.fs = Some(0.14);
-                lab.fr = Some(0.14);
-                lab.chorus = Some(1.0);
-                lab.chorus_hp = Some(180.0);
-                lab.gain = Some(0.22);
-            }
-            "darkBass" => {
-                lab.osc = Some(vec![
-                    osc("saw", None, None, Some(1.0), None),
-                    osc("pulse", Some(9.0), None, Some(0.65), Some(0.48)),
-                    osc("saw", Some(-8.0), Some(1.0), Some(0.28), None),
-                ]);
-                lab.sub = Some(0.65);
-                lab.pwm = Some(0.2);
-                lab.lfo_rate = Some(0.4);
-                lab.cutoff = Some(310.0);
-                lab.res = Some(0.25);
-                lab.fenv = Some(2.65);
-                lab.keytrack = Some(0.15);
-                lab.drive = Some(2.1);
-                lab.a = Some(0.003);
-                lab.d = Some(0.44);
-                lab.s = Some(0.32);
-                lab.r = Some(0.14);
-                lab.fa = Some(0.002);
-                lab.fd = Some(0.42);
-                lab.fs = Some(0.15);
-                lab.fr = Some(0.14);
-                lab.chorus = Some(1.0);
-                lab.chorus_hp = Some(180.0);
-                lab.gain = Some(0.22);
-            }
-            "pluckBass" => {
-                lab.osc = Some(vec![
-                    osc("saw", None, None, Some(0.9), None),
-                    osc("pulse", Some(6.0), None, Some(0.7), Some(0.38)),
-                ]);
-                lab.sub = Some(0.65);
-                lab.pwm = Some(0.3);
-                lab.lfo_rate = Some(0.5);
-                lab.cutoff = Some(340.0);
-                lab.res = Some(0.26);
-                lab.fenv = Some(3.0);
-                lab.keytrack = Some(0.15);
-                lab.drive = Some(1.75);
-                lab.a = Some(0.003);
-                lab.d = Some(0.38);
-                lab.s = Some(0.24);
-                lab.r = Some(0.14);
-                lab.fa = Some(0.002);
-                lab.fd = Some(0.36);
-                lab.fs = Some(0.10);
-                lab.fr = Some(0.14);
-                lab.chorus = Some(1.0);
-                lab.chorus_hp = Some(180.0);
-                lab.gain = Some(0.22);
-            }
-            // Juno-60 / OB-Xa arpeggio plucks: saw + PWM pulse unison into a
-            // 12 dB/oct filter with a 400 ms envelope and Chorus II
-            // [synthwave#38][synthwave#45].
-            "pluck" => {
-                lab.saw = Some(1.0);
-                lab.pulse = Some(0.55);
-                lab.pw = Some(0.45);
-                lab.pwm = Some(0.45);
-                lab.lfo_rate = Some(0.65);
-                lab.sub = Some(0.0);
-                lab.unison = Some(2.0);
-                lab.detune = Some(10.0);
-                lab.hpf = Some(140.0);
-                lab.cutoff = Some(1050.0);
-                lab.res = Some(0.20);
-                lab.fenv = Some(1.95);
-                lab.keytrack = Some(0.6);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.3);
-                lab.a = Some(0.005);
-                lab.d = Some(0.45);
-                lab.s = Some(0.22);
-                lab.r = Some(0.28);
-                lab.fa = Some(0.004);
-                lab.fd = Some(0.40);
-                lab.fs = Some(0.18);
-                lab.fr = Some(0.28);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.22);
-            }
-            "sqArp" => {
-                lab.saw = Some(0.55);
-                lab.pulse = Some(0.95);
-                lab.pw = Some(0.38);
-                lab.pwm = Some(0.55);
-                lab.lfo_rate = Some(0.75);
-                lab.sub = Some(0.0);
-                lab.unison = Some(2.0);
-                lab.detune = Some(11.0);
-                lab.hpf = Some(140.0);
-                lab.cutoff = Some(1100.0);
-                lab.res = Some(0.22);
-                lab.fenv = Some(1.85);
-                lab.keytrack = Some(0.6);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.3);
-                lab.a = Some(0.005);
-                lab.d = Some(0.45);
-                lab.s = Some(0.25);
-                lab.r = Some(0.28);
-                lab.fa = Some(0.004);
-                lab.fd = Some(0.42);
-                lab.fs = Some(0.20);
-                lab.fr = Some(0.28);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.22);
-            }
-            // Juno-106 / OB-Xa pads: saw + PWM pulse, no sub-oscillator mud,
-            // 180 Hz HPF, open 12 dB/oct filter, and Chorus II [synthwave#43].
-            "warmPad" => {
-                lab.saw = Some(0.9);
-                lab.pulse = Some(0.7);
-                lab.pw = Some(0.45);
-                lab.pwm = Some(0.55);
-                lab.lfo_rate = Some(0.45);
-                lab.sub = Some(0.0);
-                lab.unison = Some(2.0);
-                lab.detune = Some(12.0);
-                lab.hpf = Some(180.0);
-                lab.cutoff = Some(1800.0);
-                lab.res = Some(0.15);
-                lab.fenv = Some(0.6);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.25);
-                lab.a = Some(0.18);
-                lab.d = Some(1.2);
-                lab.s = Some(0.82);
-                lab.r = Some(0.52);
-                lab.fa = Some(0.22);
-                lab.fd = Some(1.4);
-                lab.fs = Some(0.65);
-                lab.fr = Some(0.52);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.22);
-            }
-            "superPad" => {
-                lab.saw = Some(1.0);
-                lab.pulse = Some(0.45);
-                lab.pw = Some(0.5);
-                lab.pwm = Some(0.45);
-                lab.lfo_rate = Some(0.5);
-                lab.sub = Some(0.0);
-                lab.unison = Some(4.0);
-                lab.detune = Some(16.0);
-                lab.hpf = Some(180.0);
-                lab.cutoff = Some(2100.0);
-                lab.res = Some(0.14);
-                lab.fenv = Some(0.7);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.25);
-                lab.a = Some(0.16);
-                lab.d = Some(1.2);
-                lab.s = Some(0.8);
-                lab.r = Some(0.52);
-                lab.fa = Some(0.20);
-                lab.fd = Some(1.4);
-                lab.fs = Some(0.65);
-                lab.fr = Some(0.52);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.21);
-            }
-            "darkPad" => {
-                lab.saw = Some(0.95);
-                lab.pulse = Some(0.55);
-                lab.pw = Some(0.42);
-                lab.pwm = Some(0.5);
-                lab.lfo_rate = Some(0.38);
-                lab.sub = Some(0.0);
-                lab.unison = Some(3.0);
-                lab.detune = Some(14.0);
-                lab.hpf = Some(180.0);
-                lab.cutoff = Some(1450.0);
-                lab.res = Some(0.18);
-                lab.fenv = Some(0.7);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.3);
-                lab.a = Some(0.20);
-                lab.d = Some(1.4);
-                lab.s = Some(0.78);
-                lab.r = Some(0.52);
-                lab.fa = Some(0.24);
-                lab.fd = Some(1.5);
-                lab.fs = Some(0.55);
-                lab.fr = Some(0.52);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.22);
-            }
-            // Prophet-5 / OB-Xa / CS-80 solo leads: detuned saws + PWM pulse,
-            // 12 dB/oct filter, portamento glide, delayed vibrato, and
-            // stereo Chorus II [synthwave#48].
-            "sawLead" => {
-                lab.osc = Some(vec![
-                    osc("saw", Some(-7.0), None, Some(1.0), None),
-                    osc("saw", Some(7.0), None, Some(0.85), None),
-                    osc("pulse", Some(3.0), None, Some(0.45), Some(0.45)),
-                ]);
-                lab.pwm = Some(0.35);
-                lab.lfo_rate = Some(0.6);
-                lab.sub = Some(0.12);
-                lab.cutoff = Some(2300.0);
-                lab.res = Some(0.20);
-                lab.fenv = Some(1.35);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.6);
-                lab.a = Some(0.012);
-                lab.d = Some(0.45);
-                lab.s = Some(0.82);
-                lab.r = Some(0.24);
-                lab.fa = Some(0.012);
-                lab.fd = Some(0.45);
-                lab.fs = Some(0.45);
-                lab.fr = Some(0.24);
-                lab.glide = Some(0.055);
-                lab.vib = Some(8.5);
-                lab.vib_rate = Some(5.5);
-                lab.vib_delay = Some(0.28);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.24);
-            }
-            "sqLead" => {
-                lab.osc = Some(vec![
-                    osc("pulse", Some(-6.0), None, Some(1.0), Some(0.42)),
-                    osc("saw", Some(6.0), None, Some(0.75), None),
-                ]);
-                lab.pwm = Some(0.45);
-                lab.lfo_rate = Some(0.65);
-                lab.sub = Some(0.15);
-                lab.cutoff = Some(2150.0);
-                lab.res = Some(0.22);
-                lab.fenv = Some(1.35);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.55);
-                lab.a = Some(0.012);
-                lab.d = Some(0.42);
-                lab.s = Some(0.80);
-                lab.r = Some(0.24);
-                lab.fa = Some(0.012);
-                lab.fd = Some(0.42);
-                lab.fs = Some(0.42);
-                lab.fr = Some(0.24);
-                lab.glide = Some(0.055);
-                lab.vib = Some(8.5);
-                lab.vib_rate = Some(5.5);
-                lab.vib_delay = Some(0.28);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.15);
-            }
-            "brassLead" => {
-                lab.saw = Some(1.0);
-                lab.pulse = Some(0.55);
-                lab.pw = Some(0.45);
-                lab.pwm = Some(0.4);
-                lab.lfo_rate = Some(0.55);
-                lab.sub = Some(0.0);
-                lab.unison = Some(3.0);
-                lab.detune = Some(12.0);
-                lab.hpf = Some(140.0);
-                lab.cutoff = Some(1850.0);
-                lab.res = Some(0.18);
-                lab.fenv = Some(1.55);
-                lab.slope = Some(12.0);
-                lab.drive = Some(0.45);
-                lab.a = Some(0.028);
-                lab.d = Some(0.48);
-                lab.s = Some(0.78);
-                lab.r = Some(0.26);
-                lab.fa = Some(0.038);
-                lab.fd = Some(0.48);
-                lab.fs = Some(0.48);
-                lab.fr = Some(0.26);
-                lab.bend = Some(0.22);
-                lab.bend_t = Some(0.04);
-                lab.glide = Some(0.055);
-                lab.vib = Some(9.0);
-                lab.vib_rate = Some(5.4);
-                lab.vib_delay = Some(0.32);
-                lab.chorus = Some(2.0);
-                lab.gain = Some(0.22);
-            }
-            _ => {}
-        }
-    }
     // The Juno chorus at its measured depth: ±0.5 ms (I), ±1.1 ms (II),
     // through 15 kHz (sound-design.md §6).
     match lab.chorus {

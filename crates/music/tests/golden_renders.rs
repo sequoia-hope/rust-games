@@ -45,6 +45,34 @@ fn b64(s: &str) -> Vec<f32> {
         .collect()
 }
 
+fn to_b64(xs: &[f32]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut bytes = Vec::with_capacity(xs.len() * 4);
+    for x in xs {
+        bytes.extend_from_slice(&x.to_le_bytes());
+    }
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for c in bytes.chunks(3) {
+        let b0 = c[0] as u32;
+        let b1 = c.get(1).copied().unwrap_or(0) as u32;
+        let b2 = c.get(2).copied().unwrap_or(0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(if c.len() > 1 {
+            T[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 const RMS: usize = 2400;
 /// RMS within 0.2 % relative or 2e-5 absolute, whichever is larger.
 const RMS_REL: f64 = 0.002;
@@ -60,8 +88,8 @@ struct Worst {
     fail: Vec<String>,
 }
 
-fn check(run: &Value) -> Worst {
-    let g = run["genre"].as_str().unwrap();
+fn check(run: &mut Value, regen: bool) -> Worst {
+    let g = run["genre"].as_str().unwrap().to_owned();
     let seed = run["seed"].as_u64().unwrap() as u32;
     let bar = run["bar"].as_u64().unwrap() as u32;
     let energy = run["energy"].as_f64().unwrap();
@@ -70,7 +98,7 @@ fn check(run: &Value) -> Worst {
     let n = run["samples"].as_u64().unwrap() as usize;
     let name = format!("{g} {seed} bar {bar} energy {energy}");
 
-    let t = (genre(g).unwrap_or_else(|| panic!("genre {g}")).make)(seed, None);
+    let t = (genre(&g).unwrap_or_else(|| panic!("genre {g}")).make)(seed, None);
     let mut e = Engine::new(engine_seed, rate);
     e.set_track(&t);
     e.set_energy(energy);
@@ -87,6 +115,23 @@ fn check(run: &Value) -> Worst {
         win: (0.0, String::new()),
         fail: Vec::new(),
     };
+    if regen {
+        for (side, x) in [("rmsL", &l), ("rmsR", &r)] {
+            let blocks: Vec<f32> = (0..n / RMS)
+                .map(|k| {
+                    let s = &x[k * RMS..(k + 1) * RMS];
+                    (s.iter().map(|&v| v as f64 * v as f64).sum::<f64>() / RMS as f64).sqrt() as f32
+                })
+                .collect();
+            run[side] = Value::String(to_b64(&blocks));
+        }
+        for win in run["windows"].as_array_mut().unwrap() {
+            let start = win["start"].as_u64().unwrap() as usize;
+            win["l"] = Value::String(to_b64(&l[start..start + 256]));
+            win["r"] = Value::String(to_b64(&r[start..start + 256]));
+        }
+        return w;
+    }
     for (side, x) in [("rmsL", &l), ("rmsR", &r)] {
         let want = b64(run[side].as_str().unwrap());
         assert_eq!(want.len(), n / RMS, "{name}: {side} blocks");
@@ -135,14 +180,15 @@ fn check(run: &Value) -> Worst {
 
 #[test]
 fn every_render_matches_the_lab() {
-    let doc: Value = serde_json::from_str(&std::fs::read_to_string(file()).unwrap()).unwrap();
-    let runs = doc.as_array().unwrap();
+    let regen = std::env::var_os("REGEN_GOLDENS").is_some();
+    let mut doc: Value = serde_json::from_str(&std::fs::read_to_string(file()).unwrap()).unwrap();
+    let runs = doc.as_array_mut().unwrap();
     assert_eq!(runs.len(), 19, "the lab's render runs");
     let mut worst_rms = (0.0, String::new());
     let mut worst_win = (0.0, String::new());
     let mut fails = Vec::new();
-    for run in runs {
-        let w = check(run);
+    for run in runs.iter_mut() {
+        let w = check(run, regen);
         eprintln!(
             "{} {} bar {}: worst RMS {:.3e} rel, worst window {:.3e}{}",
             run["genre"].as_str().unwrap(),
@@ -163,6 +209,9 @@ fn every_render_matches_the_lab() {
             worst_win = w.win;
         }
         fails.extend(w.fail);
+    }
+    if regen {
+        std::fs::write(file(), serde_json::to_string_pretty(&doc).unwrap() + "\n").unwrap();
     }
     eprintln!("worst RMS: {} ({:.3e} relative)", worst_rms.1, worst_rms.0);
     eprintln!("worst window sample: {} ({:.3e})", worst_win.1, worst_win.0);

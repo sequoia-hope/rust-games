@@ -138,17 +138,29 @@ pub fn drum_var(p: &Pattern, d: &mut Dice) -> Pattern {
     }
 }
 
-/// Half the hits of a loop: the strong ones (`s`, sparse).
+/// Half the hits of a loop: the strong ones (`s`, sparse), or every second
+/// note when the pattern is wholly syncopated off the half-bar grid.
 pub fn sparse(p: &Pattern) -> Pattern {
+    let mut notes: Vec<Note> = p
+        .notes
+        .iter()
+        .filter(|n| (n.at as i64) % 8 == 0)
+        .cloned()
+        .collect();
+    let min_notes = (p.len / 16.0).round().max(1.0) as usize;
+    if notes.len() < min_notes {
+        notes = p
+            .notes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % 2 == 0)
+            .map(|(_, n)| n.clone())
+            .collect();
+    }
     Pattern {
         name: format!("{} sparse", p.name),
         len: p.len,
-        notes: p
-            .notes
-            .iter()
-            .filter(|n| (n.at as i64) % 8 == 0)
-            .cloned()
-            .collect(),
+        notes,
     }
 }
 
@@ -280,7 +292,7 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
             .collect();
         ok[d.int(0, ok.len() as i32) as usize]
     };
-    let roll_figure = [0, 7, 12, 10, 7, 12];
+    let roll_figure = [0, 0, 0, 0, 7, -2];
     let octave_jumps = d.chance(0.4);
     for (bar, c) in prog.iter().enumerate() {
         let root = bass_note(c, tonic, lo) as f64;
@@ -301,22 +313,18 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
             BassStyle::HouseCells => {
                 for (s, iv) in cells[cell] {
                     let m = if *iv < 0 { next } else { root + *iv as f64 };
-                    notes.push(Note::pitched(b0 + (*s - 1) as f64, 1.6, vec![m], 0.85));
+                    notes.push(Note::pitched(b0 + (*s - 1) as f64, 1.8, vec![m], 0.85));
                 }
             }
             BassStyle::Rolling => {
                 let third = if c.minor { 3.0 } else { 4.0 };
                 for (k, s) in [0, 3, 6, 8, 11, 14].iter().enumerate() {
-                    let iv = if k == 2 {
-                        third + 12.0
-                    } else {
-                        roll_figure[k] as f64
-                    };
+                    let iv = if k == 2 { third } else { roll_figure[k] as f64 };
                     notes.push(Note::pitched(
                         b0 + *s as f64,
-                        1.2,
+                        1.6,
                         vec![root + iv],
-                        if k == 0 { 0.95 } else { 0.7 },
+                        if k == 0 { 0.92 } else { 0.72 },
                     ));
                 }
             }
@@ -341,16 +349,16 @@ pub fn voicings(prog: &[Chord], tonic: i32, n: usize, lo: i32, hi: i32) -> Vec<V
         .collect()
 }
 
-/// Chords: held a bar each, or stabs on a rhythm of off-16ths chosen once
-/// a song ([sound-design#27]).
+/// Chords: held a bar each, or stabs on a syncopated rhythm of off-16ths
+/// chosen once a song ([sound-design#27]).
 pub fn chords(style: ChordStyle, voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
-    let rhythms: [&[u8]; 4] = [
-        &[4, 7, 11],
-        &[3, 8, 11, 14],
-        &[1, 4, 7, 10, 13],
-        &[3, 7, 11, 15],
+    let rhythms: [(&[u8], &[u8]); 4] = [
+        (&[4, 11], &[4, 14]),
+        (&[3, 12], &[3, 8, 15]),
+        (&[1, 7, 14], &[4, 12]),
+        (&[3, 8, 14], &[3, 11]),
     ];
-    let rhythm = *d.pick(&rhythms);
+    let (r1, r2) = *d.pick(&rhythms);
     let mut notes = Vec::new();
     for (bar, v) in voiced.iter().enumerate() {
         let b0 = bar as f64 * 16.0;
@@ -358,8 +366,14 @@ pub fn chords(style: ChordStyle, voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
         match style {
             ChordStyle::Sustain => notes.push(Note::pitched(b0, 15.5, midis, 0.7)),
             ChordStyle::Stabs => {
-                for s in rhythm {
-                    notes.push(Note::pitched(b0 + (*s - 1) as f64, 1.0, midis.clone(), 0.8));
+                let rhythm = if bar % 2 == 0 { r1 } else { r2 };
+                for (i, s) in rhythm.iter().enumerate() {
+                    notes.push(Note::pitched(
+                        b0 + (*s - 1) as f64,
+                        2.0,
+                        midis.clone(),
+                        if i == 0 { 0.78 } else { 0.68 },
+                    ));
                 }
             }
         }
@@ -403,18 +417,23 @@ pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
     }
 }
 
-/// A drone: the tonic and fifth held through the loop (an atmosphere bed).
-pub fn drone(tonic: i32, bars: usize) -> Pattern {
-    let t = (tonic + 24) as f64;
+/// An atmospheric bed: each bar's chord root and fifth held softly across
+/// the bar.
+pub fn drone(voiced: &[Vec<i32>]) -> Pattern {
+    let mut notes: Vec<Note> = Vec::new();
+    for (bar, v) in voiced.iter().enumerate() {
+        let r = v.first().copied().unwrap_or(60) as f64;
+        notes.push(Note::pitched(
+            bar as f64 * 16.0,
+            15.8,
+            vec![r, r + 7.0],
+            0.55,
+        ));
+    }
     Pattern {
         name: "drone".into(),
-        len: bars as f64 * 16.0,
-        notes: vec![Note::pitched(
-            0.0,
-            bars as f64 * 16.0 - 0.5,
-            vec![t, t + 7.0],
-            0.5,
-        )],
+        len: voiced.len() as f64 * 16.0,
+        notes,
     }
 }
 
@@ -688,7 +707,12 @@ pub fn pool(p: &Profile, mode: &Mode, d: &mut Dice) -> Vec<(Vec<Chord>, f64)> {
     src.iter()
         .filter_map(|(s, w)| {
             let mut prog = super::theory::progression(s, mode)?;
+            let mut seen: Vec<(String, Vec<i32>)> = Vec::new();
             for c in &mut prog {
+                if let Some((_, prev_tones)) = seen.iter().find(|(n, _)| *n == c.name) {
+                    c.tones = prev_tones.clone();
+                    continue;
+                }
                 let has7 = c.tones.iter().any(|t| *t == 10 || *t == 11);
                 let diatonic7 = if c.minor {
                     10
@@ -702,11 +726,11 @@ pub fn pool(p: &Profile, mode: &Mode, d: &mut Dice) -> Vec<(Vec<Chord>, f64)> {
                 }
                 if d.chance(p.ext.1) && !c.tones.contains(&14) {
                     c.tones.push(14);
-                }
-                if d.chance(p.ext.2) && c.minor && !c.tones.contains(&17) {
+                } else if d.chance(p.ext.2) && c.minor && !c.tones.contains(&17) {
                     c.tones.push(17);
                 }
                 c.tones.sort();
+                seen.push((c.name.clone(), c.tones.clone()));
             }
             Some((prog, *w))
         })
