@@ -34,7 +34,7 @@ own requirements: `docs/AUDIO.md`.
 | `crates/mw_policy` | the trained networks in plain Rust, from their weight blobs; the parity test against PyTorch |
 | `crates/mw_audio` | simulation-driven sound effects (`docs/AUDIO.md`): footfalls, foot slip, 12-joint actuator drive/strain/heat/derate/trip/fault, projectile hull ring, fall crash, body creak, wind; zero dependencies so it also builds as a standalone `AudioWorklet` wasm |
 | `crates/mw_demo` | the Bevy client: the training viewer and the tech demos; `web/` is its page (`index.html` the kit's loader, `ui.js` the controls, curves and inspector) |
-| `train/` | PPO (`train.py`), the networks and their export (`policy.py`), `build.sh` |
+| `train/` | PPO (`train.py`), the networks and their export (`policy.py`), the estimator's distillation (`estimator.py`), `build.sh` |
 | `checkpoints/<run>/` | a training run's output (git-ignored): checkpoints, `metrics.jsonl`, coverage; `runs.json` lists the runs |
 | `assets/policies/` | the policies the demos ship (committed; the parity test reads them) |
 | `devlog/` | **the dev log**: `index.html`, newest entry first, with pictures in `img/` |
@@ -47,12 +47,14 @@ own requirements: `docs/AUDIO.md`.
 | Tests | `cargo nextest run -p mw_sim -p mw_policy -p mw_audio -p mw_demo` |
 | Render SFX traces | `cargo run -p mw_audio --release --example render_traces -- /tmp/mw_audio` |
 | The Python module | `PYTHON=<a python with torch> train/build.sh` |
-| Train | `cd train && python train.py --run <name> --steps 150e6 --curriculum` |
+| Train | `cd train && python train.py --run <name> --steps 150e6 --curriculum` (`--init <run>` fine-tunes from a run) |
+| Distill the estimator | `cd train && python estimator.py --teacher <run> --run <name> --steps 40e6`; ship `est_*.bin` beside its teacher as `assets/policies/<teacher>.estimator.bin` (+ `.json`) |
 | Web build into `dist/web/` | `cargo xtask web --release` (`--only webgpu\|webgl2`) |
-| Native client | `cargo run --release -p mw_demo -- --mode impact --policy assets/policies/teacher-v1.bin` |
+| Native client | `cargo run --release -p mw_demo --bin mech-works -- --mode impact --policy assets/policies/teacher-v1.bin [--estimator <blob>]` |
+| A native picture, no server | the same with `--stage '{"cmd":"camera","distance":7,"yaw":0.9}' --shot shots/x.png --after 6` |
 | Serve (the page, and `checkpoints/` live) | `./serve.sh` (registered as `mech-works`) |
 | The standing benchmark | `cargo run --release -p mw_sim --example stand` |
-| A policy walking, all in Rust | `cargo run --release -p mw_policy --example eval -- <blob> [m/s]` |
+| A policy walking, all in Rust | `EPISODES=64 cargo run --release -p mw_policy --example eval -- <blob> [m/s] [estimator blob]` (told / estimated / told-nominal body; falls, speed, joint acceleration) |
 | Pictures (server up; `npm install` once) | `node tools/page-shot.mjs --url <server>/ --query mode=impact --name x --steps 'wait:3000,stage:{"cmd":"walk","forward":0.6},wait:8000'` (whole page, WebGL2), `node tools/shot.mjs --url <server>/` (canvas only) |
 
 The page takes `?mode=viewer|impact|damage|calibration`. On the dev server

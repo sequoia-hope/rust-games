@@ -8,8 +8,8 @@ use bevy::prelude::*;
 use pk_shell::{Inbox, bridge};
 use wasm_bindgen::prelude::*;
 
-use crate::Status;
 use crate::impact::Range;
+use crate::{Mode, Status};
 
 #[wasm_bindgen]
 pub fn run() {

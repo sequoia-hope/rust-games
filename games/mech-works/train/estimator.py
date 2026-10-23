@@ -83,6 +83,7 @@ def parse():
     p.add_argument("--warmup", type=float, default=2e6, help="steps with the teacher driving")
     p.add_argument("--handover", type=float, default=8e6, help="steps over which the student takes over")
     p.add_argument("--level", type=float, default=None, help="curriculum level (default: the teacher's last)")
+    p.add_argument("--mix-every", type=int, default=100, help="policy steps between redraws of the episode mix (0: one level)")
     p.add_argument("--log-every", type=int, default=50, help="policy steps")
     p.add_argument("--export-every", type=int, default=1000, help="policy steps")
     p.add_argument("--seed", type=int, default=1)
@@ -240,6 +241,11 @@ def main():
             acc["track"] += float(terms[:, 0].mean()) / (1.5 / mw_sim_py.POLICY_HZ)
         steps += n
         it += 1
+        if a.mix_every and it % a.mix_every == 0:
+            # Episodes starting now draw from a level chosen from nominal to
+            # the full one: at the teacher's level alone it never sees the
+            # exact nominal body, and walked slowly on it.
+            env.set_curriculum(**curriculum(level * float(rng.choice([0.0, 0.5, 1.0, 1.0]))))
         if it == 200:
             test_hist = raw_hist[:4].cpu().numpy().copy()
 

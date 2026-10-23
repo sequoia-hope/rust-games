@@ -109,6 +109,7 @@ fn main() {
             let secs: f32 = results.iter().map(|e| e.secs).sum();
             let err: f32 = results.iter().map(|e| e.err).sum();
             let errs: usize = results.iter().map(|e| e.errs).sum();
+            let acc: f32 = results.iter().map(|e| e.acc).sum();
             let label = match way {
                 Body::Told => "told",
                 Body::Estimated => "estimated",
@@ -120,9 +121,10 @@ fn main() {
                 String::new()
             };
             println!(
-                "{name:26} {label:13}: {falls:2}/{episodes} fell, {:5.1} m per episode, {:.2} m/s (asked {forward}){est}",
+                "{name:26} {label:13}: {falls:2}/{episodes} fell, {:5.1} m per episode, {:.2} m/s (asked {forward}), joint accel rms {:4.0} rad/s²{est}",
                 dist / episodes as f32,
-                dist / secs
+                dist / secs,
+                (acc / (secs / POLICY_DT)).sqrt()
             );
         }
     }
@@ -134,6 +136,8 @@ struct Episode {
     secs: f32,
     err: f32,
     errs: usize,
+    /// Sum over steps of the mean squared joint acceleration, (rad/s²)².
+    acc: f32,
 }
 
 fn episode(
@@ -158,7 +162,9 @@ fn episode(
         secs: 0.0,
         err: 0.0,
         errs: 0,
+        acc: 0.0,
     };
+    let mut qd0 = env.sim.joint_velocities();
     if let Some(e) = estimator.as_mut() {
         e.reset(&env.observe());
     }
@@ -192,6 +198,14 @@ fn episode(
         }
         let r = env.step(&action);
         out.secs += POLICY_DT;
+        let qd = env.sim.joint_velocities();
+        out.acc += qd
+            .iter()
+            .zip(&qd0)
+            .map(|(a, b)| ((a - b) / POLICY_DT).powi(2))
+            .sum::<f32>()
+            / JOINTS as f32;
+        qd0 = qd;
         if r.terminated {
             out.fell = true;
             break;
