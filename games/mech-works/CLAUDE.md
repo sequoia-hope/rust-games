@@ -50,7 +50,7 @@ own requirements: `docs/AUDIO.md`.
 | Train | `cd train && python train.py --run <name> --steps 150e6 --curriculum` (`--init <run>` fine-tunes from a run) |
 | Distill the estimator | `cd train && python estimator.py --teacher <run> --run <name> --steps 40e6`; ship `est_*.bin` beside its teacher as `assets/policies/<teacher>.estimator.bin` (+ `.json`) |
 | Web build into `dist/web/` | `cargo xtask web --release` (`--only webgpu\|webgl2`) |
-| Native client | `cargo run --release -p mw_demo --bin mech-works -- --mode impact --policy assets/policies/teacher-v1.bin [--estimator <blob>]` |
+| Native client | `cargo run --release -p mw_demo --bin mech-works -- --mode impact --policy assets/policies/teacher-v2.bin [--estimator assets/policies/teacher-v2.estimator.bin]` |
 | A native picture, no server | the same with `--stage '{"cmd":"camera","distance":7,"yaw":0.9}' --shot shots/x.png --after 6` |
 | Serve (the page, and `checkpoints/` live) | `./serve.sh` (registered as `mech-works`) |
 | The standing benchmark | `cargo run --release -p mw_sim --example stand` |

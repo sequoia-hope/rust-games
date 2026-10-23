@@ -107,9 +107,20 @@
 <img src="img/2026-10-23-mech-back.jpg" alt="The mech from behind: reactor pack and stacks, pistons on the legs">
 <p class="cap">Front quarter and back. (The native client now takes <code>--stage '{json}'</code> and <code>--shot out.png --after 6</code>, so a change can be looked at without serving a build.)</p>
 
+<h3>teacher-v2 and estimator-v2 ship</h3>
+<p><code>teacher-v2</code> finished its 80M steps. The joints' RMS acceleration is 17–21 rad/s², against teacher-v1's 46–50: 60% less jerk, at the same fall rates (64 episodes each, asked 1 m/s). The cost was speed: 0.62 m/s on the nominal body, against 0.80. Its estimator, <code>estimator-v2</code>, trained with nominal episodes mixed in. It reaches a latent error of 0.018 (estimator-v1 got 0.065) and walks a little faster on its guess than on the truth:</p>
+<table>
+<tr><th>teacher-v2, asked 1 m/s</th><th>told</th><th>estimated</th><th>told nominal</th></tr>
+<tr><td>nominal body</td><td>0 fell, 0.62 m/s</td><td>0 fell, 0.68 m/s</td><td>0 fell, 0.62 m/s</td></tr>
+<tr><td>random bodies</td><td>4 fell, 0.60 m/s</td><td>4 fell, 0.64 m/s</td><td>4 fell, 0.50 m/s</td></tr>
+<tr><td>bodies + damage</td><td>6 fell, 0.58 m/s</td><td>6 fell, 0.63 m/s</td><td>8 fell, 0.44 m/s</td></tr>
+<tr><td>bodies + pushes + damage</td><td>34 fell</td><td>34 fell</td><td>29 fell</td></tr>
+</table>
+<p>The demos now load <code>teacher-v2</code> and its estimator. Body knowledge still buys little: told the nominal body, v2 walks slower but falls no more often. The next teacher is trained on wider bodies and a side-mounted tool of up to 900 kg, so that knowing the body has to pay.</p>
+
 <h3>Next</h3>
 <ul>
-<li>Evaluate <code>teacher-v2</code> for smoothness, ship it, and distill <code>estimator-v2</code> from it, with nominal episodes mixed in.</li>
+<li><code>teacher-v3</code> on wider bodies and a side-mounted tool, then its estimator.</li>
 <li>Decide the wider body ranges, so knowing the body pays (needs the owner).</li>
 <li>Native vs WASM replay parity test.</li>
 </ul>
