@@ -455,6 +455,8 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                         let core = transpose(&core, tr);
                         let var = if *rk == "L" {
                             transpose(&solo_pat, tr)
+                        } else if *rk == "B" && p.key != "orchestral" {
+                            parts::bass_var(&core, &mut dp)
                         } else {
                             core.clone()
                         };
@@ -547,15 +549,43 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                                 _ => 0,
                             }]
                         .2;
-                        // A pattern restarts with its block, so the hook's
-                        // call lands on the chorus's downbeat.
-                        layer.clips.push(Clip {
-                            bar: from,
-                            bars: b1 - from,
-                            pattern: pi,
-                            mark,
-                            gain: 1.0,
-                        });
+                        let pvi = pat_of[group * 3 + 1].2;
+                        // Second-drop / peak variation (RULES.md G3): on a peak
+                        // chorus or drop (energy >= 0.9, >= 16 bars), the bass
+                        // steps up to its variation in the second half.
+                        let total_len = b1 - from;
+                        if *rk == "B"
+                            && p.key != "orchestral"
+                            && want == Mark::Core
+                            && p.form[bi].energy >= 0.9
+                            && total_len >= 16
+                        {
+                            let half = (total_len / 2 / 4) * 4;
+                            layer.clips.push(Clip {
+                                bar: from,
+                                bars: half,
+                                pattern: pi,
+                                mark,
+                                gain: 1.0,
+                            });
+                            layer.clips.push(Clip {
+                                bar: from + half,
+                                bars: total_len - half,
+                                pattern: pvi,
+                                mark: Mark::Var,
+                                gain: 1.0,
+                            });
+                        } else {
+                            // A pattern restarts with its block, so the hook's
+                            // call lands on the chorus's downbeat.
+                            layer.clips.push(Clip {
+                                bar: from,
+                                bars: total_len,
+                                pattern: pi,
+                                mark,
+                                gain: 1.0,
+                            });
+                        }
                     }
                     if mark == Mark::Filtered {
                         // One sweep over a run of filtered blocks.
@@ -616,14 +646,85 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                     .to(kick_in as f64, 1.0, Curve::Step),
             );
         }
+        // Synth parameter automation: filter cutoff opens into drops/choruses
+        // and unison detune widens on chorus pads (RULES.md G4, G5).
+        if p.key != "orchestral"
+            && let Sound::Synth(lab) = &layer.sound
+        {
+            if matches!(*rk, "B" | "A")
+                && let Some(base_cut) = lab.cutoff
+            {
+                let mut cut = Automation::new("cutoff");
+                for (bi, _) in cells.iter().enumerate() {
+                    let Some(&b0) = starts.get(bi) else { break };
+                    let b1 = b0 + p.form[bi].bars;
+                    if p.form[bi].name == "build" || p.form[bi].name == "lift" {
+                        cut = cut.to(b0 as f64, base_cut * 0.85, Curve::Linear).to(
+                            b1 as f64 - 0.01,
+                            base_cut * 1.30,
+                            Curve::Linear,
+                        );
+                    } else if chorus(bi) {
+                        cut = cut.to(b0 as f64, base_cut * 1.12, Curve::Step);
+                    } else {
+                        cut = cut.to(b0 as f64, base_cut * 0.92, Curve::Step);
+                    }
+                }
+                layer.autos.push(cut);
+            }
+            if *rk == "B" && lab.kind == "tb303" {
+                let base_res = lab.res.unwrap_or(0.80);
+                let base_dec = lab.decay.unwrap_or(0.32);
+                let mut res = Automation::new("res");
+                let mut dec = Automation::new("decay");
+                for (bi, _) in cells.iter().enumerate() {
+                    let Some(&b0) = starts.get(bi) else { break };
+                    let b1 = b0 + p.form[bi].bars;
+                    if p.form[bi].name == "build" || p.form[bi].name == "breakdown" {
+                        res = res
+                            .to(b0 as f64, (base_res - 0.08).max(0.5), Curve::Linear)
+                            .to(b1 as f64 - 0.01, (base_res + 0.12).min(0.95), Curve::Linear);
+                        dec = dec.to(b0 as f64, base_dec * 0.75, Curve::Linear).to(
+                            b1 as f64 - 0.01,
+                            base_dec * 1.65,
+                            Curve::Linear,
+                        );
+                    } else if chorus(bi) {
+                        res = res.to(b0 as f64, (base_res + 0.06).min(0.92), Curve::Step);
+                        dec = dec.to(b0 as f64, base_dec * 1.25, Curve::Step);
+                    } else {
+                        res = res.to(b0 as f64, base_res * 0.92, Curve::Step);
+                        dec = dec.to(b0 as f64, base_dec * 0.85, Curve::Step);
+                    }
+                }
+                layer.autos.push(res);
+                layer.autos.push(dec);
+            }
+            if *rk == "Pd"
+                && lab.unison.unwrap_or(1.0) >= 3.0
+                && let Some(base_det) = lab.detune
+            {
+                let mut det = Automation::new("detune");
+                for (bi, _) in cells.iter().enumerate() {
+                    let Some(&b0) = starts.get(bi) else { break };
+                    let v = if chorus(bi) {
+                        base_det * 1.15
+                    } else {
+                        base_det * 0.90
+                    };
+                    det = det.to(b0 as f64, v, Curve::Step);
+                }
+                layer.autos.push(det);
+            }
+        }
         if !layer.clips.is_empty() {
             song.layers.push(layer);
         }
     }
 
-    // Risers into the drops, and the bus high-pass rising under them
-    // (G4: "HPF on the music bus rising to remove the bottom end just
-    // before the drop", reset at the drop).
+    // Risers into the drops, downlifters on the drop downbeat, and the bus
+    // high-pass rising under builds (G4: "HPF on the music bus rising to
+    // remove the bottom end just before the drop", reset at the drop).
     if let Some((rk, cells)) = p.template.iter().find(|(k, _)| *k == "R") {
         let mut hp = Automation::new("hp").to(0.0, 0.0, Curve::Step);
         for (bi, c) in row(rk, cells).into_iter().enumerate() {
@@ -634,12 +735,28 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                     bars: (b - a) as f64,
                     level: 1.0,
                 });
+                if b < bars && p.key != "orchestral" {
+                    song.fx.push(Fx::Downlifter {
+                        bar: b as f64,
+                        bars: 2.0,
+                        level: 0.85,
+                    });
+                }
                 hp = hp
                     .to(a as f64, 20.0, Curve::Step)
                     .to(b as f64 - 0.05, 380.0, Curve::Parabolic)
                     .to(b as f64, 0.0, Curve::Step);
             }
         }
+        song.fx.sort_by(|x, y| {
+            let bx = match x {
+                Fx::Riser { bar, .. } | Fx::Downlifter { bar, .. } => *bar,
+            };
+            let by = match y {
+                Fx::Riser { bar, .. } | Fx::Downlifter { bar, .. } => *bar,
+            };
+            bx.total_cmp(&by)
+        });
         song.bus.push(hp);
     }
     song.notes = notes;

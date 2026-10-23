@@ -95,7 +95,17 @@ pub fn drum_loop(name: &str, lanes: &[DrumLane], d: &mut Dice) -> Pattern {
                     l.vel
                 };
                 let vel = (base * (1.0 + l.jitter * (d.f() * 2.0 - 1.0))).clamp(0.05, 1.0);
-                notes.push(Note::hit(bar as f64 * 16.0 + st, l.lane, vel));
+                // Subtle micro-timing groove on humanised off-16ths (RULES.md G1).
+                let micro = if even && l.jitter > 0.0 && l.role != "K" {
+                    (d.f() * 2.0 - 1.0) * 0.02
+                } else {
+                    0.0
+                };
+                notes.push(Note::hit(
+                    (bar as f64 * 16.0 + st + micro).max(0.0),
+                    l.lane,
+                    vel,
+                ));
             }
         }
     }
@@ -228,8 +238,17 @@ pub fn fill(p: &Pattern, role: &str, toms: bool, d: &mut Dice) -> Pattern {
                 }
             }
         }
-        ("K", false) => notes.push(Note::hit(14.0, "kick", 0.65)),
-        ("C", false) => notes.push(Note::hit(15.0, "snare", 0.6)),
+        ("K", false) => {
+            // House turnaround: pull beat 4's four-on-the-floor kick and play a
+            // syncopated pickup into the next 8-bar phrase [house#5][house#6].
+            notes.retain(|n| n.at < 12.0);
+            notes.push(Note::hit(11.0, "kick", 0.72));
+            notes.push(Note::hit(14.0, "kick", 0.85));
+        }
+        ("C", false) => {
+            notes.push(Note::hit(14.0, "snare", 0.52));
+            notes.push(Note::hit(15.0, "snare", 0.72));
+        }
         _ => {}
     }
     notes.sort_by(|a, b| a.at.total_cmp(&b.at));
@@ -254,7 +273,17 @@ pub fn roll(bars: u32, d: &mut Dice) -> Pattern {
         (b * 0.125, 1.0),
         (b * 0.125, 0.5),
     ];
-    let early = d.chance(0.25);
+    // Pre-drop vacuum (RULES.md G4): most builds cut the snare roll for the
+    // final 1–2 beats before the drop downbeat, leaving an accented hit at the
+    // cutoff point so the drop lands out of silence.
+    let gap_steps = if d.chance(0.45) {
+        8.0
+    } else if d.chance(0.65) {
+        4.0
+    } else {
+        0.0
+    };
+    let cutoff_at = total - gap_steps;
     let mut notes = Vec::new();
     let mut at = 0.0;
     for (len, step) in stages {
@@ -262,7 +291,7 @@ pub fn roll(bars: u32, d: &mut Dice) -> Pattern {
         let mut t = at;
         let mut k = 0;
         while t < end - 1e-9 {
-            if !(early && t >= total - 8.0) {
+            if t < cutoff_at - 1e-9 {
                 let u = t / total;
                 let mut n = Note::hit(
                     t,
@@ -270,6 +299,10 @@ pub fn roll(bars: u32, d: &mut Dice) -> Pattern {
                     (0.15 + 0.85 * u * u).min(1.0) * if k % 4 == 0 { 1.0 } else { 0.85 },
                 );
                 n.accent = k % 4 == 0;
+                notes.push(n);
+            } else if (t - cutoff_at).abs() < 1e-6 && gap_steps > 0.0 {
+                let mut n = Note::hit(t, "snare", 0.98);
+                n.accent = true;
                 notes.push(n);
             }
             t += step;
@@ -323,6 +356,20 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
     };
     let roll_figure = [0, 0, 0, 0, 7, -2];
     let octave_jumps = d.chance(0.4);
+    // Fixed 1-bar 303 riff skeleton per song (RULES.md P8: "enter 16 notes
+    // quickly, random pitches inside the key, then fix the riff").
+    let acid_steps: [(u8, i32, bool, bool); 12] = {
+        let mut s = [(1u8, 0i32, false, false); 12];
+        let grid = [1u8, 2, 3, 4, 5, 7, 8, 9, 11, 12, 14, 16];
+        let ivs = [0i32, 0, 12, 0, 7, 10, 12, -2];
+        for (i, &st) in grid.iter().enumerate() {
+            let iv = if i == 0 || i == 4 { 0 } else { *d.pick(&ivs) };
+            let acc = d.chance(0.32);
+            let sld = i > 0 && d.chance(0.22);
+            s[i] = (st, iv, acc, sld);
+        }
+        s
+    };
     for (bar, c) in prog.iter().enumerate() {
         let root = bass_note(c, tonic, lo) as f64;
         let next = bass_note(&prog[(bar + 1) % n], tonic, lo) as f64;
@@ -377,11 +424,100 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
                     notes.push(Note::pitched(b0 + 14.0, 1.8, vec![next], 0.76));
                 }
             }
+            BassStyle::Acid303 => {
+                for &(st, iv, acc, sld) in &acid_steps {
+                    let m = (root + iv as f64).clamp(lo as f64, (lo + 20) as f64);
+                    let mut note = Note::pitched(
+                        b0 + (st - 1) as f64,
+                        if sld { 1.08 } else { 0.62 },
+                        vec![m],
+                        if acc { 0.95 } else { 0.76 },
+                    );
+                    note.accent = acc;
+                    note.slide = sld;
+                    notes.push(note);
+                }
+            }
+            BassStyle::Offbeat16 => {
+                // Trance rolling 16ths: off-beat 8ths (steps 3, 7, 11, 15) jump
+                // up an octave or play full velocity while 16ths between them
+                // chug on the root [trance#1][trance#3][trance#15].
+                for s in 0..16 {
+                    if s % 4 == 0 {
+                        continue; // leave space for the four-on-the-floor kick
+                    }
+                    let offbeat = s % 4 == 2;
+                    let up = offbeat && octave_jumps;
+                    notes.push(Note::pitched(
+                        b0 + s as f64,
+                        0.75,
+                        vec![root + if up { 12.0 } else { 0.0 }],
+                        if offbeat { 0.92 } else { 0.70 },
+                    ));
+                }
+            }
+            BassStyle::DnbRoller => {
+                // Two-step DnB roller: long Reese/sub on step 1 (6 steps),
+                // step 7 pickup, step 11 main hit (4 steps), and bar-end 16th
+                // inflection into the next bar [dnb#11][dnb#20].
+                let fifth = if root + 7.0 <= (lo + 16) as f64 {
+                    root + 7.0
+                } else {
+                    root + 5.0
+                };
+                notes.push(Note::pitched(b0, 5.6, vec![root], 0.94));
+                let mut g = Note::pitched(b0 + 6.0, 3.6, vec![root], 0.78);
+                g.slide = true;
+                notes.push(g);
+                notes.push(Note::pitched(b0 + 10.0, 3.8, vec![root], 0.92));
+                notes.push(Note::pitched(
+                    b0 + 14.0,
+                    1.8,
+                    vec![if bar % 2 == 1 { next } else { fifth }],
+                    0.82,
+                ));
+            }
+            BassStyle::DubstepWobble => {
+                // Half-time 140 BPM wobble: heavy beat-1 swell (steps 1..7),
+                // pickup before the beat-3 snare (step 7..9), and syncopated
+                // answer on steps 11 and 14 [ambient#38][ambient#39].
+                notes.push(Note::pitched(b0, 5.8, vec![root], 0.95));
+                let mut n2 = Note::pitched(b0 + 6.0, 2.2, vec![root + 12.0], 0.84);
+                n2.accent = true;
+                notes.push(n2);
+                notes.push(Note::pitched(b0 + 10.0, 3.6, vec![root], 0.90));
+                if bar % 2 == 1 {
+                    let mut n4 = Note::pitched(b0 + 14.0, 1.8, vec![next], 0.85);
+                    n4.slide = true;
+                    notes.push(n4);
+                }
+            }
         }
     }
     Pattern {
         name: "bass".into(),
         len: n as f64 * 16.0,
+        notes,
+    }
+}
+
+/// Second-drop / variation bass pattern: lifts off-beat or turnaround notes up
+/// an octave and adds accent energy so the second chorus/drop evolves (G3).
+pub fn bass_var(p: &Pattern, d: &mut Dice) -> Pattern {
+    let mut notes = p.notes.clone();
+    for (i, n) in notes.iter_mut().enumerate() {
+        let step_in_bar = n.at.rem_euclid(16.0);
+        if (step_in_bar >= 10.0 || i % 4 == 3) && d.chance(0.55) {
+            for m in &mut n.midis {
+                *m += 12.0;
+            }
+            n.accent = true;
+            n.vel = (n.vel * 1.06).min(1.0);
+        }
+    }
+    Pattern {
+        name: format!("{} var", p.name),
+        len: p.len,
         notes,
     }
 }
