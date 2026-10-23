@@ -1,0 +1,9 @@
+[package]
+name = "mw_xtask"
+description = "Mech Works build tooling: cargo xtask <command>, from Playground Kit's pk_xtask"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+pk_xtask.workspace = true

@@ -1,0 +1,24 @@
+[package]
+name = "mw_sim_py"
+description = "Python bindings of the Mech Works simulation: a vectorized training environment"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Built as the Python extension module `mw_sim_py` by `train/build.sh`
+# (`--features extension-module`). Without that feature it only type-checks
+# with the workspace; it has no tests of its own (they are Python's, in
+# train/), since linking a test binary would need libpython.
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+mw_sim.workspace = true
+pyo3 = { version = "0.25.1", features = ["abi3-py310"] }
+numpy = "0.25.0"
+rayon = "1.10"

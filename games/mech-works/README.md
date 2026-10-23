@@ -9,6 +9,10 @@ animated.
 The first thing to build is not the game. It is a set of tech demos for that
 policy, with the training pipeline and a training visualizer built first.
 
-**Status:** spec only. No code yet. The spec is [`docs/SPEC.md`](docs/SPEC.md).
-Its first milestone is M0 (sim parity: the mech in Rapier, a PyO3 env, and
-matching native and WASM replays).
+**Status:** M0 and M1. The simulation, the trainer, the policy in Rust and
+the browser client with the training viewer and the impact, damage and
+calibration demos exist; a teacher policy is training. The spec is
+[`docs/SPEC.md`](docs/SPEC.md), the audio requirements
+[`docs/AUDIO.md`](docs/AUDIO.md), and the progress, with pictures, is the
+dev log, [`devlog/index.html`](devlog/index.html) (on the dev server at
+`/devlog/`). `CLAUDE.md` has the layout and the commands.
