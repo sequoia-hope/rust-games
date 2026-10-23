@@ -220,15 +220,16 @@ pub fn voice(
     hi: i32,
     prev: Option<&[i32]>,
 ) -> Vec<i32> {
-    // Which tones to keep: the root, 3rd and 7th first, then extensions,
-    // the 5th last.
+    // Which tones to keep: the root, 3rd, 7th, and 5th first so 4-voice
+    // seventh chords form a complete closed triad+7th, then extensions.
     let mut tones = chord.tones.clone();
     let rank = |t: i32| match t {
         0 => 0,
         3 | 4 => 1,
         10 | 11 => 2,
-        14 | 17 | 2 | 5 | 9 => 3,
-        _ => 4,
+        6 | 7 => 3,
+        14 | 17 | 2 | 5 | 9 => 4,
+        _ => 5,
     };
     tones.sort_by_key(|t| rank(*t));
     tones.truncate(n.max(1));
@@ -276,8 +277,25 @@ pub fn voice(
                 let c = |v: &[i32]| v.iter().sum::<i32>() as f64 / v.len().max(1) as f64;
                 ((c(&notes) - c(p)).abs() * 2.0) as i32
             }
-            // No previous chord: the middle of the range.
-            None => (notes[0] + notes[notes.len() - 1] - lo - hi).abs(),
+            // No previous chord: the middle of the range, avoiding low 2nd
+            // clusters (e.g. 7th–root a whole step apart in the bottom voices)
+            // and wide internal holes.
+            None => {
+                let root_pc = (tonic + chord.root + chord.bass).rem_euclid(12);
+                let mut c = (notes[0] + notes[notes.len() - 1] - lo - hi).abs();
+                if notes.len() >= 2 && notes[1] - notes[0] <= 2 {
+                    c += 8;
+                }
+                for w in notes.windows(2) {
+                    if w[1] - w[0] > 7 {
+                        c += (w[1] - w[0] - 7) * 2;
+                    }
+                }
+                if pc0 != root_pc {
+                    c += 3;
+                }
+                c
+            }
         };
         if best.as_ref().is_none_or(|(b, _)| cost < *b) {
             best = Some((cost, notes));

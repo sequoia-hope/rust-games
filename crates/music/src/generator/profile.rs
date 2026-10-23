@@ -488,15 +488,13 @@ const CHICAGO_DRUMS: &[DrumLane] = &[
     },
     DrumLane {
         vel_even: Some(0.45),
-        jitter: 0.1,
-        ..lane(
-            "hat",
-            "H",
-            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-            0.75,
-        )
+        jitter: 0.12,
+        ..lane("hat", "H", &[1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14, 16], 0.72)
     },
-    lane("ohat", "H", &[3, 7, 11, 15], 0.8),
+    DrumLane {
+        jitter: 0.08,
+        ..lane("ohat", "H", &[3, 7, 11, 15], 0.78)
+    },
     DrumLane {
         p: 0.5,
         ..lane("rim", "P", &[4, 10, 14], 0.25)
@@ -519,26 +517,27 @@ const DEEP_DRUMS: &[DrumLane] = &[
     lane("kick", "K", &[1, 5, 9, 13], 1.0),
     lane("clap", "C", &[5, 13], 0.8),
     DrumLane {
-        vel_even: Some(0.5),
-        jitter: 0.1,
-        ..lane(
-            "hat",
-            "H",
-            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16],
-            0.65,
-        )
+        vel_even: Some(0.46),
+        jitter: 0.14,
+        ..lane("hat", "H", &[1, 2, 4, 5, 6, 8, 9, 12, 13, 14, 16], 0.62)
     },
     DrumLane {
         p: 0.8,
-        ..lane("hat", "H", &[10], 0.3)
+        jitter: 0.12,
+        ..lane("hat", "H", &[10], 0.32)
     },
-    lane("ohat", "H", &[3, 7, 11, 15], 0.6),
+    DrumLane {
+        jitter: 0.10,
+        ..lane("ohat", "H", &[3, 7, 11, 15], 0.58)
+    },
     DrumLane {
         p: 0.45,
+        jitter: 0.08,
         ..lane("tomL", "P", &[4, 12], 0.28)
     },
     DrumLane {
         p: 0.5,
+        jitter: 0.10,
         ..lane("shaker", "P", &[2, 10], 0.45)
     },
 ];
@@ -1204,7 +1203,7 @@ pub const FRENCH: Profile = Profile {
     form: FRENCH_FORM,
     template: FRENCH_TEMPLATE,
     intros: &[],
-    levels: &[("Pd", 1.0), ("L", -2.5)],
+    levels: &[("Pd", 0.0), ("L", -2.5)],
     pump: 0.52,
     tom_fills: false,
     tape: 0.30,
@@ -1388,7 +1387,7 @@ pub const LIQUID: Profile = Profile {
     form: LIQUID_FORM,
     template: LIQUID_TEMPLATE,
     intros: &[],
-    levels: &[("A", 3.5), ("Pd", 2.5), ("L", 1.5)],
+    levels: &[("A", 3.5), ("Pd", 2.5), ("L", 2.5)],
     pump: 0.20,
     tom_fills: false,
     tape: 0.25,
@@ -1525,20 +1524,48 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
                 ],
             ),
         ],
-        "tr909" => ["hat", "ohat", "ride", "crash"]
-            .iter()
-            .map(|l| {
-                lane(
-                    l,
-                    &[
-                        ("bits", 6.0),
-                        ("clock", 30000.0),
-                        ("dacLp", 12000.0),
-                        ("noise", 0.6),
-                    ],
-                )
-            })
-            .collect(),
+        "tr909" => vec![
+            lane(
+                "hat",
+                &[
+                    ("bits", 6.0),
+                    ("clock", 30000.0),
+                    ("dacLp", 12000.0),
+                    ("hp", 9200.0),
+                    ("noise", 0.90),
+                ],
+            ),
+            lane(
+                "ohat",
+                &[
+                    ("bits", 6.0),
+                    ("clock", 30000.0),
+                    ("dacLp", 12000.0),
+                    ("hp", 8400.0),
+                    ("noise", 0.90),
+                ],
+            ),
+            lane(
+                "ride",
+                &[
+                    ("bits", 6.0),
+                    ("clock", 30000.0),
+                    ("dacLp", 12000.0),
+                    ("hp", 6200.0),
+                    ("noise", 0.86),
+                ],
+            ),
+            lane(
+                "crash",
+                &[
+                    ("bits", 6.0),
+                    ("clock", 30000.0),
+                    ("dacLp", 12000.0),
+                    ("hp", 5400.0),
+                    ("noise", 0.86),
+                ],
+            ),
+        ],
         "orchestral" => vec![
             // Gran Cassa (concert bass drum): deep, warm felt-mallet resonance.
             lane(
@@ -1573,8 +1600,8 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
                 &[
                     ("tune", 73.4),
                     ("decay", 0.65),
-                    ("pitch", 1.08),
-                    ("pt", 0.032),
+                    ("pitch", 1.015),
+                    ("pt", 0.028),
                     ("click", 0.22),
                     ("drive", 1.2),
                     ("noise", 0.02),
@@ -1586,8 +1613,8 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
                 &[
                     ("tune", 98.0),
                     ("decay", 0.58),
-                    ("pitch", 1.08),
-                    ("pt", 0.028),
+                    ("pitch", 1.015),
+                    ("pt", 0.025),
                     ("click", 0.22),
                     ("drive", 1.2),
                     ("noise", 0.02),
@@ -1599,8 +1626,8 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
                 &[
                     ("tune", 110.0),
                     ("decay", 0.54),
-                    ("pitch", 1.08),
-                    ("pt", 0.025),
+                    ("pitch", 1.015),
+                    ("pt", 0.022),
                     ("click", 0.22),
                     ("drive", 1.2),
                     ("noise", 0.02),
@@ -1611,8 +1638,8 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
             lane(
                 "crash",
                 &[
-                    ("noise", 0.75),
-                    ("hp", 2800.0),
+                    ("noise", 0.94),
+                    ("hp", 4600.0),
                     ("attack", 0.012),
                     ("decay", 2.2),
                     ("lvl", 0.42),
@@ -1621,8 +1648,8 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
             lane(
                 "hat",
                 &[
-                    ("noise", 0.72),
-                    ("hp", 4200.0),
+                    ("noise", 0.96),
+                    ("hp", 6800.0),
                     ("attack", 0.008),
                     ("decay", 0.14),
                     ("lvl", 0.30),
@@ -1631,8 +1658,8 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
             lane(
                 "ohat",
                 &[
-                    ("noise", 0.72),
-                    ("hp", 3600.0),
+                    ("noise", 0.96),
+                    ("hp", 6200.0),
                     ("attack", 0.015),
                     ("decay", 0.48),
                     ("lvl", 0.32),
