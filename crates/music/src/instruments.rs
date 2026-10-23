@@ -184,14 +184,14 @@ impl Tb303 {
             self.hz += (self.target - self.hz)
                 * (1.0 - (-16.0 / (p.glide.unwrap_or(0.06) * sr / 3.0)).exp());
             self.hzc = Some(self.hz * cents(self.drift.run(&mut self.r, 16)));
-            // The accent capacitor charges from the accented envelope and
-            // leaks slowly.
-            self.acc += (env * acc_amt - self.acc)
-                * (if env * acc_amt > self.acc {
-                    0.014
-                } else {
-                    0.002
-                });
+            // The accent capacitor (C13, 1 µF) charges from the accented
+            // envelope and leaks with τ_discharge ≈ 100 ms (sound-design §2.1).
+            let k_acc = if env * acc_amt > self.acc {
+                0.014
+            } else {
+                1.0 - (-16.0 / (0.100 * sr)).exp()
+            };
+            self.acc += (env * acc_amt - self.acc) * k_acc;
             let cut = p.cutoff.unwrap_or(400.0)
                 * 2f64
                     .powf(p.env.unwrap_or(0.6) * 5.5 * env + acc_amt * 1.2 * env + self.acc * 3.0);
@@ -211,10 +211,14 @@ impl Tb303 {
         let y = self
             .f
             .run(self.hp_in.hp(x) * 0.7, 1.0 + p.drive.unwrap_or(0.6), 1);
-        // VCA: fast attack, slow droop while the gate is held, 8 ms release.
+        // VCA: ~3 ms attack, slow droop while the gate is held, 8 ms release.
         let tgt = if self.gate { 1.0 + acc_amt * 0.7 } else { 0.0 };
         let k = if self.gate {
-            if self.amp < tgt { 0.02 } else { 0.00003 }
+            if self.amp < tgt {
+                1.0 - (-1.0 / (0.003 * sr)).exp()
+            } else {
+                0.00003
+            }
         } else {
             1.0 - (-1.0 / (0.008 * sr / 4.0)).exp()
         };
@@ -330,7 +334,15 @@ impl JunoVoice {
             p.fr.or(p.r).unwrap_or(0.2),
         );
         self.fenv.on();
-        self.hp.set_hz(p.hpf.unwrap_or(20.0));
+        let hpf_hz = p.hpf.unwrap_or(20.0);
+        // Fundamental-tracking HPF on JP-8000 supersaws (unison >= 5) removes
+        // sub-fundamental beating mud on higher notes (sound-design §2.3).
+        let tracked_hpf = if p.unison.unwrap_or(1.0) >= 5.0 && hpf_hz >= 120.0 {
+            hpf_hz.max((self.hz * 0.75).min(420.0))
+        } else {
+            hpf_hz
+        };
+        self.hp.set_hz(tracked_hpf);
         self.vib_t = 0.0;
         self.k = 0;
     }
@@ -387,10 +399,11 @@ impl JunoVoice {
                 i += 1;
             }
             let kt = 2f64.powf(((self.midi - 60.0) / 12.0) * p.keytrack.unwrap_or(0.5));
+            let lfo_oct = tru(p.lfo_cut).map_or(0.0, |lc| lc * (0.5 + 0.5 * lfo));
             let cut = p.cutoff.unwrap_or(2000.0)
                 * self.cut_var
                 * kt
-                * 2f64.powf(p.fenv.unwrap_or(0.0) * fe * (0.5 + 0.5 * self.vel));
+                * 2f64.powf(p.fenv.unwrap_or(0.0) * fe * (0.5 + 0.5 * self.vel) + lfo_oct);
             self.f.set(cut.min(18000.0), p.res.unwrap_or(0.1), sr);
             self.pw = clamp(
                 p.pw.unwrap_or(0.5) + p.pwm.unwrap_or(0.0) * lfo * 0.45,
@@ -593,28 +606,51 @@ impl MonoVoice {
                 }
                 _ => 0.0,
             };
+            let sync_oct = tru(p.sync).unwrap_or(0.0);
             for i in 0..oscs.len() {
+                let sync_mul = if i == 1 && sync_oct != 0.0 {
+                    2f64.powf(sync_oct * fe)
+                } else {
+                    1.0
+                };
                 self.inc[i] = self.cur
                     * cents(oscs[i].det.unwrap_or(0.0) + self.drift[i].run(&mut self.r, 16) + vib)
-                    * 2f64.powf(oscs[i].oct.unwrap_or(0.0));
+                    * 2f64.powf(oscs[i].oct.unwrap_or(0.0))
+                    * sync_mul;
             }
             let kt = 2f64.powf(((self.midi - 60.0) / 12.0) * p.keytrack.unwrap_or(0.4));
+            let lfo_oct = tru(p.lfo_cut).map_or(0.0, |lc| lc * (0.5 + 0.5 * lfo));
             let cut = p.cutoff.unwrap_or(1500.0)
                 * kt
-                * 2f64.powf(p.fenv.unwrap_or(1.0) * fe * (0.6 + 0.4 * self.vel));
+                * 2f64.powf(p.fenv.unwrap_or(1.0) * fe * (0.6 + 0.4 * self.vel) + lfo_oct);
             self.f.set(cut.min(18000.0), p.res.unwrap_or(0.15), sr);
         }
         let mut x = 0.0;
         let sub = truthy(p.sub);
         let pwm = tru(p.pwm);
+        let has_sync = truthy(p.sync) && oscs.len() >= 2;
+        let fm_mod = tru(p.fm_mod).unwrap_or(0.0);
+        // Minimoog Osc 3 cross-modulation signal (from previous sample of osc[2]).
+        let mod3 = if fm_mod != 0.0 && oscs.len() >= 3 {
+            self.osc[2].tri * fm_mod
+        } else {
+            0.0
+        };
+        let mut master_wrapped = false;
+        let mut master_ph = 0.0;
         for i in 0..oscs.len() {
             let spec = &oscs[i];
-            let hz = self.inc[i];
+            let hz = if i < 2 && mod3 != 0.0 {
+                self.inc[i] * (1.0 + mod3 * 0.08)
+            } else {
+                self.inc[i]
+            };
             if spec.w == "sine" {
                 x += self.sine.run(hz, sr) * spec.lvl.unwrap_or(1.0);
                 continue;
             }
             let o = &mut self.osc[i];
+            let prev_ph = o.ph;
             let wave = if spec.w == "pulse" {
                 OSC_PULSE
             } else if spec.w == "tri" {
@@ -627,6 +663,16 @@ impl MonoVoice {
                 None => spec.pw.unwrap_or(0.5),
             };
             o.run(hz, pw, wave | (if i == 0 && sub { OSC_SUB } else { 0 }), sr);
+            if i == 0 {
+                master_ph = o.ph;
+                if has_sync && o.ph < prev_ph {
+                    master_wrapped = true;
+                }
+            }
+            if i == 1 && master_wrapped {
+                let ratio = (self.inc[1] / self.inc[0].max(1.0)).clamp(1.0, 16.0);
+                o.ph = (master_ph * ratio) % 1.0;
+            }
             x += (if spec.w == "pulse" {
                 o.pulse
             } else if spec.w == "tri" {

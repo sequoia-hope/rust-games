@@ -24,7 +24,7 @@ pub fn all() -> &'static [(&'static str, Lab)] {
 }
 
 /// The SHA-256 of the lab's `canon(BPATCH)` (`dump-tables.mjs` prints it).
-pub const LAB_SHA256: &str = "1de638ed851fcd0aa87f71e58ef5cabe125932557e6fe03cbdc63094c25adb44";
+pub const LAB_SHA256: &str = "cb815ad3f82ab5787246c35adbaeb224355c452d0216d5363f89d2641b004036";
 
 fn build() -> Vec<(&'static str, Lab)> {
     vec![
@@ -1984,6 +1984,336 @@ fn build() -> Vec<(&'static str, Lab)> {
                 chorus: Some(1.0),
                 chorus_hp: Some(160.0),
                 gain: Some(0.22),
+                ..Default::default()
+            },
+        ),
+        (
+            "moogBass",
+            Lab {
+                kind: "mono".into(),
+                osc: Some(vec![
+                    OscSpec {
+                        w: "saw".into(),
+                        lvl: Some(1.0),
+                        ..Default::default()
+                    },
+                    OscSpec {
+                        w: "saw".into(),
+                        det: Some(-6.0),
+                        lvl: Some(0.85),
+                        ..Default::default()
+                    },
+                    OscSpec {
+                        w: "pulse".into(),
+                        oct: Some(-1.0),
+                        det: Some(5.0),
+                        lvl: Some(0.75),
+                        pw: Some(0.44),
+                    },
+                ]),
+                sub: Some(0.65),
+                pwm: Some(0.20),
+                lfo_rate: Some(0.40),
+                cutoff: Some(320.0),
+                res: Some(0.28),
+                fenv: Some(2.35),
+                fa: Some(0.002),
+                fd: Some(0.28),
+                fs: Some(0.14),
+                fr: Some(0.12),
+                keytrack: Some(0.20),
+                drive: Some(1.85),
+                a: Some(0.002),
+                d: Some(0.36),
+                s: Some(0.38),
+                r: Some(0.12),
+                glide: Some(0.035),
+                chorus: Some(1.0),
+                chorus_hp: Some(180.0),
+                gain: Some(0.24),
+                ..Default::default()
+            },
+        ),
+        (
+            "moogLead",
+            Lab {
+                kind: "mono".into(),
+                osc: Some(vec![
+                    OscSpec {
+                        w: "saw".into(),
+                        det: Some(-6.0),
+                        lvl: Some(1.0),
+                        ..Default::default()
+                    },
+                    OscSpec {
+                        w: "saw".into(),
+                        det: Some(6.0),
+                        lvl: Some(0.95),
+                        ..Default::default()
+                    },
+                    OscSpec {
+                        w: "tri".into(),
+                        oct: Some(-1.0),
+                        det: Some(3.0),
+                        lvl: Some(0.45),
+                        ..Default::default()
+                    },
+                ]),
+                fm_mod: Some(0.15),
+                cutoff: Some(1950.0),
+                res: Some(0.26),
+                fenv: Some(1.65),
+                fa: Some(0.008),
+                fd: Some(0.42),
+                fs: Some(0.52),
+                fr: Some(0.22),
+                keytrack: Some(0.50),
+                drive: Some(1.35),
+                a: Some(0.008),
+                d: Some(0.45),
+                s: Some(0.84),
+                r: Some(0.22),
+                glide: Some(0.055),
+                vib: Some(9.0),
+                vib_rate: Some(5.5),
+                vib_delay: Some(0.26),
+                chorus: Some(2.0),
+                gain: Some(0.17),
+                ..Default::default()
+            },
+        ),
+        (
+            "syncLead",
+            Lab {
+                kind: "mono".into(),
+                osc: Some(vec![
+                    OscSpec {
+                        w: "pulse".into(),
+                        lvl: Some(0.55),
+                        pw: Some(0.50),
+                        ..Default::default()
+                    },
+                    OscSpec {
+                        w: "saw".into(),
+                        det: Some(4.0),
+                        lvl: Some(1.0),
+                        ..Default::default()
+                    },
+                ]),
+                sync: Some(2.1),
+                sub: Some(0.20),
+                cutoff: Some(2500.0),
+                res: Some(0.22),
+                fenv: Some(1.45),
+                slope: Some(12.0),
+                fa: Some(0.004),
+                fd: Some(0.34),
+                fs: Some(0.30),
+                fr: Some(0.22),
+                keytrack: Some(0.50),
+                drive: Some(0.85),
+                a: Some(0.005),
+                d: Some(0.40),
+                s: Some(0.80),
+                r: Some(0.22),
+                bend: Some(0.25),
+                bend_t: Some(0.04),
+                glide: Some(0.045),
+                vib: Some(8.5),
+                vib_rate: Some(5.6),
+                vib_delay: Some(0.25),
+                chorus: Some(2.0),
+                gain: Some(0.17),
+                ..Default::default()
+            },
+        ),
+        (
+            "hoover",
+            Lab {
+                kind: "juno".into(),
+                saw: Some(1.0),
+                pulse: Some(0.85),
+                pw: Some(0.40),
+                pwm: Some(0.85),
+                lfo_rate: Some(4.8),
+                sub: Some(0.70),
+                unison: Some(5.0),
+                detune: Some(26.0),
+                cutoff: Some(2300.0),
+                res: Some(0.20),
+                fenv: Some(1.65),
+                fa: Some(0.015),
+                fd: Some(0.45),
+                fs: Some(0.60),
+                fr: Some(0.28),
+                drive: Some(0.65),
+                a: Some(0.012),
+                d: Some(0.45),
+                s: Some(0.85),
+                r: Some(0.28),
+                bend: Some(-2.0),
+                bend_t: Some(0.09),
+                glide: Some(0.065),
+                hpf: Some(90.0),
+                chorus: Some(3.0),
+                gain: Some(0.18),
+                ..Default::default()
+            },
+        ),
+        (
+            "wobble",
+            Lab {
+                kind: "mono".into(),
+                osc: Some(vec![
+                    OscSpec {
+                        w: "saw".into(),
+                        det: Some(-8.0),
+                        lvl: Some(1.0),
+                        ..Default::default()
+                    },
+                    OscSpec {
+                        w: "pulse".into(),
+                        det: Some(8.0),
+                        lvl: Some(0.85),
+                        pw: Some(0.42),
+                        ..Default::default()
+                    },
+                    OscSpec {
+                        w: "sine".into(),
+                        oct: Some(-1.0),
+                        lvl: Some(0.75),
+                        ..Default::default()
+                    },
+                ]),
+                sub: Some(0.60),
+                pwm: Some(0.35),
+                lfo_rate: Some(2.33),
+                lfo_cut: Some(3.4),
+                cutoff: Some(170.0),
+                res: Some(0.38),
+                fenv: Some(0.85),
+                fa: Some(0.004),
+                fd: Some(0.28),
+                fs: Some(0.35),
+                fr: Some(0.14),
+                keytrack: Some(0.20),
+                drive: Some(1.85),
+                a: Some(0.004),
+                d: Some(0.45),
+                s: Some(0.88),
+                r: Some(0.14),
+                glide: Some(0.045),
+                chorus: Some(1.0),
+                chorus_hp: Some(180.0),
+                gain: Some(0.18),
+                ..Default::default()
+            },
+        ),
+        (
+            "organBass",
+            Lab {
+                kind: "fm".into(),
+                algo: Some("organ".into()),
+                ops: Some(vec![
+                    Some(Op {
+                        r: Some(1.0),
+                        rel: Some(0.10),
+                        l: Some(1.0),
+                        a: Some(0.001),
+                        d: Some(0.22),
+                        s: Some(0.28),
+                        ..Default::default()
+                    }),
+                    Some(Op {
+                        r: Some(2.0),
+                        rel: Some(0.10),
+                        l: Some(0.75),
+                        a: Some(0.001),
+                        d: Some(0.20),
+                        s: Some(0.22),
+                        det: Some(2.0),
+                        ..Default::default()
+                    }),
+                    Some(Op {
+                        r: Some(1.5),
+                        rel: Some(0.09),
+                        l: Some(0.65),
+                        a: Some(0.001),
+                        d: Some(0.18),
+                        s: Some(0.14),
+                        det: Some(-2.0),
+                        ..Default::default()
+                    }),
+                    Some(Op {
+                        r: Some(3.0),
+                        rel: Some(0.08),
+                        l: Some(0.55),
+                        a: Some(0.001),
+                        d: Some(0.09),
+                        s: Some(0.05),
+                        v: Some(0.85),
+                        ..Default::default()
+                    }),
+                ]),
+                fbk: Some(0.10),
+                r: Some(0.10),
+                chorus: Some(1.0),
+                chorus_hp: Some(180.0),
+                gain: Some(0.22),
+                ..Default::default()
+            },
+        ),
+        (
+            "dxBass",
+            Lab {
+                kind: "fm".into(),
+                algo: Some("stack".into()),
+                ops: Some(vec![
+                    Some(Op {
+                        r: Some(1.0),
+                        rel: Some(0.11),
+                        l: Some(1.0),
+                        a: Some(0.001),
+                        d: Some(0.38),
+                        s: Some(0.28),
+                        ..Default::default()
+                    }),
+                    Some(Op {
+                        r: Some(1.0),
+                        rel: Some(0.10),
+                        l: Some(2.10),
+                        a: Some(0.001),
+                        d: Some(0.22),
+                        s: Some(0.12),
+                        v: Some(0.80),
+                        ..Default::default()
+                    }),
+                    Some(Op {
+                        r: Some(3.0),
+                        rel: Some(0.08),
+                        l: Some(1.25),
+                        a: Some(0.001),
+                        d: Some(0.12),
+                        s: Some(0.04),
+                        v: Some(0.85),
+                        ..Default::default()
+                    }),
+                    Some(Op {
+                        r: Some(7.0),
+                        rel: Some(0.05),
+                        l: Some(0.85),
+                        a: Some(0.001),
+                        d: Some(0.05),
+                        s: Some(0.0),
+                        v: Some(0.90),
+                        ..Default::default()
+                    }),
+                ]),
+                fbk: Some(0.24),
+                r: Some(0.11),
+                chorus: Some(1.0),
+                chorus_hp: Some(180.0),
+                gain: Some(0.15),
                 ..Default::default()
             },
         ),
