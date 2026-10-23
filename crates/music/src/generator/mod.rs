@@ -320,9 +320,35 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     } else {
         p.kit
     };
+    // Tune toms / timpani to the song's tonic, dominant fifth, and octave
+    // so pitched percussion never clashes with the harmony.
+    let tom_base = if p.key == "orchestral" { 38 } else { 41 };
+    let tom_root = tom_base + (pc - tom_base).rem_euclid(12);
+    let tom_fifth = if tom_root > tom_base + 7 {
+        tom_root - 5
+    } else {
+        tom_root + 7
+    };
+    let mtof = |m: i32| 440.0 * 2f64.powf((m - 69) as f64 / 12.0);
+    let mut base_tweak = profile::kit_tweak(tweak_key);
+    for (lane_name, hz) in [
+        ("tomL", mtof(tom_root)),
+        ("tomM", mtof(tom_fifth)),
+        ("tomH", mtof(tom_root + 12)),
+    ] {
+        if let Some((_, params)) = base_tweak.iter_mut().find(|(n, _)| n == lane_name) {
+            if let Some((_, v)) = params.iter_mut().find(|(k, _)| k == "tune") {
+                *v = hz;
+            } else {
+                params.push(("tune".to_owned(), hz));
+            }
+        } else {
+            base_tweak.push((lane_name.to_owned(), vec![("tune".to_owned(), hz)]));
+        }
+    }
     let kit = |kit: &str| Sound::Drums {
         kit: kit.to_owned(),
-        tweak: profile::kit_tweak(tweak_key),
+        tweak: base_tweak.clone(),
     };
     for (rk, cells) in p.template {
         let Some((role, min_energy, pumped)) = role_of(rk) else {
@@ -452,7 +478,7 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                             "B" => parts::bass(p.bass, pr, tonic, blo, &mut dp),
                             "Pd" => parts::chords(p.chords, &voiced, &mut dp),
                             "A" => parts::arp(&voiced, &mut dp),
-                            "Atm" => parts::drone(&voiced),
+                            "Atm" => parts::drone(pr, tonic),
                             _ => hook_pat.clone(),
                         };
                         let core = transpose(&core, tr);

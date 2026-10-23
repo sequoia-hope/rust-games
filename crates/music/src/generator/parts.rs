@@ -80,6 +80,23 @@ impl Dice {
 pub fn drum_loop(name: &str, lanes: &[DrumLane], d: &mut Dice) -> Pattern {
     let mut notes = Vec::new();
     for bar in 0..2 {
+        // Steps where an open hat plays in this bar so a closed hat on the
+        // same step does not slam on top of it and choke it at t = 0.
+        let mut ohat_steps = [false; 17];
+        for l in lanes {
+            if l.lane == "ohat" {
+                let steps = if bar == 1 {
+                    l.steps2.unwrap_or(l.steps)
+                } else {
+                    l.steps
+                };
+                for &s in steps {
+                    if (s as usize) < ohat_steps.len() {
+                        ohat_steps[s as usize] = true;
+                    }
+                }
+            }
+        }
         for l in lanes {
             let steps = if bar == 1 {
                 l.steps2.unwrap_or(l.steps)
@@ -87,6 +104,9 @@ pub fn drum_loop(name: &str, lanes: &[DrumLane], d: &mut Dice) -> Pattern {
                 l.steps
             };
             for &s in steps {
+                if l.lane == "hat" && (s as usize) < ohat_steps.len() && ohat_steps[s as usize] {
+                    continue;
+                }
                 let st = (s - 1) as f64;
                 let even = (s - 1) % 2 == 1;
                 let base = if even {
@@ -94,10 +114,28 @@ pub fn drum_loop(name: &str, lanes: &[DrumLane], d: &mut Dice) -> Pattern {
                 } else {
                     l.vel
                 };
-                let vel = (base * (1.0 + l.jitter * (d.f() * 2.0 - 1.0))).clamp(0.05, 1.0);
-                // Subtle micro-timing groove on humanised off-16ths (RULES.md G1).
-                let micro = if even && l.jitter > 0.0 && l.role != "K" {
-                    (d.f() * 2.0 - 1.0) * 0.02
+                // Natural metric groove accent for hats and percussion across
+                // the bar (downbeats > off-beat 8ths > 16th subdivisions).
+                let metric = if matches!(l.role, "H" | "P") {
+                    match (s - 1) % 4 {
+                        0 => 1.05,
+                        2 => 1.02,
+                        1 => 0.92,
+                        _ => 0.96,
+                    }
+                } else {
+                    1.0
+                };
+                let jit = if matches!(l.role, "H" | "P") {
+                    l.jitter.max(0.08)
+                } else {
+                    l.jitter
+                };
+                let vel = (base * metric * (1.0 + jit * (d.f() * 2.0 - 1.0))).clamp(0.05, 1.0);
+                // Subtle non-negative micro-timing pocket on off-beats and
+                // 16ths (RULES.md G1) while keeping downbeats anchored.
+                let micro = if l.role != "K" && (s - 1) % 4 != 0 && jit > 0.0 {
+                    d.f() * if even { 0.032 } else { 0.018 }
                 } else {
                     0.0
                 };
@@ -370,38 +408,78 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
         }
         s
     };
+    let mut de = d.fork("bass_expr");
     for (bar, c) in prog.iter().enumerate() {
         let root = bass_note(c, tonic, lo) as f64;
         let next = bass_note(&prog[(bar + 1) % n], tonic, lo) as f64;
         let b0 = bar as f64 * 16.0;
+        let turnaround = bar + 1 == n;
         match style {
             BassStyle::Eighths => {
                 for k in 0..8 {
                     let up = octave_jumps && k % 2 == 1;
+                    let base_v = match k {
+                        0 => 0.92,
+                        4 => 0.88,
+                        _ if k % 2 == 0 => 0.84,
+                        _ => 0.72,
+                    };
+                    let vel = (base_v + (de.f() * 2.0 - 1.0) * 0.04).clamp(0.55, 0.98);
+                    let len = 1.32 + de.f() * 0.22 + if k % 4 == 0 { 0.12 } else { 0.0 };
+                    let micro = if k % 2 == 1 { de.f() * 0.02 } else { 0.0 };
                     notes.push(Note::pitched(
-                        b0 + k as f64 * 2.0,
-                        1.4,
+                        b0 + k as f64 * 2.0 + micro,
+                        len,
                         vec![root + if up { 12.0 } else { 0.0 }],
-                        if k % 2 == 0 { 0.9 } else { 0.75 },
+                        vel,
                     ));
                 }
             }
             BassStyle::HouseCells => {
-                for (s, iv) in cells[cell] {
+                for (idx, (s, iv)) in cells[cell].iter().enumerate() {
                     let m = if *iv < 0 { next } else { root + *iv as f64 };
-                    notes.push(Note::pitched(b0 + (*s - 1) as f64, 1.8, vec![m], 0.85));
+                    let base_v = if *s == 1 {
+                        0.90
+                    } else if *iv > 0 {
+                        0.87
+                    } else {
+                        0.79 + 0.04 * ((idx % 2) as f64)
+                    };
+                    let vel = (base_v + (de.f() * 2.0 - 1.0) * 0.045).clamp(0.60, 0.96);
+                    let len = 1.55 + de.f() * 0.45;
+                    let micro = if *s > 1 { de.f() * 0.025 } else { 0.0 };
+                    notes.push(Note::pitched(
+                        b0 + (*s - 1) as f64 + micro,
+                        len,
+                        vec![m],
+                        vel,
+                    ));
                 }
             }
             BassStyle::Rolling => {
                 let third = if c.minor { 3.0 } else { 4.0 };
+                let vels = [0.92, 0.69, 0.82, 0.76, 0.85, 0.73];
+                let lens = [1.68, 1.34, 1.78, 1.44, 1.72, 1.38];
                 for (k, s) in [0, 3, 6, 8, 11, 14].iter().enumerate() {
-                    let iv = if k == 2 { third } else { roll_figure[k] as f64 };
-                    notes.push(Note::pitched(
-                        b0 + *s as f64,
-                        1.6,
-                        vec![root + iv],
-                        if k == 0 { 0.92 } else { 0.72 },
-                    ));
+                    let iv = if k == 2 {
+                        third
+                    } else if turnaround && k == 4 {
+                        10.0
+                    } else {
+                        roll_figure[k] as f64
+                    };
+                    let vel = (vels[k] + (de.f() * 2.0 - 1.0) * 0.04).clamp(0.58, 0.96);
+                    let len = lens[k] + (de.f() * 2.0 - 1.0) * 0.08;
+                    let micro = if *s > 0 && *s != 8 {
+                        de.f() * 0.025
+                    } else {
+                        0.0
+                    };
+                    let mut note = Note::pitched(b0 + *s as f64 + micro, len, vec![root + iv], vel);
+                    if turnaround && k == 5 {
+                        note.slide = true;
+                    }
+                    notes.push(note);
                 }
             }
             BassStyle::Orchestral => {
@@ -413,25 +491,39 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
                 } else {
                     root - 5.0
                 };
-                notes.push(Note::pitched(b0, 7.2, vec![root], 0.90));
+                let swell =
+                    0.96 + 0.04 * ((bar as f64 / n.max(1) as f64) * std::f64::consts::PI).sin();
                 notes.push(Note::pitched(
-                    b0 + 8.0,
-                    if bar % 2 == 1 { 5.5 } else { 7.2 },
+                    b0,
+                    7.2 + de.f() * 0.25,
+                    vec![root],
+                    (0.89 * swell + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.70, 0.96),
+                ));
+                notes.push(Note::pitched(
+                    b0 + 8.0 + de.f() * 0.02,
+                    if bar % 2 == 1 { 5.45 } else { 7.15 } + de.f() * 0.2,
                     vec![if bar % 2 == 0 { fifth } else { root }],
-                    0.80,
+                    (0.80 * swell + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.65, 0.92),
                 ));
                 if bar % 2 == 1 {
-                    notes.push(Note::pitched(b0 + 14.0, 1.8, vec![next], 0.76));
+                    notes.push(Note::pitched(
+                        b0 + 14.0 + de.f() * 0.025,
+                        1.75 + de.f() * 0.15,
+                        vec![next],
+                        (0.76 * swell + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.60, 0.88),
+                    ));
                 }
             }
             BassStyle::Acid303 => {
                 for &(st, iv, acc, sld) in &acid_steps {
                     let m = (root + iv as f64).clamp(lo as f64, (lo + 20) as f64);
+                    let vel = (if acc { 0.95 } else { 0.74 } + (de.f() * 2.0 - 1.0) * 0.035)
+                        .clamp(0.60, 0.99);
                     let mut note = Note::pitched(
                         b0 + (st - 1) as f64,
-                        if sld { 1.08 } else { 0.62 },
+                        if sld { 1.08 } else { 0.58 + de.f() * 0.08 },
                         vec![m],
-                        if acc { 0.95 } else { 0.76 },
+                        vel,
                     );
                     note.accent = acc;
                     note.slide = sld;
@@ -448,11 +540,20 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
                     }
                     let offbeat = s % 4 == 2;
                     let up = offbeat && octave_jumps;
+                    let base_v = if offbeat {
+                        0.91
+                    } else if s % 4 == 3 {
+                        0.73
+                    } else {
+                        0.66
+                    };
+                    let vel = (base_v + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.55, 0.97);
+                    let len = if offbeat { 0.80 } else { 0.68 } + de.f() * 0.08;
                     notes.push(Note::pitched(
                         b0 + s as f64,
-                        0.75,
+                        len,
                         vec![root + if up { 12.0 } else { 0.0 }],
-                        if offbeat { 0.92 } else { 0.70 },
+                        vel,
                     ));
                 }
             }
@@ -465,29 +566,64 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
                 } else {
                     root + 5.0
                 };
-                notes.push(Note::pitched(b0, 5.6, vec![root], 0.94));
-                let mut g = Note::pitched(b0 + 6.0, 3.6, vec![root], 0.78);
+                notes.push(Note::pitched(
+                    b0,
+                    5.6,
+                    vec![root],
+                    (0.94 + (de.f() * 2.0 - 1.0) * 0.025).clamp(0.80, 0.98),
+                ));
+                let mut g = Note::pitched(
+                    b0 + 6.0 + de.f() * 0.02,
+                    3.6,
+                    vec![root],
+                    (0.78 + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.65, 0.88),
+                );
                 g.slide = true;
                 notes.push(g);
-                notes.push(Note::pitched(b0 + 10.0, 3.8, vec![root], 0.92));
                 notes.push(Note::pitched(
-                    b0 + 14.0,
+                    b0 + 10.0,
+                    3.8,
+                    vec![root],
+                    (0.92 + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.78, 0.97),
+                ));
+                notes.push(Note::pitched(
+                    b0 + 14.0 + de.f() * 0.02,
                     1.8,
                     vec![if bar % 2 == 1 { next } else { fifth }],
-                    0.82,
+                    (0.82 + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.68, 0.90),
                 ));
             }
             BassStyle::DubstepWobble => {
                 // Half-time 140 BPM wobble: heavy beat-1 swell (steps 1..7),
                 // pickup before the beat-3 snare (step 7..9), and syncopated
                 // answer on steps 11 and 14 [ambient#38][ambient#39].
-                notes.push(Note::pitched(b0, 5.8, vec![root], 0.95));
-                let mut n2 = Note::pitched(b0 + 6.0, 2.2, vec![root + 12.0], 0.84);
+                notes.push(Note::pitched(
+                    b0,
+                    5.8,
+                    vec![root],
+                    (0.95 + (de.f() * 2.0 - 1.0) * 0.025).clamp(0.82, 0.99),
+                ));
+                let mut n2 = Note::pitched(
+                    b0 + 6.0 + de.f() * 0.02,
+                    2.2,
+                    vec![root + 12.0],
+                    (0.84 + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.70, 0.92),
+                );
                 n2.accent = true;
                 notes.push(n2);
-                notes.push(Note::pitched(b0 + 10.0, 3.6, vec![root], 0.90));
+                notes.push(Note::pitched(
+                    b0 + 10.0,
+                    3.6,
+                    vec![root],
+                    (0.90 + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.75, 0.96),
+                ));
                 if bar % 2 == 1 {
-                    let mut n4 = Note::pitched(b0 + 14.0, 1.8, vec![next], 0.85);
+                    let mut n4 = Note::pitched(
+                        b0 + 14.0 + de.f() * 0.02,
+                        1.8,
+                        vec![next],
+                        (0.85 + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.70, 0.92),
+                    );
                     n4.slide = true;
                     notes.push(n4);
                 }
@@ -544,20 +680,59 @@ pub fn chords(style: ChordStyle, voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
         (&[3, 8, 14], &[3, 11]),
     ];
     let (r1, r2) = *d.pick(&rhythms);
+    let mut de = d.fork("chords_expr");
+    let n_bars = voiced.len().max(1) as f64;
     let mut notes = Vec::new();
     for (bar, v) in voiced.iter().enumerate() {
         let b0 = bar as f64 * 16.0;
         let midis: Vec<f64> = v.iter().map(|m| *m as f64).collect();
+        let arch = 0.94 + 0.08 * ((bar as f64 + 0.5) / n_bars * std::f64::consts::PI).sin();
         match style {
-            ChordStyle::Sustain => notes.push(Note::pitched(b0, 15.5, midis, 0.7)),
+            ChordStyle::Sustain => {
+                let vel = (0.70 * arch + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.55, 0.82);
+                let len = 15.35 + de.f() * 0.35;
+                notes.push(Note::pitched(b0, len, midis, vel));
+            }
             ChordStyle::Stabs => {
                 let rhythm = if bar % 2 == 0 { r1 } else { r2 };
                 for (i, s) in rhythm.iter().enumerate() {
+                    let base_v = if i == 0 {
+                        0.78
+                    } else {
+                        0.67 + 0.04 * ((bar % 2) as f64)
+                    };
+                    let vel = (base_v * arch + (de.f() * 2.0 - 1.0) * 0.05).clamp(0.54, 0.88);
+                    // First stab of the bar lingers warmly into the delay/reverb;
+                    // answering syncopations articulate with varied human gate lengths.
+                    let len = if i == 0 {
+                        2.45 + de.f() * 0.55
+                    } else if bar + 1 == voiced.len() && i + 1 == rhythm.len() {
+                        2.65 + de.f() * 0.50
+                    } else {
+                        1.70 + de.f() * 0.50
+                    };
+                    let micro = if *s > 1 { 0.012 + de.f() * 0.028 } else { 0.0 };
+                    // Human keyboardists vary finger weight and upper extensions across
+                    // stabs while keeping the root-triad foundation anchored: primary
+                    // stabs play the full 4-voice chord, answering stabs relax the top
+                    // extension into a warm 3-voice triad, and turnaround stabs voice
+                    // the octave of the lowest note on top so single-chord vamps sing.
+                    let stab_midis = if midis.len() >= 4 && i > 0 {
+                        if bar % 2 == 1 && i + 1 == rhythm.len() && midis[0] + 12.0 <= 79.0 {
+                            let mut turn = midis[..3].to_vec();
+                            turn.push(midis[0] + 12.0);
+                            turn
+                        } else {
+                            midis[..3].to_vec()
+                        }
+                    } else {
+                        midis.clone()
+                    };
                     notes.push(Note::pitched(
-                        b0 + (*s - 1) as f64,
-                        2.0,
-                        midis.clone(),
-                        if i == 0 { 0.78 } else { 0.68 },
+                        b0 + (*s - 1) as f64 + micro,
+                        len,
+                        stab_midis,
+                        vel,
                     ));
                 }
             }
@@ -579,6 +754,8 @@ pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
         &[0, 2, 1, 3, 2, 4, 3, 1][..],
         &[0, 1, 2, 4, 0, 1, 2, 4][..],
     ]);
+    let mut de = d.fork("arp_expr");
+    let n_bars = voiced.len().max(1) as f64;
     let mut notes = Vec::new();
     for (bar, v) in voiced.iter().enumerate() {
         let mut tones: Vec<i32> = v.clone();
@@ -589,10 +766,30 @@ pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
             oct += 1;
         }
         let b0 = bar as f64 * 16.0;
+        let bar_swell = 0.94 + 0.08 * ((bar as f64 + 0.5) / n_bars * std::f64::consts::PI).sin();
         for k in 0..8 {
-            let m = tones[shape[k] % tones.len()];
-            let vel = if (k % 2 == 1) == offbeat { 0.82 } else { 0.68 };
-            notes.push(Note::pitched(b0 + k as f64 * 2.0, 1.6, vec![m as f64], vel));
+            let idx = shape[k] % tones.len();
+            let m = tones[idx];
+            let accent = (k % 2 == 1) == offbeat;
+            // Pitch-height contour + metric wave + human touch so the ostinato
+            // breathes across the bar instead of pressing every key identically.
+            let pitch_lift = 0.04 * (idx as f64 / 4.0);
+            let base_v = if accent { 0.80 } else { 0.66 } + pitch_lift;
+            let vel = (base_v * bar_swell + (de.f() * 2.0 - 1.0) * 0.045).clamp(0.52, 0.92);
+            let len = if idx >= 3 {
+                1.65 + de.f() * 0.22
+            } else if accent {
+                1.52 + de.f() * 0.20
+            } else {
+                1.32 + de.f() * 0.22
+            };
+            let micro = if k % 2 == 1 { de.f() * 0.024 } else { 0.0 };
+            notes.push(Note::pitched(
+                b0 + k as f64 * 2.0 + micro,
+                len,
+                vec![m as f64],
+                vel,
+            ));
         }
     }
     Pattern {
@@ -604,10 +801,10 @@ pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
 
 /// An atmospheric bed: each bar's chord root and fifth held softly across
 /// the bar.
-pub fn drone(voiced: &[Vec<i32>]) -> Pattern {
+pub fn drone(prog: &[Chord], tonic: i32) -> Pattern {
     let mut notes: Vec<Note> = Vec::new();
-    for (bar, v) in voiced.iter().enumerate() {
-        let r = v.first().copied().unwrap_or(60) as f64;
+    for (bar, c) in prog.iter().enumerate() {
+        let r = bass_note(c, tonic, tonic - 5) as f64;
         notes.push(Note::pitched(
             bar as f64 * 16.0,
             15.8,
@@ -617,7 +814,7 @@ pub fn drone(voiced: &[Vec<i32>]) -> Pattern {
     }
     Pattern {
         name: "drone".into(),
-        len: voiced.len() as f64 * 16.0,
+        len: prog.len() as f64 * 16.0,
         notes,
     }
 }
@@ -749,22 +946,47 @@ fn draft(
         vec![scale[target as usize] as f64],
         0.8,
     ));
-    // Legato: consecutive notes within a beat overlap slightly and glide;
-    // repeated notes or notes before a rest articulate cleanly.
+    // Legato & human expression: consecutive notes within a beat overlap
+    // slightly and glide; phrase-arch dynamics, pitch-height contour, and
+    // subtle rubato micro-timing give the soloist a human touch without
+    // disturbing the melody model's RNG stream.
+    let mut de = d.fork("lead_expr");
+    let total_len = prog.len().max(1) as f64 * 16.0;
     for i in 0..notes.len() {
-        let next_at = notes.get(i + 1).map_or(prog.len() as f64 * 16.0, |n| n.at);
-        let gap = next_at - notes[i].at;
+        let grid_at = notes[i].at;
+        let next_at = notes.get(i + 1).map_or(total_len, |n| n.at);
+        let gap = next_at - grid_at;
         let step_dist = notes
             .get(i + 1)
             .and_then(|n| n.midis.first().zip(notes[i].midis.first()))
             .map_or(0.0, |(a, b)| (a - b).abs());
         if gap <= 4.0 && (0.5..=7.5).contains(&step_dist) {
-            notes[i].len = (gap + 0.15).clamp(0.8, 8.0);
+            notes[i].len = (gap + 0.12 + de.f() * 0.12).clamp(0.8, 8.0);
             if let Some(n1) = notes.get_mut(i + 1) {
                 n1.slide = true;
             }
         } else {
-            notes[i].len = (gap - 0.25).clamp(0.8, 8.0);
+            notes[i].len = (gap * (0.76 + de.f() * 0.14)).clamp(0.8, 8.0);
+        }
+        // Phrase arch (swelling into the middle of the 4-bar phrase and
+        // tapering gently at the cadence) + pitch-contour expression.
+        let u = (grid_at / total_len).clamp(0.0, 1.0);
+        let arch = 0.90 + 0.14 * (u * std::f64::consts::PI).sin();
+        let midi = notes[i].midis.first().copied().unwrap_or(line.lo as f64);
+        let pitch_lift =
+            0.06 * ((midi - line.lo as f64) / line.range.max(1) as f64).clamp(0.0, 1.0);
+        notes[i].vel =
+            (notes[i].vel * arch + pitch_lift + (de.f() * 2.0 - 1.0) * 0.045).clamp(0.52, 0.96);
+        // Subtle non-negative rubato micro-timing on weak/off-beats while
+        // keeping half-bar anchors on their integer step for `sparse_melody`.
+        let step_in_bar = grid_at.rem_euclid(16.0);
+        if (step_in_bar % 8.0).abs() > 1e-6 {
+            let rubato = if (step_in_bar % 4.0).abs() > 1e-6 {
+                0.015 + de.f() * 0.035
+            } else {
+                0.008 + de.f() * 0.020
+            };
+            notes[i].at = grid_at + rubato;
         }
     }
     (notes, ds.iter().map(|x| iv_sym(*x)).collect())

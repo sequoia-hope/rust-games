@@ -246,6 +246,7 @@ struct JunoVoice {
     env: Adsr,
     fenv: Adsr,
     left: i32,
+    wait: i64,
     age: u64,
     midi: f64,
     on: bool,
@@ -284,6 +285,7 @@ impl JunoVoice {
             env: Adsr::new(sr),
             fenv: Adsr::new(sr),
             left: 0,
+            wait: 0,
             age: 0,
             midi: -1.0,
             on: false,
@@ -301,11 +303,22 @@ impl JunoVoice {
         }
     }
 
-    fn start(&mut self, p: &Lab, midi: f64, vel: f64, dur_s: f64, glide_from: Option<f64>, t: u64) {
+    #[allow(clippy::too_many_arguments)]
+    fn start(
+        &mut self,
+        p: &Lab,
+        midi: f64,
+        vel: f64,
+        dur_s: f64,
+        glide_from: Option<f64>,
+        t: u64,
+        wait: i64,
+    ) {
         let sr = self.sr;
         self.midi = midi;
         self.vel = vel;
         self.left = to_i32(dur_s).max(1);
+        self.wait = wait;
         self.age = t;
         self.on = true;
         self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
@@ -352,6 +365,10 @@ impl JunoVoice {
     }
 
     fn run(&mut self, p: &Lab, lfo: f64, vib: f64) -> f64 {
+        if self.wait > 0 {
+            self.wait -= 1;
+            return 0.0;
+        }
         let sr = self.sr;
         if self.left > 0 {
             self.left -= 1;
@@ -744,6 +761,7 @@ struct FmVoice {
     env: [Adsr; 4],
     on: bool,
     left: i32,
+    wait: i64,
     fb: f64,
     age: u64,
     k: u32,
@@ -768,6 +786,7 @@ impl FmVoice {
             env: [Adsr::new(sr); 4],
             on: false,
             left: 0,
+            wait: 0,
             fb: 0.0,
             age: 0,
             k: 0,
@@ -782,11 +801,20 @@ impl FmVoice {
         }
     }
 
-    fn start(&mut self, p: &Lab, midi: f64, vel: f64, dur_s: f64, glide_from: Option<f64>) {
+    fn start(
+        &mut self,
+        p: &Lab,
+        midi: f64,
+        vel: f64,
+        dur_s: f64,
+        glide_from: Option<f64>,
+        wait: i64,
+    ) {
         let sr = self.sr;
         self.midi = midi;
         self.vel = vel;
         self.left = to_i32(dur_s).max(1);
+        self.wait = wait;
         self.on = true;
         self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
         let has_glide = glide_from.is_some() && tru(p.glide).is_some();
@@ -825,6 +853,10 @@ impl FmVoice {
     }
 
     fn run(&mut self, p: &Lab) -> f64 {
+        if self.wait > 0 {
+            self.wait -= 1;
+            return 0.0;
+        }
         let sr = self.sr;
         if self.left > 0 {
             self.left -= 1;
@@ -1424,9 +1456,9 @@ impl Voice {
         wait: i64,
     ) {
         match self {
-            Voice::Juno(v) => v.start(p, midi, vel, dur_s, glide_from, t),
+            Voice::Juno(v) => v.start(p, midi, vel, dur_s, glide_from, t, wait),
             Voice::Mono(v) => v.start(p, midi, vel, dur_s, glide_from),
-            Voice::Fm(v) => v.start(p, midi, vel, dur_s, glide_from),
+            Voice::Fm(v) => v.start(p, midi, vel, dur_s, glide_from, wait),
             Voice::Str(v) => v.start(p, midi, vel, dur_s, glide_from, t, wait),
             Voice::Bowed(v) => v.start(p, midi, vel, dur_s, glide_from, t),
         }
@@ -1588,13 +1620,25 @@ impl Poly {
             1
         };
         let gain = 1.0 / ((midis.len() * n_s) as f64).sqrt();
-        // A strummed chord: each string a little after the one below it.
-        let strum = if self.kind == Kind::Str {
+        // A strummed or finger-rolled chord: each note a little after the one
+        // below it (`p.strum` seconds per voice).
+        let strum = if matches!(self.kind, Kind::Str | Kind::Juno | Kind::Fm) {
             js_round(self.p.strum.unwrap_or(0.0) * self.sr) as i64
         } else {
             0
         };
         for (i, &m0) in midis.iter().enumerate() {
+            let finger = if self.kind != Kind::Str && strum > 0 && midis.len() > 1 {
+                if i == 0 {
+                    1.05
+                } else if i + 1 == midis.len() {
+                    1.00
+                } else {
+                    0.95
+                }
+            } else {
+                1.0
+            };
             for j in 0..n_s {
                 let m = if n_s > 1 {
                     m0 + (j as f64 / (n_s - 1) as f64 - 0.5) * self.p.spread.unwrap_or(6.0) / 100.0
@@ -1618,7 +1662,7 @@ impl Poly {
                 v.start(
                     &self.p,
                     m,
-                    vel * gain,
+                    vel * gain * finger,
                     dur_s,
                     opt.glide_from,
                     self.t,
