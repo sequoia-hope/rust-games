@@ -32,13 +32,13 @@ fn spawn(
     mut ambient: ResMut<GlobalAmbientLight>,
 ) {
     ambient.color = Color::srgb(0.75, 0.8, 0.9);
-    ambient.brightness = 350.0;
+    ambient.brightness = 300.0;
 
     commands.spawn((
         Sun,
         DirectionalLight {
             color: Color::srgb(1.0, 0.95, 0.86),
-            illuminance: 22_000.0,
+            illuminance: 15_000.0,
             shadow_maps_enabled: true,
             ..default()
         },
@@ -51,6 +51,19 @@ fn spawn(
         }
         .build(),
         Transform::from_translation(SUN_DIR * 100.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+
+    // Sky fill from the side away from the sun, without shadows, so the
+    // mech's shaded side reads (the ambient term alone left it black).
+    commands.spawn((
+        DirectionalLight {
+            color: Color::srgb(0.7, 0.8, 1.0),
+            illuminance: 3_500.0,
+            shadow_maps_enabled: false,
+            ..default()
+        },
+        Transform::from_translation(Vec3::new(-SUN_DIR.x, 0.5, -SUN_DIR.z))
+            .looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
     // Gravel: noise in a tiling texture, a metre to a tile, with a faint
@@ -100,7 +113,7 @@ fn follow_sun(lanes: Res<crate::lanes::Lanes>, mut sun: Query<&mut Transform, Wi
 fn gravel_texture(n: usize) -> Image {
     let mut rng = Rng::new(7);
     let mut px = vec![0u8; n * n * 4];
-    let base = [118.0, 110.0, 99.0];
+    let base = [100.0, 93.0, 84.0];
     for (i, p) in px.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = (i % n, i / n);
         let grain = rng.range(-14.0, 14.0);

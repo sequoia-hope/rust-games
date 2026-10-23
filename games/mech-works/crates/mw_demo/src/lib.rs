@@ -102,12 +102,68 @@ pub fn game(app: &mut App, mode: Mode) {
         .insert_resource(ClearColor(scene::SKY))
         .insert_resource(mode)
         .init_resource::<Status>()
-        .add_systems(Update, count_frames);
+        .add_systems(Update, count_frames)
+        .add_systems(PreUpdate, page_commands.before(lanes::take_commands));
     scene::plugin(app);
     lanes::plugin(app);
     view::plugin(app);
     camera::plugin(app);
     impact::plugin(app);
+}
+
+/// Commands the lanes do not handle, peeled off before they see them.
+fn page_commands(
+    mut inspector: ResMut<view::Inspector>,
+    mut range: ResMut<impact::Range>,
+    mut orbit: ResMut<camera::Orbit>,
+    mut mode: ResMut<Mode>,
+) {
+    let Some(list) = crate::COMMANDS.take() else {
+        return;
+    };
+    let mut rest = Vec::new();
+    for line in list {
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap_or_default();
+        match v.get("cmd").and_then(|c| c.as_str()) {
+            Some("inspector") => {
+                inspector.0 = v
+                    .get("on")
+                    .and_then(|b| b.as_bool())
+                    .unwrap_or(!inspector.0)
+            }
+            Some("range") | Some("fire") => range.apply(&v),
+            Some("camera") => orbit.apply(&v),
+            Some("mode") => {
+                *mode = Mode::parse(v.get("mode").and_then(|m| m.as_str()).unwrap_or(""))
+            }
+            _ => rest.push(line),
+        }
+    }
+    if !rest.is_empty() {
+        crate::COMMANDS.put(rest);
+    }
+}
+
+/// Natively: saves a screenshot to `path` after `secs` of running, then
+/// exits (`--shot`, for looking at a change without serving a build).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn shot_after(app: &mut App, path: String, secs: f32) {
+    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+    let mut state = 0u8;
+    app.add_systems(
+        Last,
+        move |mut commands: Commands, time: Res<Time>, mut exit: MessageWriter<AppExit>| {
+            let t = time.elapsed_secs();
+            if state == 0 && t > secs {
+                commands
+                    .spawn(Screenshot::primary_window())
+                    .observe(save_to_disk(path.clone()));
+                state = 1;
+            } else if state == 1 && t > secs + 1.0 {
+                exit.write(AppExit::Success);
+            }
+        },
+    );
 }
 
 fn count_frames(mut st: ResMut<Status>) {

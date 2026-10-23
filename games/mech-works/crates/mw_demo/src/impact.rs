@@ -2,6 +2,7 @@
 //! random part of it (or the one chosen). A hit is an impulse on that link
 //! at the point struck; the stagger and the catch are the policy's.
 
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use mw_sim::rapier3d::prelude::Vector;
 use mw_sim::rng::Rng;
@@ -31,7 +32,7 @@ impl Default for Range {
     fn default() -> Self {
         Self {
             mass: 40.0,
-            speed: 60.0,
+            speed: 40.0,
             rate: 0.5,
             target: None,
             fire_now: false,
@@ -80,9 +81,20 @@ struct Spark {
 #[derive(Resource)]
 struct ShotAssets {
     mesh: Handle<Mesh>,
+    trail: Handle<Mesh>,
     mat: Handle<StandardMaterial>,
+    trail_mat: Handle<StandardMaterial>,
     spark: Handle<StandardMaterial>,
 }
+
+/// The tracer behind a shot, stretched along its flight.
+#[derive(Component)]
+struct Trail;
+
+/// A shot is drawn at least this big, m (a real one would be a speck).
+const MIN_DRAWN_RADIUS: f32 = 0.22;
+/// Shots start this far from their target, m.
+const LAUNCH_DISTANCE: f32 = 30.0;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Range>()
@@ -100,14 +112,25 @@ fn assets(
 ) {
     commands.insert_resource(ShotAssets {
         mesh: meshes.add(Sphere::new(1.0)),
+        // A unit-long tracer along -Z, from the shot back.
+        trail: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
         mat: materials.add(StandardMaterial {
-            base_color: Color::srgb(0.2, 0.2, 0.22),
-            emissive: LinearRgba::rgb(2.0, 1.2, 0.4),
+            base_color: Color::srgb(1.0, 0.85, 0.5),
+            emissive: LinearRgba::rgb(12.0, 6.0, 1.5),
+            unlit: true,
+            ..default()
+        }),
+        trail_mat: materials.add(StandardMaterial {
+            base_color: Color::srgba(1.0, 0.6, 0.2, 0.45),
+            emissive: LinearRgba::rgb(6.0, 2.5, 0.5),
+            alpha_mode: AlphaMode::Add,
+            unlit: true,
             ..default()
         }),
         spark: materials.add(StandardMaterial {
-            base_color: Color::srgb(1.0, 0.8, 0.4),
+            base_color: Color::srgba(1.0, 0.75, 0.35, 0.8),
             emissive: LinearRgba::rgb(30.0, 15.0, 4.0),
+            alpha_mode: AlphaMode::Add,
             unlit: true,
             ..default()
         }),
@@ -149,14 +172,14 @@ fn fire(
     let angle = range.rng.range(0.0, std::f32::consts::TAU);
     let from = centre
         + Vec3::new(
-            angle.cos() * 25.0,
+            angle.cos() * LAUNCH_DISTANCE,
             range.rng.range(0.5, 4.0),
-            angle.sin() * 25.0,
+            angle.sin() * LAUNCH_DISTANCE,
         );
     let aim_local = Vec3::new(range.rng.signed(), range.rng.signed(), range.rng.signed()) * 0.15;
     let velocity = (centre - from).normalize() * range.speed;
-    let radius = 0.04 * range.mass.cbrt();
-    commands.spawn((
+    let radius = (0.04 * range.mass.cbrt()).max(MIN_DRAWN_RADIUS);
+    let shot = commands.spawn((
         Shot {
             lane,
             link,
@@ -167,7 +190,21 @@ fn fire(
         },
         Mesh3d(assets.mesh.clone()),
         MeshMaterial3d(assets.mat.clone()),
-        Transform::from_translation(from).with_scale(Vec3::splat(radius)),
+        Transform::from_translation(from)
+            .looking_to(velocity, Vec3::Y)
+            .with_scale(Vec3::splat(radius)),
+    ));
+    let shot = shot.id();
+    // The trail: about a tenth of a second of flight behind the shot (in
+    // the shot's scaled frame, so lengths are in radii).
+    let length = (range.speed * 0.1 / radius).clamp(4.0, 60.0);
+    commands.spawn((
+        Trail,
+        Mesh3d(assets.trail.clone()),
+        MeshMaterial3d(assets.trail_mat.clone()),
+        Transform::from_xyz(0.0, 0.0, 0.5 * length).with_scale(Vec3::new(0.9, 0.9, length)),
+        NotShadowCaster,
+        ChildOf(shot),
     ));
 }
 
@@ -209,10 +246,11 @@ fn fly(
                 );
                 range.hits += 1;
                 commands.spawn((
-                    Spark { life: 0.25 },
+                    Spark { life: 0.35 },
                     Mesh3d(assets.mesh.clone()),
                     MeshMaterial3d(assets.spark.clone()),
-                    Transform::from_translation(aim).with_scale(Vec3::splat(0.35)),
+                    Transform::from_translation(aim).with_scale(Vec3::splat(0.3)),
+                    NotShadowCaster,
                 ));
             }
             commands.entity(e).despawn();
@@ -220,6 +258,8 @@ fn fly(
         }
         s.velocity = to.normalize() * s.velocity.length();
         tf.translation += s.velocity * dt;
+        let scale = tf.scale;
+        *tf = tf.looking_to(s.velocity, Vec3::Y).with_scale(scale);
     }
 }
 
@@ -230,7 +270,7 @@ fn fade(
 ) {
     for (e, mut s, mut tf) in &mut sparks {
         s.life -= time.delta_secs();
-        tf.scale *= 1.0 + 6.0 * time.delta_secs();
+        tf.scale *= 1.0 + 5.0 * time.delta_secs();
         if s.life <= 0.0 {
             commands.entity(e).despawn();
         }

@@ -36,7 +36,7 @@ pub const PROPRIO: usize = 3 + 3 + 3 + 2 + 2 + JOINTS * 4;
 pub const OBS: usize = PROPRIO + BODY_PARAMS;
 
 /// Reward terms, named for the trainer's logs.
-pub const REWARD_TERMS: [&str; 14] = [
+pub const REWARD_TERMS: [&str; 16] = [
     "track_lin",
     "track_yaw",
     "lin_z",
@@ -45,6 +45,8 @@ pub const REWARD_TERMS: [&str; 14] = [
     "height",
     "torque",
     "action_rate",
+    "action_jerk",
+    "joint_acc",
     "gait",
     "slip",
     "thermal",
@@ -111,6 +113,10 @@ pub struct Env {
     pub steps: u32,
     pub action: [f32; JOINTS],
     pub last_action: [f32; JOINTS],
+    /// The action before `last_action`, for the smoothness reward.
+    prev_last_action: [f32; JOINTS],
+    /// Joint velocities a policy step ago, rad/s.
+    prev_qd: [f32; JOINTS],
     /// Physics steps of control latency.
     latency_steps: usize,
     /// Each foot's collider position a policy step ago (Rapier reports a
@@ -136,6 +142,8 @@ impl Env {
             steps: 0,
             action: [0.0; JOINTS],
             last_action: [0.0; JOINTS],
+            prev_last_action: [0.0; JOINTS],
+            prev_qd: [0.0; JOINTS],
             latency_steps: 0,
             prev_feet: [Vector::ZERO; LEGS],
             next_command: COMMAND_S,
@@ -159,6 +167,8 @@ impl Env {
         self.steps = 0;
         self.action = [0.0; JOINTS];
         self.last_action = [0.0; JOINTS];
+        self.prev_last_action = [0.0; JOINTS];
+        self.prev_qd = [0.0; JOINTS];
         self.prev_feet = self.feet();
         if !self.hold_command {
             self.command = self.sample_command();
@@ -269,6 +279,7 @@ impl Env {
 
     /// One policy step with `action` (each in [-1, 1]).
     pub fn step(&mut self, action: &[f32; JOINTS]) -> StepResult {
+        self.prev_last_action = self.last_action;
         self.last_action = self.action;
         self.action = action.map(|a| a.clamp(-1.0, 1.0));
         let targets: [f32; JOINTS] = std::array::from_fn(|j| {
@@ -380,6 +391,19 @@ impl Env {
             .zip(&self.last_action)
             .map(|(a, b)| (a - b) * (a - b))
             .sum();
+        // Smooth movement: the action's second difference (a target that
+        // flips back and forth each step is the foot wiggle) and the joints'
+        // acceleration, rad/s².
+        let action_jerk: f32 = (0..JOINTS)
+            .map(|j| {
+                (self.action[j] - 2.0 * self.last_action[j] + self.prev_last_action[j]).powi(2)
+            })
+            .sum();
+        let qd = self.sim.joint_velocities();
+        let joint_acc: f32 = (0..JOINTS)
+            .map(|j| ((qd[j] - self.prev_qd[j]) / POLICY_DT).powi(2))
+            .sum();
+        self.prev_qd = std::array::from_fn(|j| qd[j]);
         let thermal: f32 = self
             .sim
             .actuators
@@ -406,7 +430,9 @@ impl Env {
             -5.0 * (g.x * g.x + g.z * g.z),
             -10.0 * (height - TARGET_HEIGHT).min(0.0).powi(2),
             -0.5 * torque_cost,
-            -0.02 * action_rate,
+            -0.15 * action_rate,
+            -0.05 * action_jerk,
+            -4e-5 * joint_acc,
             0.3 * gait,
             -0.2 * slip,
             -2.0 * thermal,

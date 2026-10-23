@@ -21,6 +21,9 @@ fn err<T>(msg: impl Into<String>) -> Result<T, Error> {
     Err(Error(msg.into()))
 }
 
+mod estimator;
+pub use estimator::{Estimator, EstimatorHeader};
+
 pub const BLOB_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -157,6 +160,84 @@ impl Mlp {
     }
 }
 
+/// A blob's architecture name ("teacher_v1", "estimator_v1"), to tell a
+/// policy from an estimator.
+pub fn arch(bytes: &[u8]) -> Result<String, Error> {
+    #[derive(Deserialize)]
+    struct Arch {
+        arch: String,
+    }
+    let (hjson, _) = split_blob(bytes)?;
+    serde_json::from_slice::<Arch>(hjson)
+        .map(|a| a.arch)
+        .map_err(|e| Error(format!("header: {e}")))
+}
+
+/// A blob's JSON header and its f32 data.
+fn split_blob(bytes: &[u8]) -> Result<(&[u8], Vec<f32>), Error> {
+    if bytes.len() < 16 || &bytes[..8] != b"MWPOLICY" {
+        return err("not a Mech Works policy blob");
+    }
+    let u32_at = |i: usize| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
+    let version = u32_at(8);
+    if version != BLOB_VERSION {
+        return err(format!(
+            "blob version {version}, this build reads {BLOB_VERSION}"
+        ));
+    }
+    let hlen = u32_at(12) as usize;
+    let hend = 16 + hlen;
+    if bytes.len() < hend {
+        return err("truncated header");
+    }
+    let data_start = hend + (4 - hend % 4) % 4;
+    let data = &bytes[data_start.min(bytes.len())..];
+    let floats = data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect();
+    Ok((&bytes[16..hend], floats))
+}
+
+fn tensor(tensors: &[TensorSpec], floats: &[f32], name: &str) -> Result<Vec<f32>, Error> {
+    let t = tensors
+        .iter()
+        .find(|t| t.name == name)
+        .ok_or_else(|| Error(format!("missing tensor {name}")))?;
+    let len: usize = t.shape.iter().product();
+    floats
+        .get(t.offset..t.offset + len)
+        .map(<[f32]>::to_vec)
+        .ok_or_else(|| Error(format!("tensor {name} runs past the data")))
+}
+
+/// The dense layers `name.0`, `name.1`, ... as `specs` describes them.
+fn dense_net(
+    tensors: &[TensorSpec],
+    floats: &[f32],
+    name: &str,
+    specs: &[LayerSpec],
+) -> Result<Mlp, Error> {
+    let mut layers = Vec::new();
+    for (i, s) in specs.iter().enumerate() {
+        let weight = tensor(tensors, floats, &format!("{name}.{i}.weight"))?;
+        let bias = tensor(tensors, floats, &format!("{name}.{i}.bias"))?;
+        if weight.len() != s.inputs * s.outputs || bias.len() != s.outputs {
+            return err(format!("{name}.{i}: shape mismatch"));
+        }
+        layers.push(Dense {
+            inputs: s.inputs,
+            outputs: s.outputs,
+            weight,
+            bias,
+            activation: Activation::parse(&s.activation)?,
+        });
+    }
+    Ok(Mlp::new(layers))
+}
+
 /// The teacher: normalized observation → encoder(body parameters) = z →
 /// actor(proprioception, z) = action.
 #[derive(Clone, Debug)]
@@ -174,64 +255,15 @@ pub struct Policy {
 impl Policy {
     /// Reads a blob.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() < 16 || &bytes[..8] != b"MWPOLICY" {
-            return err("not a Mech Works policy blob");
-        }
-        let u32_at = |i: usize| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
-        let version = u32_at(8);
-        if version != BLOB_VERSION {
-            return err(format!(
-                "blob version {version}, this build reads {BLOB_VERSION}"
-            ));
-        }
-        let hlen = u32_at(12) as usize;
-        let hend = 16 + hlen;
-        if bytes.len() < hend {
-            return err("truncated header");
-        }
+        let (hjson, floats) = split_blob(bytes)?;
         let header: Header =
-            serde_json::from_slice(&bytes[16..hend]).map_err(|e| Error(format!("header: {e}")))?;
+            serde_json::from_slice(hjson).map_err(|e| Error(format!("header: {e}")))?;
         if header.arch != "teacher_v1" {
             return err(format!("unknown architecture {:?}", header.arch));
         }
-        let data_start = hend + (4 - hend % 4) % 4;
-        let data = &bytes[data_start.min(bytes.len())..];
-        let floats: Vec<f32> = data
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| f32::from_le_bytes(*c))
-            .collect();
-        let tensor = |name: &str| -> Result<Vec<f32>, Error> {
-            let t = header
-                .tensors
-                .iter()
-                .find(|t| t.name == name)
-                .ok_or_else(|| Error(format!("missing tensor {name}")))?;
-            let len: usize = t.shape.iter().product();
-            floats
-                .get(t.offset..t.offset + len)
-                .map(<[f32]>::to_vec)
-                .ok_or_else(|| Error(format!("tensor {name} runs past the data")))
-        };
-        let net = |name: &str, specs: &[LayerSpec]| -> Result<Mlp, Error> {
-            let mut layers = Vec::new();
-            for (i, s) in specs.iter().enumerate() {
-                let weight = tensor(&format!("{name}.{i}.weight"))?;
-                let bias = tensor(&format!("{name}.{i}.bias"))?;
-                if weight.len() != s.inputs * s.outputs || bias.len() != s.outputs {
-                    return err(format!("{name}.{i}: shape mismatch"));
-                }
-                layers.push(Dense {
-                    inputs: s.inputs,
-                    outputs: s.outputs,
-                    weight,
-                    bias,
-                    activation: Activation::parse(&s.activation)?,
-                });
-            }
-            Ok(Mlp::new(layers))
-        };
+        let tensor = |name: &str| tensor(&header.tensors, &floats, name);
+        let net =
+            |name: &str, specs: &[LayerSpec]| dense_net(&header.tensors, &floats, name, specs);
         let encoder = net("encoder", &header.layers.encoder)?;
         let actor = net("actor", &header.layers.actor)?;
         let mean = tensor("norm.mean")?;
@@ -268,7 +300,29 @@ impl Policy {
         self.actor.forward(&self.actor_in, action);
     }
 
-    /// The latent z of the last [`Policy::act`].
+    /// The action for `obs` with the body latent given rather than encoded
+    /// from the observation's body parameters (which are ignored): how the
+    /// policy walks on an [`Estimator`]'s guess.
+    pub fn act_with_latent(&mut self, obs: &[f32], latent: &[f32], action: &mut [f32]) {
+        let h = &self.header;
+        assert!(obs.len() >= h.proprio, "observation length");
+        assert_eq!(latent.len(), h.latent, "latent length");
+        for (((n, o), m), s) in self.norm[..h.proprio]
+            .iter_mut()
+            .zip(obs)
+            .zip(&self.mean)
+            .zip(&self.std)
+        {
+            *n = ((o - m) / s).clamp(-h.obs_clip, h.obs_clip);
+        }
+        self.latent.copy_from_slice(latent);
+        self.actor_in[..h.proprio].copy_from_slice(&self.norm[..h.proprio]);
+        self.actor_in[h.proprio..].copy_from_slice(latent);
+        self.actor.forward(&self.actor_in, action);
+    }
+
+    /// The latent z of the last [`Policy::act`] (or the one
+    /// [`Policy::act_with_latent`] was given).
     pub fn latent(&self) -> &[f32] {
         &self.latent
     }
