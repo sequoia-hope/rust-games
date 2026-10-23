@@ -54,6 +54,10 @@ game passes in); its redesign is `crates/music/PLAN.md`.
 - **games/snowboarding** — the 1080°-style snowboarding game: `sb_sim`
   (simulation), `sb_radio` (announcers), `sb_game` (Bevy client; its radio is the
   shared music engine).
+- **games/mech-works** — a mech game whose mech walks on a learned,
+  damage-tolerant locomotion policy (Rapier sim, PPO training through
+  PyO3, a hand-rolled MLP in the browser). Spec only so far:
+  `docs/SPEC.md` there; crates will be `mw_*`.
 
 ## One workspace
 

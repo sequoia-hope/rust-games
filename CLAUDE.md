@@ -15,6 +15,7 @@ code you touch.
 | `crates/music/` | the **music engine** (package `music`): the Music Lab's procedural music (instruments, sequencer, composer, genre grammars, mix) and the radio station player; also built as its own AudioWorklet wasm |
 | `games/midnight-playground/` | **Midnight Playground**, the street racer (`mp_*` crates, plus the frozen legacy JS game) |
 | `games/snowboarding/` | **Snowboarding**, the 1080°-style snowboarding game (`sb_*` crates) |
+| `games/mech-works/` | **Mech Works**, a mech game whose mech walks on a learned locomotion policy (`mw_*` crates; spec only so far: `docs/SPEC.md`) |
 | `apps/` | tools with a page of their own on the engines, such as `apps/music-lab/`, the **Music Lab** (the music engine's workbench: `./serve.sh`, registered as `music-lab`) |
 | `docs/` | architecture, the reorganization plan, kickoff prompts for new projects |
 | `site/` | the public site's list (`games.toml`) and front page (below) |
