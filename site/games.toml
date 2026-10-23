@@ -7,7 +7,9 @@
 # `scripts/pages.py` writes the front page from this list. Adding something
 # to the site is a `pages.sh` and an entry here. An entry with an `href`
 # in place of a `path` builds nothing: it is a link on the front page into
-# another entry's part of the site (a page a game ships, say).
+# another entry's part of the site (a page a game ships, say). An entry with
+# `small = true` is not a game: it goes in the row of small buttons under
+# the games, side by side, and its blurb becomes the button's tooltip.
 
 [[game]]
 name = "midnight-playground"
@@ -16,19 +18,27 @@ title = "Midnight Playground"
 blurb = "A street racer: sprints from mountain switchbacks to neon downtown, an endless night-city cruise, rivals, traffic and Hot Pursuit police."
 
 [[game]]
-name = "midnight-playground-radio"
-href = "midnight-playground/tools/radio.html"
-title = "Midnight Playground Radio"
-blurb = "The game's radio stations on a dial, playing around the clock: house, synthwave, techno, chicha, country and more, made as you listen."
-
-[[game]]
 name = "snowboarding"
 path = "games/snowboarding"
 title = "Snowboarding"
 blurb = "Race a CPU rider down the mountain, or ride alone against the clock or for trick points. Carve, ollie, spin, flip and grab, but land it."
 
 [[game]]
+name = "mech-works"
+path = "games/mech-works"
+title = "Mech Works"
+blurb = "A four-tonne walking mech on a learned gait: nothing is animated, a neural network drives its twelve motors. Shoot it, break its actuators, swap its parts."
+
+[[game]]
 name = "music-lab"
 path = "apps/music-lab"
 title = "Music Lab"
 blurb = "The games' music engine on its own: make a house, techno, trance or drum & bass track from a seed, then take it apart, part by part and knob by knob."
+small = true
+
+[[game]]
+name = "midnight-playground-radio"
+href = "midnight-playground/tools/radio.html"
+title = "Midnight Playground Radio"
+blurb = "The game's radio stations on a dial, playing around the clock: house, synthwave, techno, chicha, country and more, made as you listen."
+small = true
