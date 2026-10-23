@@ -1,0 +1,9 @@
+{
+  "name": "mech-works",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling for Mech Works: headless browser screenshots (tools/shot.mjs)",
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0"
+  }
+}

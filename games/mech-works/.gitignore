@@ -8,3 +8,4 @@ __pycache__/
 /dist/
 # The training log, beside the run.
 /checkpoints-*.log
+/shots/
