@@ -15,7 +15,8 @@ const jointLabel = (j) => `${j < 6 ? 'L' : 'R'} ${JOINT_NAMES[j % 6]}`;
 const LINK_NAMES = ['torso', ...[0, 1].flatMap((leg) => ['hip', 'hip', 'thigh', 'shin', 'ankle', 'foot'].map((n) => `${leg ? 'R' : 'L'} ${n}`))];
 const PARAM_NAMES = ['torso mass', 'CoM fwd', 'CoM up', 'CoM right', 'L leg length', 'R leg length',
   ...Array.from({ length: 12 }, (_, j) => `health ${jointLabel(j)}`),
-  ...Array.from({ length: 12 }, (_, j) => `driver ${jointLabel(j)}`), 'friction', 'latency'];
+  ...Array.from({ length: 12 }, (_, j) => `driver ${jointLabel(j)}`), 'friction', 'latency',
+  'tool mass', 'tool across', 'tool along'];
 
 let glue, G, params, page;
 let base = null;          // where training data comes from
@@ -300,6 +301,9 @@ function wireCalibration() {
     if (part === 'light') p[0] = -1;
     if (part === 'com') p[1] = 1;
     if (part === 'shin') p[4] = 1;
+    if (part === 'tool-right') { p[32] = 1; p[33] = 1; p[34] = 0.4; }
+    if (part === 'tool-left') { p[32] = 0.3; p[33] = -1; p[34] = 0.4; }
+    if (part === 'no-tool') p[32] = -1;
     send({ cmd: 'swap', params: p });
   };
   $('calibrate').onclick = () => send({ cmd: 'calibrate', secs: +$('cal').value });
@@ -355,7 +359,7 @@ function drawInspector(t) {
   // and the estimator's guess from the motion (blue).
   const est = t.estimated;
   const off = (i) => t.params[i] < 0.999 || t.believed[i] < 0.999 || (est && est[i] < 0.8);
-  const show = [0, 1, 2, 3, 4, 5, ...t.params.map((_, i) => i).filter((i) => i >= 6 && i < 30 && off(i)), 30, 31];
+  const show = [0, 1, 2, 3, 4, 5, ...t.params.map((_, i) => i).filter((i) => i >= 6 && i < 30 && off(i)), 30, 31, 32, 33, 34];
   const at = (x) => (50 + 50 * Math.max(-1.1, Math.min(1.1, x))).toFixed(1);
   $('params').innerHTML = '<div style="margin:4px 0">body parameters: <span style="color:#f4f0e8">true</span> · '
     + `<span style="color:var(--accent)">${t.adaptive ? 'told (unused)' : 'what the policy is told'}</span>`

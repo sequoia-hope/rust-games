@@ -216,8 +216,8 @@ def main():
         mean_len = float(np.mean(finished_len)) if finished_len else float("nan")
         fall_rate = falls / max(ends, 1)
         terms_mean = {k: float(v) / (n * T) for k, v in zip(terms_names, term_sums)}
-        # The lin tracking term's best is 1.5 * POLICY_DT per step.
-        track = terms_mean["track_lin"] / (1.5 / mw_sim_py.POLICY_HZ)
+        # The lin tracking term's best is 2.0 * POLICY_DT per step.
+        track = terms_mean["track_lin"] / (2.0 / mw_sim_py.POLICY_HZ)
         window_falls, window_ends = (window_falls + [falls])[-10:], (window_ends + [ends])[-10:]
         window_rate = sum(window_falls) / max(sum(window_ends), 1)
         if a.curriculum and update % 10 == 0 and sum(window_ends) >= 100 and window_rate < 0.15 and track > 0.7 and level < a.max_level:

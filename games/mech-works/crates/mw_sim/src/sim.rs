@@ -127,6 +127,26 @@ impl Sim {
                 )),
             Some(torso),
         );
+        // A tool on the hull: its own box and mass on the torso's body.
+        if let Some((half, at)) = params_tool(&params) {
+            let m = params.tool_kg();
+            world.insert_collider(
+                ColliderBuilder::cuboid(half[0], half[1], half[2])
+                    .translation(Vector::new(at[0], at[1], at[2]))
+                    .collision_groups(groups)
+                    .friction(friction)
+                    .mass_properties(MassProperties::new(
+                        Vector::ZERO,
+                        m,
+                        Vector::new(
+                            m / 3.0 * (half[1] * half[1] + half[2] * half[2]),
+                            m / 3.0 * (half[0] * half[0] + half[2] * half[2]),
+                            m / 3.0 * (half[0] * half[0] + half[1] * half[1]),
+                        ),
+                    )),
+                Some(torso),
+            );
+        }
 
         let mut links = vec![Link { body: torso }];
         let mut joint_list = Vec::with_capacity(JOINTS);
@@ -515,6 +535,12 @@ impl Sim {
         out
     }
 
+    /// The tool on the hull, if it has one: its box's half extents and
+    /// centre in the torso's frame, m.
+    pub fn tool_shape(&self) -> Option<([f32; 3], [f32; 3])> {
+        params_tool(&self.params)
+    }
+
     /// Total mass of the mech, kg.
     pub fn total_mass(&self) -> f32 {
         self.links
@@ -522,4 +548,11 @@ impl Sim {
             .map(|l| self.world.bodies[l.body].mass())
             .sum()
     }
+}
+
+/// A tool lighter than this is no tool, kg.
+const TOOL_MIN_KG: f32 = 5.0;
+
+fn params_tool(params: &BodyParams) -> Option<([f32; 3], [f32; 3])> {
+    (params.tool_kg() >= TOOL_MIN_KG).then(|| ([0.4, 0.25, 0.2], params.tool_position_m()))
 }

@@ -22,10 +22,14 @@ struct LinkView {
     link: usize,
 }
 
-/// A lane's drawn links, kept to rebuild when a body (leg lengths) changes.
+/// What a lane's drawing is built from: its links' shapes and its tool.
+type Build = (Vec<LinkShape>, Option<([f32; 3], [f32; 3])>);
+
+/// A lane's drawn links, kept to rebuild when a body (leg lengths, a tool)
+/// changes.
 #[derive(Resource, Default)]
 struct Drawn {
-    lanes: Vec<(Vec<LinkShape>, Vec<Entity>)>,
+    lanes: Vec<(Build, Vec<Entity>)>,
 }
 
 #[derive(Resource)]
@@ -200,6 +204,32 @@ fn parts(link: usize, shape: &LinkShape) -> Vec<Part> {
     }
 }
 
+/// A tool on the hull, as collided (`half`, centred at `at` in the torso's
+/// frame): a pod with a barrel forward, braced back to the hull.
+fn tool_parts(half: [f32; 3], at: Vec3) -> Vec<Part> {
+    use Finish::*;
+    let side = at.z.signum();
+    // The brace runs from the hull's side (or its middle, for a tool on the
+    // centre line) out to the pod.
+    let hull_edge = if at.z.abs() > 0.75 { 0.7 * side } else { at.z };
+    let brace = (at.z - hull_edge).abs().max(0.05);
+    vec![
+        plate([2.0 * half[0], 2.0 * half[1], 2.0 * half[2]], Joint, at),
+        plate(
+            [2.0 * half[0] + 0.02, 0.07, 2.0 * half[2] + 0.02],
+            Accent,
+            at + Vec3::new(0.0, 0.12, 0.0),
+        ),
+        drum_x(0.09, 1.1, Chrome, at + Vec3::new(half[0] + 0.5, -0.04, 0.0)),
+        drum_x(0.13, 0.22, Dark, at + Vec3::new(half[0] + 0.08, -0.04, 0.0)),
+        plate(
+            [0.3, 0.16, brace],
+            Dark,
+            Vec3::new(at.x, at.y - 0.1, 0.5 * (at.z + hull_edge)),
+        ),
+    ]
+}
+
 /// The torso: a hull around the collision box (centre 0.55 m above the
 /// hips, 1.3 × 1.2 × 1.5 m), a sloped glacis with the visor, shoulder
 /// pods, a reactor pack behind, and a skirt over the hips.
@@ -340,8 +370,8 @@ fn sync_bodies(
         }
     }
     for (i, lane) in lanes.lanes.iter().enumerate() {
-        let shapes = lane.env.sim.link_shapes();
-        if drawn.lanes.get(i).is_some_and(|(s, _)| *s == shapes) {
+        let build: Build = (lane.env.sim.link_shapes(), lane.env.sim.tool_shape());
+        if drawn.lanes.get(i).is_some_and(|(b, _)| *b == build) {
             continue;
         }
         if let Some((_, ents)) = drawn.lanes.get_mut(i) {
@@ -350,6 +380,7 @@ fn sync_bodies(
             }
         }
         let mut ents = Vec::new();
+        let (shapes, tool) = &build;
         for (link, shape) in shapes.iter().enumerate() {
             let parent = commands
                 .spawn((
@@ -361,7 +392,13 @@ fn sync_bodies(
             // Each actuated link has its own copies of the materials so the
             // inspector can tint it (the glow keeps the shared one).
             let mut own: Vec<(Finish, Handle<StandardMaterial>)> = Vec::new();
-            for p in parts(link, shape) {
+            let mut list = parts(link, shape);
+            if link == 0
+                && let Some((half, at)) = tool
+            {
+                list.extend(tool_parts(*half, Vec3::from(*at)));
+            }
+            for p in list {
                 let shared = palette.get(p.finish);
                 let mat = if link == 0 || p.finish == Finish::Glow {
                     shared.clone()
@@ -383,9 +420,9 @@ fn sync_bodies(
             ents.push(parent);
         }
         if i < drawn.lanes.len() {
-            drawn.lanes[i] = (shapes, ents);
+            drawn.lanes[i] = (build, ents);
         } else {
-            drawn.lanes.push((shapes, ents));
+            drawn.lanes.push((build, ents));
         }
     }
 }
