@@ -9,7 +9,8 @@ anything here.
 **The spec is `docs/SPEC.md`.** It covers the world, the story arc, the
 mechanics, the tech architecture, the locomotion policy, the build plan and
 the milestones (M0 to M6). Work goes milestone by milestone, and each one
-ends with something visible in the browser.
+ends with something visible in the browser. Music and sound have their
+own requirements: `docs/AUDIO.md`.
 
 ## Principles (from the spec)
 
