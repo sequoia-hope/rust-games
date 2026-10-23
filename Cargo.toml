@@ -16,12 +16,15 @@ members = [
     "games/midnight-playground/tools/parity/kernel",
     "games/snowboarding/crates/*",
     "games/snowboarding/xtask",
+    "games/mech-works/crates/*",
+    "games/mech-works/xtask",
 ]
 default-members = [
     "crates/engine/pk_*",
     "crates/music",
     "games/midnight-playground/crates/*",
     "games/snowboarding/crates/*",
+    "games/mech-works/crates/*",
 ]
 # Patched dependencies (not ours to build, lint or format) and the kit's
 # template for a new game (its own workspace).
@@ -55,6 +58,13 @@ mp_atlas = { path = "games/midnight-playground/crates/mp_atlas" }
 # Snowboarding.
 sb_sim = { path = "games/snowboarding/crates/sb_sim" }
 sb_radio = { path = "games/snowboarding/crates/sb_radio" }
+# Mech Works.
+mw_sim = { path = "games/mech-works/crates/mw_sim" }
+mw_sim_py = { path = "games/mech-works/crates/mw_sim_py" }
+mw_policy = { path = "games/mech-works/crates/mw_policy" }
+mw_demo = { path = "games/mech-works/crates/mw_demo" }
+# Its physics, the same version and features in training and the browser.
+rapier3d = { version = "=0.36.1", features = ["enhanced-determinism"] }
 # Bevy 0.19.1, pinned, for every game (the kit's PLAN.md section 3).
 # Default features off; every client crate names the features it needs.
 bevy = { version = "=0.19.1", default-features = false }

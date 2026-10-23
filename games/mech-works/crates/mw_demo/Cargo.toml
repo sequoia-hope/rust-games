@@ -1,0 +1,78 @@
+[package]
+name = "mw_demo"
+description = "The Mech Works tech demos and training viewer: the policy walking live in the browser on the Rust simulation"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The web build is the cdylib, post-processed by wasm-bindgen into dist/web/
+# (`cargo xtask web`). The native build is the binary.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "mech-works"
+path = "src/main.rs"
+
+[dependencies]
+mw_sim.workspace = true
+mw_policy.workspace = true
+# The sprite-free plugin group (and, on the web, the status global).
+pk_shell.workspace = true
+serde_json = "1"
+# Bevy 0.19.1, pinned, default features off: what pk_shell turns on is the
+# set (3D, windowing, UI text for nothing yet but the shell's group).
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "std",
+    "async_executor",
+    "bevy_asset",
+    "bevy_log",
+    "bevy_state",
+    "bevy_window",
+    "bevy_winit",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_light",
+    "bevy_camera",
+    "bevy_mesh",
+    "bevy_image",
+    "bevy_color",
+    "bevy_material",
+    "bevy_shader",
+    "keyboard",
+    "mouse",
+    "touch",
+    "bevy_ui",
+    "bevy_ui_render",
+    "bevy_text",
+    "default_font",
+    "png",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { version = "=0.19.1", default-features = false, features = [
+    "multi_threaded",
+    "x11",
+    "wayland",
+    "bevy_gilrs",
+] }
+
+# The web backend is chosen at compile time, one wasm each, picked by the
+# page: WebGPU by default, WebGL2 when built with `--cfg pk_webgl2`
+# (`cargo xtask web` builds both).
+[target.'cfg(all(target_arch = "wasm32", not(pk_webgl2)))'.dependencies]
+pk_shell = { workspace = true, features = ["webgpu"] }
+
+[target.'cfg(all(target_arch = "wasm32", pk_webgl2))'.dependencies]
+pk_shell = { workspace = true, features = ["webgl2"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+web-sys = { workspace = true, features = ["Window", "Location", "console"] }
+tracing = { version = "0.1", default-features = false, features = ["release_max_level_info"] }
+log = { version = "0.4", default-features = false, features = ["release_max_level_info"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(pk_webgl2)"] }

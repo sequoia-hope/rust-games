@@ -27,8 +27,49 @@ own requirements: `docs/AUDIO.md`.
 
 ## Layout
 
-The crates use the `mw_` prefix (`mw_sim`, `mw_sim_py`, `mw_policy`,
-`mw_demo`) under `crates/`. Python training lives in `train/`, and exported
-weights go in `checkpoints/`. None of these exist yet. When the first crate
-lands, add it to the root `Cargo.toml` members and `[workspace.dependencies]`,
-and give it a `deps.toml` entry.
+| Where | What |
+|---|---|
+| `crates/mw_sim` | the simulation: the mech (`mech.rs`), its motor, driver and thermal model (`actuator.rs`), the Rapier world (`sim.rs`), the ground (`terrain.rs`), the training environment: observations, rewards, curriculum, pushes, damage (`env.rs`) |
+| `crates/mw_sim_py` | `mw_sim` as the Python module `mw_sim_py`: a batch of envs stepped in parallel |
+| `crates/mw_policy` | the trained networks in plain Rust, from their weight blobs; the parity test against PyTorch |
+| `crates/mw_demo` | the Bevy client: the training viewer and the tech demos; `web/` is its page (`index.html` the kit's loader, `ui.js` the controls, curves and inspector) |
+| `train/` | PPO (`train.py`), the networks and their export (`policy.py`), `build.sh` |
+| `checkpoints/<run>/` | a training run's output (git-ignored): checkpoints, `metrics.jsonl`, coverage; `runs.json` lists the runs |
+| `assets/policies/` | the policies the demos ship (committed; the parity test reads them) |
+| `devlog/` | **the dev log**: `index.html`, newest entry first, with pictures in `img/` |
+| `xtask/` | `cargo xtask` here: the web build (Playground Kit's `pk_xtask`) |
+
+## Commands
+
+| What | Command (from `games/mech-works/`) |
+|---|---|
+| Tests | `cargo nextest run -p mw_sim -p mw_policy -p mw_demo` |
+| The Python module | `PYTHON=<a python with torch> train/build.sh` |
+| Train | `cd train && python train.py --run <name> --steps 150e6 --curriculum` |
+| Web build into `dist/web/` | `cargo xtask web --release` (`--only webgpu\|webgl2`) |
+| Native client | `cargo run --release -p mw_demo -- --mode impact --policy assets/policies/teacher-v1.bin` |
+| Serve (the page, and `checkpoints/` live) | `./serve.sh` (registered as `mech-works`) |
+| The standing benchmark | `cargo run --release -p mw_sim --example stand` |
+
+The page takes `?mode=viewer|impact|damage|calibration`. On the dev server
+the viewer reads the trainer's `checkpoints/` as it writes them, so a run
+in progress can be watched.
+
+## Rapier lessons (2026-10-23; the dev log has the details)
+
+- Rapier's **stabilization pass is off** (`num_internal_stabilization_iterations
+  = 0`): it corrects penetration without friction and slid a loaded foot
+  19 cm in 4 s. `examples/slide.rs` measures it.
+- A multibody link's **reported velocity is stale**: foot slip is measured
+  from collider positions between policy steps.
+- **Impulses on a link are lost**: a push is a force held for one physics
+  step (`Sim::push`).
+- The PD controllers are Rapier's **implicit, force-based joint motors**;
+  the actuator model sets each one's torque limit every step.
+
+## The dev log
+
+Keep `devlog/index.html` current: an entry (newest first) for each thing
+that evolves, with pictures (screenshots of the demos through the kit's
+`js/shot.mjs`, training curves from `devlog/plot_training.py`) and
+diagrams (inline SVG). It is how the owner follows the work.

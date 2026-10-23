@@ -1,0 +1,9 @@
+[package]
+name = "mw_sim"
+description = "The Mech Works simulation: the mech, its actuators, the Rapier world, observations and rewards"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+rapier3d = { workspace = true }
