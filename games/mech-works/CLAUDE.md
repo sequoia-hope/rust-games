@@ -52,6 +52,8 @@ own requirements: `docs/AUDIO.md`.
 | Native client | `cargo run --release -p mw_demo -- --mode impact --policy assets/policies/teacher-v1.bin` |
 | Serve (the page, and `checkpoints/` live) | `./serve.sh` (registered as `mech-works`) |
 | The standing benchmark | `cargo run --release -p mw_sim --example stand` |
+| A policy walking, all in Rust | `cargo run --release -p mw_policy --example eval -- <blob> [m/s]` |
+| Pictures (server up; `npm install` once) | `node tools/page-shot.mjs --url <server>/ --query mode=impact --name x --steps 'wait:3000,stage:{"cmd":"walk","forward":0.6},wait:8000'` (whole page, WebGL2), `node tools/shot.mjs --url <server>/` (canvas only) |
 
 The page takes `?mode=viewer|impact|damage|calibration`. On the dev server
 the viewer reads the trainer's `checkpoints/` as it writes them, so a run

@@ -95,7 +95,8 @@ async function getJSON(url) {
 }
 
 async function findData() {
-  const up = /\/dist\/[^/]+\/$/.test(location.pathname) ? '../../' : '';
+  // Below dist/<build>/ on the dev server (the page as / or /index.html there).
+  const up = /\/dist\/[^/]+\/(index\.html)?$/.test(location.pathname) ? '../../' : '';
   for (const b of [up + 'checkpoints/', 'assets/policies/gallery/']) {
     try {
       const runs = (await getJSON(b + 'runs.json')).runs;

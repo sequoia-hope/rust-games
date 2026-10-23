@@ -27,6 +27,37 @@
 <h1>MECH WORKS</h1>
 <p class="sub">Dev log: what was built, what was found, what is next. Newest first. Spec: <code>docs/SPEC.md</code>.</p>
 
+<article id="2026-10-23-browser">
+<h2>It walks in the browser: the viewer and three demos, live</h2>
+<time>2026-10-23, later</time>
+
+<p>M0 and M1 are on <code>main</code> and the game is registered as <code>mech-works</code> (<code>proj up mech-works</code>). On the dev server the training viewer reads the trainer's <code>checkpoints/</code> as it writes them, so the run in progress is the one on screen. Each mech below is the Rust simulation stepped in wasm with the policy run by <code>mw_policy</code>, 50 times a second; nothing is animated.</p>
+
+<h3>Training viewer</h3>
+<img src="img/2026-10-23-viewer.jpg" alt="Three mechs from three checkpoints, with live training curves">
+<p class="cap">Three lanes, three checkpoints of <code>teacher-v1</code> (25k, 21.5M and 43M steps) on the same ground; the curves are the run's live <code>metrics.jsonl</code>. The checkpoint slider scrubs through training; "Spread across training" lays the lanes from the first checkpoint to the chosen one.</p>
+
+<h3>Demo 1: impact range</h3>
+<img src="img/2026-10-23-impact.jpg" alt="The mech walking while projectiles hit it">
+<p class="cap">Projectiles from random directions hit random links (or the one chosen); each hit is the projectile's momentum into that link at the point struck. Seven hits at 0.44 m/s, no falls.</p>
+
+<h3>Demo 3: damage and limp</h3>
+<img src="img/2026-10-23-damage.jpg" alt="The left knee damaged to 28% torque, with the inspector">
+<p class="cap">The left knee cut to 28% of its torque. The inspector shows each actuator's torque against its limit (the white tick is the damaged knee's lower limit), its current, its winding temperature against the derate and trip marks, and the body parameters the policy is told. It keeps walking at 0.6 m/s.</p>
+
+<h3>Demo 4: calibration</h3>
+<img src="img/2026-10-23-calibration.jpg" alt="After a heavier torso is swapped in: true mass versus what the policy is told">
+<p class="cap">A torso 30% heavier swapped in. The policy is still told the old body (orange mark at nominal; the true mass is the white mark at +30%) until "Calibrate" moves what it is told to the truth over the time set.</p>
+
+<h3>Not good yet</h3>
+<ul>
+<li>The mech is its collision primitives, and the light is flat and too bright. The AMP-style mesh, the eroded hillside, real gravel and the lighting pass are M6.</li>
+<li>The policy is still training. It falls in half or more of the episodes with both pushes and damage, and its curriculum moved on noisy samples. The next run smooths that and adds the estimator (M4).</li>
+<li>No native-vs-WASM replay parity test yet (M0's last item).</li>
+<li>The panel's sliders don't follow commands sent another way (keys, scripts).</li>
+</ul>
+</article>
+
 <article id="2026-10-23">
 <h2>M0 and the first walk: Rapier passes, the teacher trains, the browser viewer exists</h2>
 <time>2026-10-23</time>
@@ -38,7 +69,7 @@
 <tr><td><code>mw_sim_py</code>: PyO3 vector env (rayon)</td><td class="ok">done: ~25k policy steps/s on this machine</td></tr>
 <tr><td><code>train/</code>: PPO teacher, curriculum, checkpoint export</td><td class="ok">running: <code>teacher-v1</code>, 150M steps</td></tr>
 <tr><td><code>mw_policy</code>: the MLP in Rust, from the weight blob</td><td class="ok">done: matches PyTorch to 1e-5</td></tr>
-<tr><td><code>mw_demo</code>: Bevy client, viewer + impact, damage, calibration demos</td><td>web build made; landing so it can be served</td></tr>
+<tr><td><code>mw_demo</code>: Bevy client, viewer + impact, damage, calibration demos</td><td class="ok">running in the browser (next entry)</td></tr>
 <tr><td>Native vs WASM replay parity test</td><td>next</td></tr>
 <tr><td>Estimator (autonomous calibration), terrain, endless path</td><td>M4, M5</td></tr>
 </table>
