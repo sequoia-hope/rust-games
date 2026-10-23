@@ -4,7 +4,7 @@
 // against the low band (40–150 Hz). The band split is the JS engine lab's
 // (Midnight Playground's tools/engine-lab/measure.js).
 
-export const WORKLET_URL = new URL('lab-worklet.js?v=20261023b', import.meta.url);
+export const WORKLET_URL = new URL('lab-worklet.js?v=20261023c', import.meta.url);
 
 // The bar where the song is fullest: the first section playing the most parts.
 export function fullBar(T) {

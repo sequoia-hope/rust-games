@@ -325,8 +325,14 @@ function autoEnergy(frac) {
 // ── What is on ───────────────────────────────────────────────────
 let lastSlot = null, lastSec = -1, sched = null;
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const labUrl = (s) => `../../music-lab/?genre=${encodeURIComponent(s.genre)}&seed=${s.seed}`;
 function refresh(force = false) {
   if (!info || station < 0) {
+    if (info && info.stations[last]) {
+      const sc0 = info.schedule(last, wallNow());
+      const s0 = sc0.slots[sc0.slot];
+      if (s0) $('openLab').href = labUrl(s0);
+    }
     $('now').textContent = ctx ? `Off · tap ▶ for ${info?.stations[last]?.name ?? 'the radio'}` : '–'; $('nowSub').textContent = ''; $('prog').firstChild.style.width = '0';
     $('clock').textContent = ''; $('prog-table').innerHTML = ''; $('blockNote').textContent = '';
     return;
@@ -339,6 +345,7 @@ function refresh(force = false) {
   const st = info.stations[station];
   const s = sched.slots[sched.slot];
   const into = sched.into - s.start;
+  $('openLab').href = labUrl(s);
   $('now').innerHTML = `<b>${s.title}</b> · ${s.style}`;
   $('nowSub').textContent = `${st.name} ${st.freq} · ${Math.round(s.bpm)} bpm · ${s.bars} bars · ${mmss(into)} / ${mmss(s.secs)} · 16th ${sched.step}`;
   $('prog').firstChild.style.width = Math.min(100, (into / s.secs) * 100) + '%';
@@ -463,6 +470,7 @@ try {
   const at = Number(q.get('wall'));
   if (linked >= 0 && at > 1767225600) { last = linked; skew = Math.max(0, at - Date.now() / 1000); }
   buildDial();
+  refresh(true);
   status(linked >= 0 && skew > 0
     ? `Tap ▶ for <b>${info.stations[last].name}</b> at the linked moment, ${mmss(skew)} ahead of the station.`
     : `Tap ▶ or a station to start${last ? `: last time it was ${info.stations[last].name}` : ''}.`);
