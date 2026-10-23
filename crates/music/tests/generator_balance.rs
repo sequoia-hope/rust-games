@@ -53,7 +53,12 @@ fn loudness(genre: &str, seed: u32, solo: &str) -> Option<f64> {
     let chorus = s
         .sections
         .iter()
-        .find(|x| matches!(x.name.as_str(), "chorus" | "main" | "defence" | "community"))
+        .find(|x| {
+            matches!(
+                x.name.as_str(),
+                "chorus" | "main" | "drop" | "defence" | "community"
+            )
+        })
         .unwrap()
         .bar;
     let mut pl = SongPlayer::new(5, 48000.0);
@@ -144,5 +149,39 @@ fn the_orchestral_theme_leads_the_ensemble() {
             (-16.0..=-1.0).contains(&chords),
             "orchestral {seed}: chords {chords:.1} LU"
         );
+    }
+}
+
+#[test]
+fn the_new_edm_profiles_sit_with_the_bass() {
+    for genre in [
+        "french",
+        "acid",
+        "detroit",
+        "uplifting",
+        "liquid",
+        "dubstep",
+    ] {
+        for seed in [1, 2] {
+            let bass = loudness(genre, seed, "bass").unwrap();
+            let rel = |name: &str| loudness(genre, seed, name).map(|l| l - bass);
+            let chords = rel("chords").unwrap();
+            assert!(
+                (-18.0..=4.0).contains(&chords),
+                "{genre} {seed}: chords {chords:.1} LU"
+            );
+            if let Some(arp) = rel("arp") {
+                assert!(
+                    (-14.0..=2.0).contains(&arp),
+                    "{genre} {seed}: arp {arp:.1} LU"
+                );
+            }
+            if let Some(lead) = rel("lead") {
+                assert!(
+                    (-12.0..=5.0).contains(&lead),
+                    "{genre} {seed}: lead {lead:.1} LU"
+                );
+            }
+        }
     }
 }

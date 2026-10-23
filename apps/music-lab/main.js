@@ -18,8 +18,8 @@ const $ = (id) => document.getElementById(id);
 const status = (html, err = false) => { $('status').innerHTML = html; $('status').classList.toggle('err', err); };
 
 // ── The engine on the main thread: tables and tracks ─────────────
-const WASM_URL = new URL('music.wasm', import.meta.url);
-const module = await WebAssembly.compileStreaming(fetch(WASM_URL));
+const WASM_URL = new URL('music.wasm?v=20261023b', import.meta.url);
+const module = await WebAssembly.compileStreaming(fetch(WASM_URL, { cache: 'no-store' }));
 const wasm = (await WebAssembly.instantiate(module, {})).exports;
 const text = (ptr) => new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, wasm.music_text_len()));
 function passText(s) {
@@ -122,7 +122,8 @@ function makeTrack(autoplay) {
   let S;
   if (genre in NEW) {
     const song = makeSong(genre, seed);
-    S = { genre, seed, song, track: asTrack(song), kit: 'tr909' };
+    const kit = song.layers.find((l) => !l.lab)?.sound ?? 'tr909';
+    S = { genre, seed, song, track: asTrack(song), kit };
   } else {
     const track = generate(genre, seed, dejavu);
     S = { genre, seed, dejavu, track, kit: track.kitName ?? 'tr909' };
@@ -558,9 +559,16 @@ $('measure').onclick = async () => {
 
 window.musicLab = { GENRES, BPATCH, KITS, made, generate, makeSong, selectSong, togglePlay, startAt, get cur() { return cur; }, get playing() { return playing; } };
 const q = new URLSearchParams(location.search);
-if (q.get('genre') in GENRES) $('genre').value = q.get('genre');
 if (q.get('seed')) $('seed').value = q.get('seed');
-makeTrack(false);
+if (q.get('genre') in GENRES) {
+  $('genre').value = q.get('genre');
+  makeTrack(false);
+} else {
+  for (const g of Object.keys(NEW).reverse()) {
+    $('genre').value = g;
+    makeTrack(false);
+  }
+}
 selectInst(inst);
 buildKeys();
 status('Tap <b>▶ Play</b> to start.');
