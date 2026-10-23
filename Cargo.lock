@@ -4672,6 +4672,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw_audio"
+version = "0.1.0"
+
+[[package]]
 name = "mw_demo"
 version = "0.1.0"
 dependencies = [

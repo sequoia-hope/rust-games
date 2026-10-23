@@ -56,6 +56,9 @@ pub enum BassStyle {
     /// A 1-bar arpeggiated figure synced to the drums (deep house
     /// [house#16][house#17]).
     Rolling,
+    /// Low strings and tuba striding in half-notes and fifths, with a
+    /// dotted-quarter push into the next bar (orchestral walker score).
+    Orchestral,
 }
 
 /// How the chords are played.
@@ -376,7 +379,7 @@ pub const SYNTHWAVE: Profile = Profile {
     intros: SYNTH_INTROS,
     // The arp is the hook [synthwave#38]: in the chorus, K-weighted, the
     // arp about 5–7 LU under the bass and the lead 3–5 (engine default).
-    levels: &[("A", 7.0), ("L", 3.5), ("Pd", 3.5)],
+    levels: &[("A", 5.5), ("L", 3.5), ("Pd", 3.5)],
     pump: 0.3,
     tom_fills: true,
     tape: 0.4,
@@ -627,6 +630,177 @@ pub const DEEP: Profile = Profile {
     ..CHICAGO
 };
 
+// ── Orchestral (Mech Works SPEC.md / AUDIO.md) ───────────────────────
+
+const ORCH_MINOR: &[(&str, f64)] = &[
+    // Heroic minor with modal mixture, flat-side mediants, and raised V
+    // dominant (Lehman 2018, *Hollywood Harmony*; Cohn 2012).
+    ("i–♭VI–iv–V", 0.24),
+    ("i–VI–♭VII–V", 0.20),
+    ("i–iv–♭VI–V", 0.18),
+    ("i–III–♭VI–V", 0.16),
+    ("i–♭II–iv–V", 0.12),
+    ("i–VII–VI–V", 0.10),
+];
+const ORCH_MAJOR: &[(&str, f64)] = &[
+    // Noble Mixolydian, Lydian II, and borrowed flat-side cadences for
+    // rebuilding and community (Lehman 2018; Murphy 2006).
+    ("I–♭VII–IV–I", 0.28),
+    ("I–♭VI–♭VII–I", 0.24),
+    ("I–II–IV–I", 0.20),
+    ("I–V–vi–IV", 0.16),
+    ("I–IV–♭VII–I", 0.12),
+];
+
+/// Concert percussion: Gran Cassa on 1 and 9 (with a pickup on 15 in bar 2
+/// for the walker's stride), orchestral field snare on 5 and 13 with martial
+/// dotted figures, timpani fifths on `tomL` / `tomM`, and gentle cymbal
+/// pulses.
+const ORCH_DRUMS: &[DrumLane] = &[
+    DrumLane {
+        steps2: Some(&[1, 9, 15]),
+        ..lane("kick", "K", &[1, 9], 0.92)
+    },
+    DrumLane {
+        steps2: Some(&[5, 11, 13, 15]),
+        jitter: 0.08,
+        ..lane("snare", "C", &[5, 13], 0.78)
+    },
+    DrumLane {
+        steps2: Some(&[1, 7, 9, 13]),
+        ..lane("tomL", "P", &[1, 9], 0.85)
+    },
+    DrumLane {
+        p: 0.85,
+        ..lane("tomM", "P", &[5, 15], 0.72)
+    },
+    DrumLane {
+        vel_even: Some(0.45),
+        jitter: 0.10,
+        p: 0.65,
+        ..lane("hat", "H", &[1, 5, 9, 13], 0.42)
+    },
+    DrumLane {
+        p: 0.5,
+        ..lane("ohat", "H", &[9], 0.45)
+    },
+];
+
+/// Narrative form across the Mech Works arc (96 bars):
+/// prelude → defence (heroic brass leitmotif) → walker march (full tutti
+/// with ostinato) → rebuilding (warm strings and horn variation) →
+/// community (grand tutti return) → decline (tired, sparse solo statement)
+/// → epilogue.
+const ORCH_FORM: &[Block] = &[
+    block("prelude", 8, 0.35),
+    block("defence", 16, 0.85),
+    block("walker march", 16, 0.95),
+    block("rebuilding", 16, 0.60),
+    block("community", 16, 1.00),
+    block("decline", 16, 0.30),
+    block("epilogue", 8, 0.25),
+];
+const ORCH_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "- x x s x - -"),
+    ("C", "- x x - x - -"),
+    ("P", "s x x s x - -"),
+    ("H", "- - x - x - -"),
+    ("B", "s x x x x s -"),
+    ("Atm", "x x x x x x x"),
+    ("Pd", "x x x x x s f"),
+    ("A", "- s x s x - -"),
+    ("L", "- x x v x s -"),
+    ("Sn", "r7-8 - - r55-56 - - -"),
+    ("X", "- 1 1 - 1 - -"),
+];
+
+const STRINGS_FIRST: Intro = Intro {
+    name: "strings first",
+    p: 0.45,
+    cells: &[
+        ("K", "- x"),
+        ("P", "s x"),
+        ("Pd", "x x"),
+        ("Atm", "x x"),
+        ("Sn", "r7-8 -"),
+    ],
+    note: "It opens on low string fifths and bowed harmonies before a two-bar timpani and snare roll launches the brass leitmotif at bar 9.",
+};
+const HORN_CALL: Intro = Intro {
+    name: "horn call",
+    p: 0.35,
+    cells: &[
+        ("K", "- x"),
+        ("P", "- x"),
+        ("Atm", "x x"),
+        ("Pd", "s x"),
+        ("L", "s x"),
+        ("Sn", "r7-8 -"),
+    ],
+    note: "It opens with a solitary horn stating the companion's leitmotif over a low string pedal before the full brass and percussion enter at bar 9.",
+};
+const WALKER_STRIDE: Intro = Intro {
+    name: "walker stride",
+    p: 0.20,
+    cells: &[
+        ("K", "x x"),
+        ("P", "x x"),
+        ("B", "x x"),
+        ("Atm", "x x"),
+        ("Pd", "- x"),
+        ("Sn", "r7-8 -"),
+    ],
+    note: "It opens on the concert bass drum, timpani and contrabass alone — the four-tonne walker's stride — before the brass theme enters at bar 9.",
+};
+const ORCH_INTROS: &[Intro] = &[STRINGS_FIRST, HORN_CALL, WALKER_STRIDE];
+
+const ORCH_NOTES: &[&str] = &[
+    "Written in the spirit of a John Williams symphonic score for Mech Works: brassy leitmotifs for the mechs and big walkers over bowed string sections, contrabass and concert percussion (SPEC.md \"Audio\", AUDIO.md).",
+    "Harmony uses modal mixture, flat-side chromatic mediants (♭VI, ♭VII, ♭II) and Lydian II cadences, giving the brass fanfares their heroic lift and tragic weight.",
+    "The companion mech's leitmotif is stated across the game's arc within the score: heroic in 'defence' and 'walker march', warm and lyrical in 'rebuilding', full tutti in 'community', and finally tired, slow and sparse in 'decline' after the percussion drops away.",
+    "No sidechain pump is used (`pump = 0.0`); the ensemble breathes in a large concert hall (`reverb = 1.5`) with tuned timpani and Gran Cassa concert bass drum.",
+];
+
+pub const ORCHESTRAL: Profile = Profile {
+    key: "orchestral",
+    name: "Orchestral",
+    tempo: (84.0, 108.0, 96.0),
+    swing: (50.0, 50.0),
+    modes: &[
+        (AEOLIAN, 0.45),
+        (DORIAN, 0.25),
+        (IONIAN, 0.20),
+        (MIXOLYDIAN, 0.10),
+    ],
+    minor_progs: ORCH_MINOR,
+    major_progs: ORCH_MAJOR,
+    ext: (0.2, 0.15, 0.0),
+    kit: "tr808",
+    drums: ORCH_DRUMS,
+    bass: BassStyle::Orchestral,
+    chords: ChordStyle::Sustain,
+    arp: true,
+    // Every orchestral piece states its leitmotif (`p = 1.0`), 3.2 notes/bar
+    // across a wide 16-semitone heroic compass.
+    lead: (3.2, 16, 1.0),
+    bass_range: (31, 43),
+    bass_sounds: &["contrabass"],
+    pad_sounds: &["stringSection", "celloPad", "choir"],
+    arp_sounds: &["stringSection", "celloPad", "glass", "bell"],
+    lead_sounds: &["brassSection", "frenchHorn"],
+    form: ORCH_FORM,
+    template: ORCH_TEMPLATE,
+    intros: ORCH_INTROS,
+    levels: &[("L", 7.0), ("Pd", 1.5), ("A", 3.5), ("Atm", 1.0)],
+    pump: 0.0,
+    tom_fills: true,
+    tape: 0.2,
+    glue: 0.35,
+    reverb: 1.5,
+    gated: (0.0, 0.0),
+    notes: ORCH_NOTES,
+};
+
 /// What the generator changes in a kit, per lane, as the research has it:
 /// the 909's hats, ride and crash are 6-bit samples read at about 30 kHz,
 /// with a low-pass after the VCA, and a denser source than the 808's six
@@ -768,6 +942,106 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
                 )
             })
             .collect(),
+        "orchestral" => vec![
+            // Gran Cassa (concert bass drum): deep, warm felt-mallet resonance.
+            lane(
+                "kick",
+                &[
+                    ("tune", 44.0),
+                    ("decay", 0.62),
+                    ("pitch", 1.38),
+                    ("pt", 0.024),
+                    ("click", 0.14),
+                    ("drive", 1.15),
+                    ("lvl", 0.78),
+                ],
+            ),
+            // Symphonic field / concert snare.
+            lane(
+                "snare",
+                &[
+                    ("tune", 178.0),
+                    ("decay", 0.24),
+                    ("snappy", 0.30),
+                    ("tone", 0.62),
+                    ("nhp", 480.0),
+                    ("nlp", 7200.0),
+                    ("drive", 1.15),
+                    ("lvl", 0.58),
+                ],
+            ),
+            // Tuned orchestral timpani (kettle drums) with long tonal ring.
+            lane(
+                "tomL",
+                &[
+                    ("tune", 73.4),
+                    ("decay", 0.65),
+                    ("pitch", 1.08),
+                    ("pt", 0.032),
+                    ("click", 0.22),
+                    ("drive", 1.2),
+                    ("noise", 0.02),
+                    ("lvl", 0.72),
+                ],
+            ),
+            lane(
+                "tomM",
+                &[
+                    ("tune", 98.0),
+                    ("decay", 0.58),
+                    ("pitch", 1.08),
+                    ("pt", 0.028),
+                    ("click", 0.22),
+                    ("drive", 1.2),
+                    ("noise", 0.02),
+                    ("lvl", 0.68),
+                ],
+            ),
+            lane(
+                "tomH",
+                &[
+                    ("tune", 110.0),
+                    ("decay", 0.54),
+                    ("pitch", 1.08),
+                    ("pt", 0.025),
+                    ("click", 0.22),
+                    ("drive", 1.2),
+                    ("noise", 0.02),
+                    ("lvl", 0.65),
+                ],
+            ),
+            // Piatti crash and suspended cymbal pulses.
+            lane(
+                "crash",
+                &[
+                    ("noise", 0.75),
+                    ("hp", 2800.0),
+                    ("attack", 0.012),
+                    ("decay", 2.2),
+                    ("lvl", 0.42),
+                ],
+            ),
+            lane(
+                "hat",
+                &[
+                    ("noise", 0.72),
+                    ("hp", 4200.0),
+                    ("attack", 0.008),
+                    ("decay", 0.14),
+                    ("lvl", 0.30),
+                ],
+            ),
+            lane(
+                "ohat",
+                &[
+                    ("noise", 0.72),
+                    ("hp", 3600.0),
+                    ("attack", 0.015),
+                    ("decay", 0.48),
+                    ("lvl", 0.32),
+                ],
+            ),
+        ],
         _ => Vec::new(),
     }
 }
@@ -791,7 +1065,7 @@ pub fn sound_patch(_genre: &str, name: &str) -> Option<Lab> {
 }
 
 /// The new generator's genres, in the lab's order.
-pub const PROFILES: &[Profile] = &[SYNTHWAVE, OUTRUN, CHICAGO, DEEP];
+pub const PROFILES: &[Profile] = &[SYNTHWAVE, OUTRUN, CHICAGO, DEEP, ORCHESTRAL];
 
 pub fn profile(key: &str) -> Option<&'static Profile> {
     PROFILES.iter().find(|p| p.key == key)
