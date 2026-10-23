@@ -172,3 +172,12 @@ banned = []
 [crates.sb_xtask]
 allowed = []
 banned = "no_bevy"
+
+# ---------------------------------------------------------------------------
+# games/mech-works.
+
+# Simulation-driven sound effects (games/mech-works/docs/AUDIO.md): no
+# dependencies at all, so it also builds as a standalone AudioWorklet wasm.
+[crates.mw_audio]
+allowed = []
+banned = "sim"

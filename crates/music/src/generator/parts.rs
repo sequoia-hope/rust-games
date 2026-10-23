@@ -164,6 +164,35 @@ pub fn sparse(p: &Pattern) -> Pattern {
     }
 }
 
+/// A tired, sparse statement of a melodic hook (for the `decline` movement
+/// of an orchestral score): keeps the phrase's downbeat and half-bar anchor
+/// notes, stretches their duration so each note lingers and breathes across
+/// rests, and softens velocities.
+pub fn sparse_melody(p: &Pattern) -> Pattern {
+    let mut notes: Vec<Note> = p
+        .notes
+        .iter()
+        .enumerate()
+        .filter(|(i, n)| (n.at as i64) % 8 == 0 || *i == 0 || *i + 1 == p.notes.len())
+        .map(|(_, n)| {
+            let mut m = n.clone();
+            m.vel = (m.vel * 0.72).clamp(0.35, 0.75);
+            m.slide = false;
+            m
+        })
+        .collect();
+    for i in 0..notes.len() {
+        let next_at = notes.get(i + 1).map_or(p.len, |n| n.at);
+        let gap = (next_at - notes[i].at).max(2.0);
+        notes[i].len = (gap * 0.65).clamp(3.0, 12.0);
+    }
+    Pattern {
+        name: format!("{} sparse", p.name),
+        len: p.len,
+        notes,
+    }
+}
+
 /// The loop's second bar with a fill on top, a 1-bar pattern for the last
 /// bar of a phrase. Synthwave: snare 16ths on 13–16, or a tom run high to
 /// low on 9–16 [synthwave#2][synthwave#12]; house: the turnaround kick on
@@ -326,6 +355,26 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
                         vec![root + iv],
                         if k == 0 { 0.92 } else { 0.72 },
                     ));
+                }
+            }
+            BassStyle::Orchestral => {
+                // Symphonic contrabass & tuba: resonant half-note root on
+                // beat 1, fifth (or root octave) on beat 3, and a martial
+                // pickup on step 15 every second bar for the walker's stride.
+                let fifth = if root + 7.0 <= (lo + 16) as f64 {
+                    root + 7.0
+                } else {
+                    root - 5.0
+                };
+                notes.push(Note::pitched(b0, 7.2, vec![root], 0.90));
+                notes.push(Note::pitched(
+                    b0 + 8.0,
+                    if bar % 2 == 1 { 5.5 } else { 7.2 },
+                    vec![if bar % 2 == 0 { fifth } else { root }],
+                    0.80,
+                ));
+                if bar % 2 == 1 {
+                    notes.push(Note::pitched(b0 + 14.0, 1.8, vec![next], 0.76));
                 }
             }
         }

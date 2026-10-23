@@ -16,12 +16,14 @@ members = [
     "games/midnight-playground/tools/parity/kernel",
     "games/snowboarding/crates/*",
     "games/snowboarding/xtask",
+    "games/mech-works/crates/*",
 ]
 default-members = [
     "crates/engine/pk_*",
     "crates/music",
     "games/midnight-playground/crates/*",
     "games/snowboarding/crates/*",
+    "games/mech-works/crates/*",
 ]
 # Patched dependencies (not ours to build, lint or format) and the kit's
 # template for a new game (its own workspace).
@@ -55,6 +57,8 @@ mp_atlas = { path = "games/midnight-playground/crates/mp_atlas" }
 # Snowboarding.
 sb_sim = { path = "games/snowboarding/crates/sb_sim" }
 sb_radio = { path = "games/snowboarding/crates/sb_radio" }
+# Mech Works.
+mw_audio = { path = "games/mech-works/crates/mw_audio" }
 # Bevy 0.19.1, pinned, for every game (the kit's PLAN.md section 3).
 # Default features off; every client crate names the features it needs.
 bevy = { version = "=0.19.1", default-features = false }
@@ -93,6 +97,12 @@ opt-level = 3
 opt-level = 3
 
 [profile.web-release.package.music]
+opt-level = 3
+
+[profile.dev.package.mw_audio]
+opt-level = 3
+
+[profile.web-release.package.mw_audio]
 opt-level = 3
 
 # The xtasks' image metrics run over hundreds of screenshots.

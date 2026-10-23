@@ -6,6 +6,26 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Orchestral mode for Mech Works and listening-pass balance (2026-10-23)
+
+- **Orchestral generator profile (`"orchestral"`):** added for Mech Works
+  (`games/mech-works/docs/SPEC.md`, `games/mech-works/docs/AUDIO.md`) in the
+  spirit of a symphonic film score (brass leitmotifs, bowed string section,
+  contrabass, harp/piano arpeggios, and concert percussion).
+  - Four orchestral base patches added in `patches.rs`: `frenchHorn`,
+    `brassSection`, `stringSection`, and `contrabass` (`LAB_SHA256` updated).
+  - Concert percussion `kit_tweak("orchestral")` in `generator/profile.rs`:
+    Gran Cassa concert bass drum, orchestral snare with wire snap, tuned
+    timpani (`tomL`/`tomM`/`tomH`), and piatti crash.
+  - Narrative-arc arrangement (`ORCH_TEMPLATE`): `prelude`, `defence` (heroic
+    theme), `walker march`, `rebuilding` (warm), `community` (tutti),
+    `decline` (drums and arpeggios out, `parts::sparse_melody` stretches the
+    leitmotif with breathing rests and softer velocity), and `epilogue`.
+- **Listening-pass balance (`SYNTHWAVE`):** after listening to rendered clips of
+   the 2026-10-22 upgrade across `synthwave`, `outrun`, `chicago`, and `deep`,
+  lowered `SYNTHWAVE` arp level from `+7.0 dB` to `+5.5 dB` so the 8th-note arp
+  sits behind the solo lead in the chorus.
+
 ### The radio plays the new generator (2026-10-22)
 
 The owner's go-ahead for PLAN.md's Phase 3 gate ("a station switches to
