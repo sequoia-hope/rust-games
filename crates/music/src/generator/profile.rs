@@ -59,6 +59,22 @@ pub enum BassStyle {
     /// Low strings and tuba striding in half-notes and fifths, with a
     /// dotted-quarter push into the next bar (orchestral walker score).
     Orchestral,
+    /// 16th-note TB-303 acid line: 7/12 step gate on normal notes, full-step
+    /// ties with `slide` on 15–25 % of steps, and `accent` on 25–35 % of steps
+    /// so the C13 sweep capacitor builds up (RULES.md P8 [techno#7][techno#8]).
+    Acid303,
+    /// Uplifting trance off-beat & rolling 16th bass: strong off-beat 8ths on
+    /// 3, 7, 11, 15 with 16th pedal pulses between the kicks (RULES.md P14
+    /// [trance#1][trance#3]).
+    Offbeat16,
+    /// Drum & bass two-step roller bass: sustained sub/Reese notes locked to
+    /// steps 1 and 11 with a bar-end 16th inflection (RULES.md P12, P13
+    /// [dnb#11][dnb#20]).
+    DnbRoller,
+    /// Dubstep half-time wobble bass: long LFO-modulated notes on beat 1 and
+    /// after the beat-3 snare with a syncopated tail (RULES.md P24
+    /// [ambient#38][ambient#39]).
+    DubstepWobble,
 }
 
 /// How the chords are played.
@@ -363,11 +379,21 @@ pub const SYNTHWAVE: Profile = Profile {
     // ~1.4 beats a note, range 12–15 st [synthwave#23][synthwave#48].
     lead: (2.8, 14, 0.85),
     bass_range: (33, 45),
-    bass_sounds: &["sawBass", "pluckBass", "darkBass", "tranceBass", "fmBass"],
+    bass_sounds: &[
+        "sawBass",
+        "moogBass",
+        "pluckBass",
+        "darkBass",
+        "tranceBass",
+        "dxBass",
+        "fmBass",
+    ],
     pad_sounds: &["warmPad", "superPad", "superPadWide", "darkPad", "choir"],
     arp_sounds: &["pluck", "modernPluck", "sqArp", "pluckTrance"],
     lead_sounds: &[
         "sawLead",
+        "moogLead",
+        "syncLead",
         "supersaw",
         "leadGuitar",
         "brassLead",
@@ -379,7 +405,7 @@ pub const SYNTHWAVE: Profile = Profile {
     intros: SYNTH_INTROS,
     // The arp is the hook [synthwave#38]: in the chorus, K-weighted, the
     // arp about 5–7 LU under the bass and the lead 3–5 (engine default).
-    levels: &[("A", 5.5), ("L", 3.5), ("Pd", 3.5)],
+    levels: &[("A", 5.5), ("L", 2.5), ("Pd", 3.5)],
     pump: 0.3,
     tom_fills: true,
     tape: 0.4,
@@ -405,10 +431,25 @@ pub const OUTRUN: Profile = Profile {
         (DORIAN, 0.1),
         (IONIAN, 0.1),
     ],
-    bass_sounds: &["sawBass", "darkBass", "reese", "tranceBass", "pluckBass"],
+    bass_sounds: &[
+        "sawBass",
+        "moogBass",
+        "darkBass",
+        "reese",
+        "tranceBass",
+        "pluckBass",
+    ],
     pad_sounds: &["darkPad", "superPadWide", "superPad", "warmPad"],
     arp_sounds: &["modernPluck", "pluckTrance", "sqArp", "pluck"],
-    lead_sounds: &["sawLead", "supersaw", "euroLead", "leadGuitar", "brassLead"],
+    lead_sounds: &[
+        "sawLead",
+        "syncLead",
+        "moogLead",
+        "supersaw",
+        "euroLead",
+        "leadGuitar",
+        "brassLead",
+    ],
     intros: OUTRUN_INTROS,
     pump: 0.4,
     gated: (0.45, 0.06),
@@ -584,10 +625,18 @@ pub const CHICAGO: Profile = Profile {
     // A 1–2-bar riff, 3–6 onsets a bar, ≤ 12 st [house#1][house#42].
     lead: (4.0, 12, 0.7),
     bass_range: (29, 40),
-    bass_sounds: &["roundBass", "pluckBass", "fmBass", "sawBass"],
+    bass_sounds: &[
+        "roundBass",
+        "organBass",
+        "moogBass",
+        "pluckBass",
+        "dxBass",
+        "fmBass",
+        "sawBass",
+    ],
     pad_sounds: &["stab", "dubChord", "piano", "organ", "modernPluck"],
     arp_sounds: &["pluck", "modernPluck", "pluckTrance"],
-    lead_sounds: &["piano", "ep", "organ", "vocalLead", "brassLead"],
+    lead_sounds: &["piano", "ep", "organ", "moogLead", "vocalLead", "brassLead"],
     form: CHICAGO_FORM,
     template: CHICAGO_TEMPLATE,
     // DJ intros open on the kick (G6) [arrangement#14][arrangement#16].
@@ -616,10 +665,24 @@ pub const DEEP: Profile = Profile {
     // m9 "the one main chord" [house#15][house#16].
     ext: (1.0, 0.8, 0.3),
     lead: (2.5, 12, 0.3),
-    bass_sounds: &["roundBass", "sub", "fmBass"],
+    bass_sounds: &[
+        "roundBass",
+        "organBass",
+        "moogBass",
+        "sub",
+        "dxBass",
+        "fmBass",
+    ],
     pad_sounds: &["dubChord", "stab", "ep", "modernPluck"],
     arp_sounds: &["modernPluck", "pluck", "glass"],
-    lead_sounds: &["ep", "modernPluck", "glass", "bell", "vocalLead"],
+    lead_sounds: &[
+        "ep",
+        "moogLead",
+        "modernPluck",
+        "glass",
+        "bell",
+        "vocalLead",
+    ],
     form: DEEP_FORM,
     template: DEEP_TEMPLATE,
     levels: &[("Pd", 0.5), ("L", -3.0)],
@@ -799,6 +862,540 @@ pub const ORCHESTRAL: Profile = Profile {
     reverb: 1.5,
     gated: (0.0, 0.0),
     notes: ORCH_NOTES,
+};
+
+// ── Acid Techno (RULES.md P8) ────────────────────────────────────────
+
+const TECHNO_MINOR: &[(&str, f64)] = &[
+    // [techno#2][techno#18][techno#19][techno#43][techno#44].
+    ("i–i–i–i", 0.30),
+    ("i–v–i–v", 0.25),
+    ("i–VI–III–VII", 0.25),
+    ("i–iv–v–III", 0.20),
+];
+const TECHNO_MAJOR: &[(&str, f64)] = &[("I–V–vi–IV", 0.5), ("I–♭VII–IV–I", 0.5)];
+
+const ACID_DRUMS: &[DrumLane] = &[
+    DrumLane {
+        steps2: Some(&[1, 5, 9, 13, 15]),
+        ..lane("kick", "K", &[1, 5, 9, 13], 1.0)
+    },
+    lane("clap", "C", &[5, 13], 0.90),
+    lane("snare", "C", &[5, 13], 0.80),
+    DrumLane {
+        vel_even: Some(0.50),
+        jitter: 0.12,
+        ..lane(
+            "hat",
+            "H",
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            0.70,
+        )
+    },
+    lane("ohat", "H", &[3, 7, 11, 15], 0.82),
+    DrumLane {
+        p: 0.65,
+        ..lane("ride", "P", &[3, 7, 11, 15], 0.55)
+    },
+    DrumLane {
+        p: 0.55,
+        ..lane("rim", "P", &[2, 8, 12, 16], 0.45)
+    },
+];
+
+const ACID_FORM: &[Block] = &[
+    block("intro", 16, 0.35),
+    block("groove", 16, 0.55),
+    block("main", 32, 0.80),
+    block("breakdown", 16, 0.45),
+    block("build", 8, 0.75),
+    block("drop", 32, 1.00),
+    block("outro", 16, 0.45),
+];
+const ACID_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "x x x - - x x"),
+    ("H", "x x x s x x x"),
+    ("C", "- x x - - x -"),
+    ("P", "- + x - x v x"),
+    ("B", "f x x x x v f"),
+    ("Pd", "- - x x x x -"),
+    ("L", "- - s - - x -"),
+    ("Sn", "- - - - r - -"),
+    ("R", "- - - - r - -"),
+    ("X", "- 1 1 - - 1 -"),
+];
+
+const ACID_NOTES: &[&str] = &[
+    "Acid house and acid techno centre on the Roland TB-303 bassline: a 16th-note riff with normal notes gated to 7/12 of a step, tied slides, and accented hits that charge the C13 sweep capacitor [techno#7][techno#8][sound-design#9].",
+    "The motion is in the knobs: filter cutoff, resonance and envelope decay sweep across breakdowns, builds and drops while the 16th-note pitch pattern stays locked [techno#5][techno#9].",
+    "Driven by a 909 four-on-the-floor kick, off-beat open hats and ride cymbals, and rave/chord stabs (`hoover`, `stab`, `dubChord`) [techno#11][sound-design#26].",
+];
+
+pub const ACID: Profile = Profile {
+    key: "acid",
+    name: "Acid techno",
+    tempo: (126.0, 138.0, 132.0),
+    swing: (50.0, 53.0),
+    modes: &[(AEOLIAN, 0.75), (PHRYGIAN, 0.15), (DORIAN, 0.10)],
+    minor_progs: TECHNO_MINOR,
+    major_progs: TECHNO_MAJOR,
+    ext: (0.4, 0.2, 0.0),
+    kit: "tr909",
+    drums: ACID_DRUMS,
+    bass: BassStyle::Acid303,
+    chords: ChordStyle::Stabs,
+    arp: false,
+    lead: (3.2, 12, 0.65),
+    bass_range: (36, 46),
+    bass_sounds: &["acid"],
+    pad_sounds: &["stab", "dubChord", "hoover", "modernPluck"],
+    arp_sounds: &["sqArp", "modernPluck"],
+    lead_sounds: &["hoover", "syncLead", "moogLead", "sawLead"],
+    form: ACID_FORM,
+    template: ACID_TEMPLATE,
+    intros: &[],
+    levels: &[("B", 2.5), ("Pd", 1.5), ("L", 0.5)],
+    pump: 0.30,
+    tom_fills: false,
+    tape: 0.35,
+    glue: 0.65,
+    reverb: 0.95,
+    gated: (0.0, 0.0),
+    notes: ACID_NOTES,
+};
+
+// ── Detroit / Melodic Techno (RULES.md P5, P10) ──────────────────────
+
+const DETROIT_DRUMS: &[DrumLane] = &[
+    lane("kick", "K", &[1, 5, 9, 13], 1.0),
+    lane("snare", "C", &[5, 13], 0.90),
+    lane("clap", "C", &[5, 13], 0.85),
+    DrumLane {
+        vel_even: Some(0.50),
+        jitter: 0.10,
+        ..lane(
+            "hat",
+            "H",
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            0.68,
+        )
+    },
+    lane("ohat", "H", &[3, 7, 11, 15], 0.80),
+    DrumLane {
+        p: 0.70,
+        ..lane("shaker", "P", &[1, 3, 5, 7, 9, 11, 13, 15], 0.50)
+    },
+    DrumLane {
+        p: 0.60,
+        ..lane("rim", "P", &[4, 8, 11, 15], 0.45)
+    },
+];
+
+const DETROIT_FORM: &[Block] = &[
+    block("intro", 16, 0.35),
+    block("groove", 16, 0.60),
+    block("main", 32, 0.85),
+    block("breakdown", 16, 0.35),
+    block("build", 8, 0.70),
+    block("drop", 32, 1.00),
+    block("outro", 16, 0.45),
+];
+const DETROIT_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "x x x - - x x"),
+    ("H", "- x x - x x x"),
+    ("C", "- x x - - x -"),
+    ("P", "+9 x x - x x -"),
+    ("B", "- x x - f x -"),
+    ("Pd", "f x x x x x f"),
+    ("A", "- + x s x x -"),
+    ("L", "- - x s - x -"),
+    ("Sn", "- - - - r - -"),
+    ("R", "- - - - r - -"),
+    ("X", "- - 1 - - 1 -"),
+];
+
+const DETROIT_NOTES: &[&str] = &[
+    "Detroit and melodic techno pair machine-funk 909 drums with warm analogue Moog/Reese basslines, minor-7th chord stabs, and hypnotic arpeggios (Belleville Three, Underground Resistance, Tale Of Us, Stephan Bodzin) [techno#11][techno#18][techno#43].",
+    "Filter cutoff opens across 16-bar phrases and builds, while minor-key arpeggios and leads carry the emotional tension over the driving 4/4 pulse [techno#44].",
+];
+
+pub const DETROIT: Profile = Profile {
+    key: "detroit",
+    name: "Detroit techno",
+    tempo: (120.0, 128.0, 124.0),
+    swing: (52.0, 57.0),
+    modes: &[(AEOLIAN, 0.85), (DORIAN, 0.15)],
+    minor_progs: TECHNO_MINOR,
+    major_progs: TECHNO_MAJOR,
+    ext: (0.8, 0.4, 0.2),
+    kit: "tr909",
+    drums: DETROIT_DRUMS,
+    bass: BassStyle::Rolling,
+    chords: ChordStyle::Stabs,
+    arp: true,
+    lead: (3.0, 12, 0.80),
+    bass_range: (31, 43),
+    bass_sounds: &["moogBass", "reese", "darkBass", "sawBass"],
+    pad_sounds: &["stab", "piano", "dubChord", "superPad"],
+    arp_sounds: &["pluck", "modernPluck", "pluckTrance"],
+    lead_sounds: &["moogLead", "syncLead", "sawLead", "supersaw", "brassLead"],
+    form: DETROIT_FORM,
+    template: DETROIT_TEMPLATE,
+    intros: &[],
+    levels: &[("A", 3.5), ("Pd", 0.5), ("L", 1.5)],
+    pump: 0.30,
+    tom_fills: false,
+    tape: 0.25,
+    glue: 0.60,
+    reverb: 1.15,
+    gated: (0.0, 0.0),
+    notes: DETROIT_NOTES,
+};
+
+// ── Uplifting Trance (RULES.md P14) ──────────────────────────────────
+
+const TRANCE_MINOR: &[(&str, f64)] = &[
+    // [trance#29]–[trance#33][trance#45].
+    ("i–VI–III–VII", 0.24),
+    ("i–VI–VII–III", 0.18),
+    ("VI–VII–i–i", 0.18),
+    ("VI–iv–i–i", 0.14),
+    ("i–v–VII–IV", 0.14),
+    ("i–iv–III–VII", 0.12),
+];
+const TRANCE_MAJOR: &[(&str, f64)] = &[
+    ("I–V–vi–IV", 0.45),
+    ("IV–V–vi–I", 0.35),
+    ("I–vi–IV–V", 0.20),
+];
+
+const TRANCE_DRUMS: &[DrumLane] = &[
+    lane("kick", "K", &[1, 5, 9, 13], 1.0),
+    lane("clap", "C", &[5, 13], 0.95),
+    lane("snare", "C", &[5, 13], 0.85),
+    DrumLane {
+        vel_even: Some(0.48),
+        jitter: 0.08,
+        ..lane(
+            "hat",
+            "H",
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            0.62,
+        )
+    },
+    lane("ohat", "H", &[3, 7, 11, 15], 0.82),
+    DrumLane {
+        p: 0.60,
+        ..lane("ride", "P", &[3, 7, 11, 15], 0.55)
+    },
+];
+
+const TRANCE_FORM: &[Block] = &[
+    block("intro", 16, 0.35),
+    block("groove", 16, 0.55),
+    block("main", 32, 0.85),
+    block("breakdown", 24, 0.35),
+    block("build", 8, 0.75),
+    block("drop", 32, 1.00),
+    block("outro", 16, 0.45),
+];
+const TRANCE_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "x x x - - x x"),
+    ("H", "+9 x x - - x x"),
+    ("C", "- x x - - x -"),
+    ("P", "- - x - - x -"),
+    ("B", "- x x - f x -"),
+    ("Pd", "- f x x x x -"),
+    ("A", "- + x s x x -"),
+    ("L", "- - s x x x -"),
+    ("Sn", "- - - - r - -"),
+    ("R", "- - r61-64 - r - -"),
+    ("X", "- - 1 - - 1 -"),
+];
+
+const TRANCE_NOTES: &[&str] = &[
+    "Uplifting trance builds around a central 8-bar supersaw hook over minor progressions weighted toward VI, III and VII (Paul van Dyk, Armin van Buuren, System F, Gouryella) [trance#1][trance#17][trance#29].",
+    "The bass rolls on the 16ths between the four-on-the-floor kicks with strong off-beat 8ths on steps 3, 7, 11 and 15, ducked by the sidechain pump [trance#1][trance#3][trance#15].",
+    "In the breakdown the drums drop away and the pads and hook open before an accelerating snare roll and riser launch the anthem drop [trance#28][arrangement#22].",
+];
+
+pub const UPLIFTING: Profile = Profile {
+    key: "uplifting",
+    name: "Uplifting trance",
+    tempo: (134.0, 140.0, 138.0),
+    swing: (50.0, 50.0),
+    modes: &[(AEOLIAN, 0.85), (IONIAN, 0.15)],
+    minor_progs: TRANCE_MINOR,
+    major_progs: TRANCE_MAJOR,
+    ext: (0.35, 0.25, 0.0),
+    kit: "tr909",
+    drums: TRANCE_DRUMS,
+    bass: BassStyle::Offbeat16,
+    chords: ChordStyle::Sustain,
+    arp: true,
+    lead: (3.6, 12, 0.95),
+    bass_range: (33, 45),
+    bass_sounds: &["tranceBass", "moogBass", "sawBass", "psyBass"],
+    pad_sounds: &["superPadWide", "superPad", "warmPad", "choir"],
+    arp_sounds: &["pluckTrance", "modernPluck", "sqArp"],
+    lead_sounds: &["supersaw", "syncLead", "euroLead", "sawLead"],
+    form: TRANCE_FORM,
+    template: TRANCE_TEMPLATE,
+    intros: &[],
+    levels: &[("A", 4.5), ("Pd", 3.0), ("L", 2.0)],
+    pump: 0.42,
+    tom_fills: false,
+    tape: 0.15,
+    glue: 0.55,
+    reverb: 1.35,
+    gated: (0.0, 0.0),
+    notes: TRANCE_NOTES,
+};
+
+// ── French / Filter House (RULES.md P3) ──────────────────────────────
+
+const FRENCH_FORM: &[Block] = &[
+    block("intro", 16, 0.35),
+    block("groove", 16, 0.55),
+    block("main", 32, 0.90),
+    block("breakdown", 16, 0.40),
+    block("build", 8, 0.70),
+    block("drop", 32, 1.00),
+    block("outro", 16, 0.45),
+];
+const FRENCH_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "x x x - - x x"),
+    ("H", "x x x - x x x"),
+    ("C", "- x x - - x -"),
+    ("P", "- x x - - x x"),
+    ("B", "f f x f f x -"),
+    ("Pd", "f f x f f x f"),
+    ("L", "- - x - - x -"),
+    ("Sn", "- - - - r - -"),
+    ("R", "- r29-32 - - r - -"),
+    ("X", "- - 1 - - 1 -"),
+];
+
+const FRENCH_NOTES: &[&str] = &[
+    "French touch / filter house (Daft Punk, Stardust, Cassius, Roulé) runs Rhodes/disco chords and a syncopated Moog/octave bass through sweeping low-pass filters and heavy kick-keyed sidechain pumping [house#3][house#27][house#28].",
+    "The filter sweep is the primary structural motion: the loop opens from a muffled 400 Hz intro into the full-spectrum drop, dips in the breakdown, and opens again for the second peak [house#3].",
+];
+
+pub const FRENCH: Profile = Profile {
+    key: "french",
+    name: "French house",
+    tempo: (118.0, 128.0, 124.0),
+    swing: (53.0, 58.0),
+    modes: &[(DORIAN, 0.45), (AEOLIAN, 0.35), (MIXOLYDIAN, 0.20)],
+    minor_progs: HOUSE_MINOR,
+    major_progs: HOUSE_MAJOR,
+    ext: (1.0, 0.65, 0.25),
+    kit: "tr909",
+    drums: CHICAGO_DRUMS,
+    bass: BassStyle::HouseCells,
+    chords: ChordStyle::Stabs,
+    arp: false,
+    lead: (3.5, 10, 0.55),
+    bass_range: (31, 43),
+    bass_sounds: &["moogBass", "dxBass", "organBass", "roundBass", "pluckBass"],
+    pad_sounds: &["ep", "stab", "piano", "organ", "dubChord"],
+    arp_sounds: &["modernPluck", "pluck"],
+    lead_sounds: &["ep", "syncLead", "moogLead", "brassLead"],
+    form: FRENCH_FORM,
+    template: FRENCH_TEMPLATE,
+    intros: &[],
+    levels: &[("Pd", 1.0), ("L", -2.5)],
+    pump: 0.52,
+    tom_fills: false,
+    tape: 0.30,
+    glue: 0.65,
+    reverb: 0.85,
+    gated: (0.0, 0.0),
+    notes: FRENCH_NOTES,
+};
+
+// ── Dubstep (RULES.md P24) ───────────────────────────────────────────
+
+const DUBSTEP_MINOR: &[(&str, f64)] = &[
+    // [ambient#38][cognition#7].
+    ("i–i–i–i", 0.35),
+    ("i–VI–i–VI", 0.30),
+    ("i–iv–i–v", 0.35),
+];
+
+/// 140 BPM half-time dubstep beat: kick on 1 and 13 plus a lazy off-beat kick
+/// on 8, heavy snare/clap on step 9 (beat 3), and swung hats [ambient#38][ambient#39].
+const DUBSTEP_DRUMS: &[DrumLane] = &[
+    DrumLane {
+        steps2: Some(&[1, 8, 12]),
+        ..lane("kick", "K", &[1, 8, 13], 1.0)
+    },
+    lane("snare", "C", &[9], 1.0),
+    lane("clap", "C", &[9], 0.85),
+    DrumLane {
+        vel_even: Some(0.45),
+        jitter: 0.14,
+        ..lane("hat", "H", &[1, 3, 5, 7, 9, 11, 13, 15], 0.65)
+    },
+    lane("ohat", "H", &[7, 15], 0.65),
+    DrumLane {
+        p: 0.55,
+        ..lane("rim", "P", &[4, 12, 16], 0.45)
+    },
+];
+
+const DUBSTEP_FORM: &[Block] = &[
+    block("intro", 16, 0.30),
+    block("build", 8, 0.65),
+    block("drop", 32, 1.00),
+    block("breakdown", 16, 0.35),
+    block("build", 8, 0.75),
+    block("drop", 32, 1.00),
+    block("outro", 16, 0.35),
+];
+const DUBSTEP_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "s x x - x x -"),
+    ("C", "s x x - x x s"),
+    ("H", "- x x s x x s"),
+    ("P", "x x x - x x x"),
+    ("B", "- f x - f v -"),
+    ("Atm", "x x - x x - x"),
+    ("Pd", "x f x x f x x"),
+    ("L", "- - x s - x -"),
+    ("Sn", "- r - - r - -"),
+    ("R", "- r - - r - -"),
+    ("X", "- - 1 - - 1 -"),
+];
+
+const DUBSTEP_NOTES: &[&str] = &[
+    "Early UK dubstep (Skream, Benga, DMZ, Burial) runs at 140 BPM but feels like 70 BPM half-time, with the snare cracking on beat 3 (step 9) and swung triplet-feel hats [ambient#38][ambient#39].",
+    "The bass pairs deep sub weight with an LFO-modulated `wobble` / `reese` mid-bass whose LFO sweeps filter cutoff across the half-time groove [sound-design#43].",
+];
+
+pub const DUBSTEP: Profile = Profile {
+    key: "dubstep",
+    name: "Dubstep",
+    tempo: (136.0, 142.0, 140.0),
+    swing: (60.0, 66.0),
+    modes: &[(AEOLIAN, 0.70), (PHRYGIAN, 0.20), (DORIAN, 0.10)],
+    minor_progs: DUBSTEP_MINOR,
+    major_progs: TECHNO_MAJOR,
+    ext: (0.3, 0.1, 0.0),
+    kit: "tr808",
+    drums: DUBSTEP_DRUMS,
+    bass: BassStyle::DubstepWobble,
+    chords: ChordStyle::Stabs,
+    arp: false,
+    lead: (2.8, 12, 0.65),
+    bass_range: (29, 39),
+    bass_sounds: &["wobble", "reese", "sub"],
+    pad_sounds: &["dubChord", "stab", "modernPluck"],
+    arp_sounds: &["glass", "bell"],
+    lead_sounds: &["hoover", "vocalLead", "syncLead", "bell"],
+    form: DUBSTEP_FORM,
+    template: DUBSTEP_TEMPLATE,
+    intros: &[],
+    levels: &[("B", 1.0), ("Pd", 3.5), ("L", 1.0)],
+    pump: 0.20,
+    tom_fills: false,
+    tape: 0.35,
+    glue: 0.60,
+    reverb: 1.25,
+    gated: (0.0, 0.0),
+    notes: DUBSTEP_NOTES,
+};
+
+// ── Liquid / Roller Drum & Bass (RULES.md P12, P13) ──────────────────
+
+/// Two-step DnB break skeleton at 174 BPM: kick on 1 and 11, snare on 5 and 13,
+/// ghost snares on 8 and 10, 8th rides and 16th hats [dnb#9][dnb#11][dnb#12].
+const LIQUID_DRUMS: &[DrumLane] = &[
+    DrumLane {
+        steps2: Some(&[1, 11, 16]),
+        ..lane("kick", "K", &[1, 11], 1.0)
+    },
+    lane("snare", "C", &[5, 13], 1.0),
+    DrumLane {
+        p: 0.85,
+        ..lane("snare", "P", &[8, 10], 0.32)
+    },
+    DrumLane {
+        vel_even: Some(0.52),
+        jitter: 0.10,
+        ..lane(
+            "hat",
+            "H",
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            0.62,
+        )
+    },
+    lane("ride", "H", &[1, 3, 5, 7, 9, 11, 13, 15], 0.50),
+    DrumLane {
+        p: 0.65,
+        ..lane("shaker", "P", &[3, 7, 11, 15], 0.48)
+    },
+];
+
+const LIQUID_FORM: &[Block] = &[
+    block("intro", 16, 0.40),
+    block("build", 8, 0.60),
+    block("drop", 32, 0.95),
+    block("breakdown", 16, 0.40),
+    block("build", 8, 0.70),
+    block("drop", 32, 1.00),
+    block("outro", 16, 0.45),
+];
+const LIQUID_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "x f x - f x x"),
+    ("C", "x f x - f x -"),
+    ("H", "+9 x x - x x x"),
+    ("P", "- + x - - x -"),
+    ("B", "- - x s f v -"),
+    ("Atm", "x x - x x - x"),
+    ("Pd", "x x x x x x f"),
+    ("A", "s x x s x x -"),
+    ("L", "- - x s - x -"),
+    ("Sn", "- r - - r - -"),
+    ("R", "- r - - r - -"),
+    ("X", "- - 1 - - 1 -"),
+];
+
+const LIQUID_NOTES: &[&str] = &[
+    "Liquid and roller Drum & Bass runs at 170–176 BPM (typical 174) over the classic two-step breakbeat skeleton: kicks on steps 1 and 11 (the 8th before the second snare), backbeat snares on 5 and 13, and ghost snares on 8 and 10 [dnb#1][dnb#11][dnb#12].",
+    "Beneath lush Rhodes/pad progressions (`ep`, `warmPad`, `superPad`), a sustained Reese or sub bass locks to the two-step kick with phrase-end slides and edits [dnb#11][dnb#17][dnb#21].",
+];
+
+pub const LIQUID: Profile = Profile {
+    key: "liquid",
+    name: "Liquid DnB",
+    tempo: (170.0, 176.0, 174.0),
+    swing: (51.0, 55.0),
+    modes: &[(AEOLIAN, 0.75), (DORIAN, 0.20), (IONIAN, 0.05)],
+    minor_progs: HOUSE_MINOR,
+    major_progs: HOUSE_MAJOR,
+    ext: (1.0, 0.70, 0.30),
+    kit: "tr909",
+    drums: LIQUID_DRUMS,
+    bass: BassStyle::DnbRoller,
+    chords: ChordStyle::Sustain,
+    arp: true,
+    lead: (2.6, 12, 0.75),
+    bass_range: (29, 40),
+    bass_sounds: &["reese", "sub", "wobble", "roundBass"],
+    pad_sounds: &["warmPad", "superPad", "ep", "darkPad"],
+    arp_sounds: &["ep", "glass", "pluck", "modernPluck"],
+    lead_sounds: &["ep", "vocalLead", "moogLead", "flute", "glass"],
+    form: LIQUID_FORM,
+    template: LIQUID_TEMPLATE,
+    intros: &[],
+    levels: &[("A", 3.5), ("Pd", 2.5), ("L", 1.5)],
+    pump: 0.20,
+    tom_fills: false,
+    tape: 0.25,
+    glue: 0.55,
+    reverb: 1.25,
+    gated: (0.0, 0.0),
+    notes: LIQUID_NOTES,
 };
 
 /// What the generator changes in a kit, per lane, as the research has it:
@@ -1065,7 +1662,9 @@ pub fn sound_patch(_genre: &str, name: &str) -> Option<Lab> {
 }
 
 /// The new generator's genres, in the lab's order.
-pub const PROFILES: &[Profile] = &[SYNTHWAVE, OUTRUN, CHICAGO, DEEP, ORCHESTRAL];
+pub const PROFILES: &[Profile] = &[
+    SYNTHWAVE, OUTRUN, CHICAGO, DEEP, FRENCH, ACID, DETROIT, UPLIFTING, LIQUID, DUBSTEP, ORCHESTRAL,
+];
 
 pub fn profile(key: &str) -> Option<&'static Profile> {
     PROFILES.iter().find(|p| p.key == key)

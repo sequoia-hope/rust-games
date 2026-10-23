@@ -109,6 +109,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if rel == 'dist' or rel.startswith('dist' + os.sep):
                 return file  # Pages drops legacy/dist/: nothing there.
             return os.path.join(root, rel)
+        if rel == 'music-lab' or rel.startswith('music-lab' + os.sep):
+            sub = rel[len('music-lab'):].lstrip(os.sep)
+            lab = os.path.normpath(os.path.join(root, '..', '..', 'apps', 'music-lab', 'dist', sub))
+            if os.path.exists(lab):
+                return lab
         # Over the root file by file, as `cp -r dist/next/. _site/` is: a
         # directory only counts when the build has its page.
         over = os.path.join(root, DIST, rel)

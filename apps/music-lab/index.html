@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Music Lab</title>
 <link rel="icon" href="data:,">
-<meta name="description" content="Make electronic music from a genre and a seed, and take it apart: the rust-games music engine.">
+<meta name="description" content="Make electronic and orchestral music from a genre and a seed, and take it apart: the rust-games music engine.">
 <!--
   Music Lab: the music engine (crates/music, Rust) in an AudioWorklet
   (lab-worklet.js running music.wasm), with the JS lab's page around it:
@@ -33,7 +33,7 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
 button.big { padding: 10px 18px; font-size: 16px; }
 button.sm { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-#status { position: sticky; top: 0; z-index: 2; margin: 10px -16px 12px; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); color: var(--muted); }
+#status { position: sticky; top: 0; z-index: 2; margin: 10px -16px 12px; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); color: var(--muted); pointer-events: none; }
 #status.err { color: #ff8a8a; }
 #status b { color: var(--fg); font-weight: 600; }
 .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); max-width: 1300px; }
@@ -56,6 +56,8 @@ th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: l
 .sections { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
 .sections button { padding: 4px 8px; font-size: 12px; }
 .sections button.cur { border-color: var(--ok); color: var(--ok); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.chips button { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
 .parts td button { margin-left: 2px; }
 .keys { position: relative; height: 120px; user-select: none; touch-action: none; margin: 8px 0; }
 .keys div { position: absolute; top: 0; border: 1px solid #000; border-radius: 0 0 5px 5px; }
@@ -74,9 +76,9 @@ th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: l
 </head>
 <body>
 <h1>Music Lab</h1>
-<p>The music engine of the <a href="../" style="color:var(--fg)">rust-games</a> (<code>crates/music</code>, Rust): tracks made
-from genre grammars and a seed, on emulated classic instruments (TB-303, Juno-style pads, Moog-style monos, DX-style FM,
-plucked and bowed strings, TR-808 and TR-909 drums) with a proper mix. It is the engine the games' radios play.</p>
+<p>The music engine of the <a href="../" style="color:var(--fg)">rust-games</a> (<code>crates/music</code>, Rust): electronic and orchestral tracks made
+from genre profiles and grammars with a seed, on emulated classic instruments (TB-303, Juno-style pads, Moog-style monos, DX-style FM,
+plucked and bowed strings, brass, TR-808, TR-909 and concert percussion) with a proper mix. It is the engine the games play.</p>
 <div id="status">Tap <b>▶ Play</b> to start.</div>
 
 <div class="grid">
@@ -88,6 +90,8 @@ plucked and bowed strings, TR-808 and TR-909 drums) with a proper mix. It is the
     <p id="songNote"></p>
     <div class="row">
       <button id="play" class="big">▶ Play</button>
+      <button id="autoplay" class="big" title="Radio lite: automatically make and play a new track from the selected genres when a song ends">🔁 Autoplay</button>
+      <button id="nextSong" class="big" title="Make and play the next track from the selected genres">⏭ Next</button>
     </div>
     <div class="sections" id="sections"></div>
     <div class="read">
@@ -110,9 +114,26 @@ plucked and bowed strings, TR-808 and TR-909 drums) with a proper mix. It is the
       <button id="dice" title="New seed">🎲</button>
       <button id="make">Make</button>
     </div>
+    <label class="sl">Key <select id="key" aria-label="Key">
+      <option value="-1">Auto (by seed)</option>
+      <option value="0">C</option><option value="1">C# / Db</option><option value="2">D</option><option value="3">Eb</option>
+      <option value="4">E</option><option value="5">F</option><option value="6">F# / Gb</option><option value="7">G</option>
+      <option value="8">Ab</option><option value="9">A</option><option value="10">Bb</option><option value="11">B</option>
+    </select><output></output></label>
+    <label class="sl">Tempo <input type="range" id="bpm" min="59" max="190" step="1" value="59"><output></output></label>
     <label class="sl">Déjà vu <input type="range" id="dejavu" min="0" max="1" step="0.01" value="0.7"><output></output></label>
+    <h3>Autoplay genres <small id="autoCount" style="font-weight:400"></small></h3>
+    <div class="row" style="gap:4px;margin-bottom:4px">
+      <button class="sm" id="selAll" title="Select every genre">All</button>
+      <button class="sm" id="selNew" title="Select all new-generator genres">New</button>
+      <button class="sm" id="selEdm" title="Select all electronic genres">EDM</button>
+      <button class="sm" id="selClassic" title="Select all classic radio genres">Classic</button>
+      <button class="sm" id="selNone" title="Clear multi-genre selection (use the Genre dropdown)">None</button>
+    </div>
+    <div class="chips" id="autoGenres"></div>
     <h3>Live</h3>
     <label class="sl">Energy <input type="range" id="energy" min="0" max="1" step="0.01" value="1"><output></output></label>
+    <label class="row" style="gap:6px;color:var(--muted);font-size:13px;margin:2px 0 4px"><input type="checkbox" id="energyAuto"> Energy grows with the song</label>
     <p>Energy is what a game drives (a pursuit, a final lap, standing still): below full, layers drop out and the mix
     closes down.</p>
   </div>
@@ -199,6 +220,6 @@ plucked and bowed strings, TR-808 and TR-909 drums) with a proper mix. It is the
   </div>
 </div>
 
-<script type="module" src="main.js"></script>
+<script type="module" src="main.js?v=20261023c"></script>
 </body>
 </html>

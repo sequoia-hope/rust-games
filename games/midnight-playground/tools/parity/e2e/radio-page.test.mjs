@@ -57,6 +57,13 @@ test('the page plays through a media element with the lock screen\'s metadata, s
     assert.match(s.media.artist, /^The Tide 88\.1/);
     assert.equal(s.media.art, 1, 'artwork for the lock screen');
     assert.equal(s.stored, 'tide');
+    const labLink = await game.eval(() => {
+      const a = document.getElementById('openLab');
+      const cur = window.radio.schedule.slots[window.radio.schedule.slot];
+      return { href: a.getAttribute('href'), target: a.target, want: `../../music-lab/?genre=${encodeURIComponent(cur.genre)}&seed=${cur.seed}` };
+    });
+    assert.equal(labLink.target, '_blank', 'Music Lab link opens in a new window');
+    assert.equal(labLink.href, labLink.want, 'Music Lab link points to current song');
     await until(game, (x) => x.level > 0.01, 'sound comes out');
 
     // Next steps the dial; the metadata follows.

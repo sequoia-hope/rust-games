@@ -69,6 +69,13 @@ try {
   check(fresh && layers.n >= 6 && layers.shown && layers.notes >= 5, `new generator: a Chicago house song plays, ${layers.n} layers drawn, ${layers.notes} notes`);
   await page.click('#play'); // stop
 
+  await page.select('#genre', 'orchestral');
+  await page.click('#make');
+  const orch = await page.waitForFunction(() => window.musicLab.cur.genre === 'orchestral' && window.musicLab.cur.song && window.musicLab.pos?.playing && window.musicLab.pos.barIndex >= 1, { timeout: 30000 }).then(() => true, () => false);
+  const orchInfo = await page.evaluate(() => ({ title: window.musicLab.cur.track.title, n: window.musicLab.cur.song.layers.length }));
+  check(orch && orchInfo.n >= 8, `orchestral mode: ${orchInfo.title} plays, ${orchInfo.n} layers`);
+  await page.click('#play'); // stop
+
   await page.click('#demo');
   await page.click('#pads button');
   await sleep(1500);
@@ -76,7 +83,20 @@ try {
   await page.click('#measure');
   const measured = await page.waitForFunction(() => document.querySelector('#mNote').textContent.startsWith('Done') || document.querySelector('#mNote').textContent.startsWith('Failed'), { timeout: 120000 }).then(() => page.$eval('#mNote', (e) => e.textContent), (e) => String(e));
   const rows = await page.$$eval('#mTable tr', (rs) => rs.slice(1).map((r) => [...r.children].map((c) => c.textContent)));
-  check(measured.startsWith('Done') && rows.length === 3 && rows.every((r) => Number(r[2]) > -60), `measured offline: ${rows.map((r) => `${r[1]} ${r[2]} dB`).join(', ')}`);
+  check(measured.startsWith('Done') && rows.length === 4 && rows.every((r) => Number(r[2]) > -60), `measured offline: ${rows.map((r) => `${r[1]} ${r[2]} dB`).join(', ')}`);
+
+  // Autoplay with multi-genre select and fine-grained key/tempo controls.
+  await page.click('#selNone');
+  await page.click('#autoGenres button[data-g="french"]');
+  await page.click('#autoGenres button[data-g="acid"]');
+  await page.select('#key', '9'); // A
+  await page.click('#autoplay');
+  const autoOn = await page.waitForFunction(() => window.musicLab.autoplaying && window.musicLab.playing && ['french', 'acid'].includes(window.musicLab.cur.genre), { timeout: 30000 }).then(() => true, () => false);
+  const autoFirst = await page.evaluate(() => window.musicLab.cur.genre);
+  await page.click('#nextSong');
+  const autoSecond = await page.evaluate(() => window.musicLab.cur.genre);
+  check(autoOn && ['french', 'acid'].includes(autoSecond) && autoSecond !== autoFirst, `autoplay multi-genre select: ${autoFirst} → ${autoSecond}`);
+  await page.click('#play'); // stop
 
   const status = await page.$eval('#status', (e) => e.textContent);
   check(!/refused|failed|stopped with an error/i.test(status), `status: ${status}`);
