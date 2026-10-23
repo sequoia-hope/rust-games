@@ -32,6 +32,7 @@ own requirements: `docs/AUDIO.md`.
 | `crates/mw_sim` | the simulation: the mech (`mech.rs`), its motor, driver and thermal model (`actuator.rs`), the Rapier world (`sim.rs`), the ground (`terrain.rs`), the training environment: observations, rewards, curriculum, pushes, damage (`env.rs`) |
 | `crates/mw_sim_py` | `mw_sim` as the Python module `mw_sim_py`: a batch of envs stepped in parallel |
 | `crates/mw_policy` | the trained networks in plain Rust, from their weight blobs; the parity test against PyTorch |
+| `crates/mw_audio` | simulation-driven sound effects (`docs/AUDIO.md`): footfalls, foot slip, 12-joint actuator drive/strain/heat/derate/trip/fault, projectile hull ring, fall crash, body creak, wind; zero dependencies so it also builds as a standalone `AudioWorklet` wasm |
 | `crates/mw_demo` | the Bevy client: the training viewer and the tech demos; `web/` is its page (`index.html` the kit's loader, `ui.js` the controls, curves and inspector) |
 | `train/` | PPO (`train.py`), the networks and their export (`policy.py`), `build.sh` |
 | `checkpoints/<run>/` | a training run's output (git-ignored): checkpoints, `metrics.jsonl`, coverage; `runs.json` lists the runs |
@@ -43,7 +44,8 @@ own requirements: `docs/AUDIO.md`.
 
 | What | Command (from `games/mech-works/`) |
 |---|---|
-| Tests | `cargo nextest run -p mw_sim -p mw_policy -p mw_demo` |
+| Tests | `cargo nextest run -p mw_sim -p mw_policy -p mw_audio -p mw_demo` |
+| Render SFX traces | `cargo run -p mw_audio --release --example render_traces -- /tmp/mw_audio` |
 | The Python module | `PYTHON=<a python with torch> train/build.sh` |
 | Train | `cd train && python train.py --run <name> --steps 150e6 --curriculum` |
 | Web build into `dist/web/` | `cargo xtask web --release` (`--only webgpu\|webgl2`) |

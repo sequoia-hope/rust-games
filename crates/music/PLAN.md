@@ -246,22 +246,19 @@ refactor does, since they touch different files.
   Phase 3's gate): stations take its genres beside the classic ones;
   Midnight Playground's Tide and Loft play deep and Chicago house,
   Ridgeline synthwave and outrun (CHANGELOG).
-- **PARKED, owed: a listening pass on the 2026-10-22 upgrade.** Everything
-  above was verified by measurement only — the crate's tests (goldens and the
-  K-weighted chorus balance), the lab's headless check, and per-genre
-  loudness: synthwave −23.4, outrun −21.4, Chicago −23.1, deep −23.7 LUFS
-  integrated, true peak −6.3 to −8.1 dBFS. **Nobody has heard it.** That
-  breaks the standing rule in `.agents/skills/music-tuning/SKILL.md` ("never
-  tune blind"), and this log shows why it matters: the buried arp and the
-  every-song-opens-on-the-kick problems were both caught by ear and by
-  nothing else. The sessions that did the work could not play audio; Gemini
-  can, but its tokens are out until about **2026-10-29**. So on or after that
-  date, render each of the four genres with
-  `.agents/skills/music-tuning/scripts/render-clip.sh <genre> 1 50 30` and
-  listen for what the numbers cannot show: the new leads and plucks sitting
-  in the arrangement, the halved gated snare, and whether the
-  centre-weighted unison thinned or hardened the supersaw and pads. Retune
-  and regenerate goldens if it did; delete this item once it is done.
+- **2026-10-23, listening pass on the 2026-10-22 upgrade & orchestral mode
+  for Mech Works:** rendered and listened directly to `synthwave`, `outrun`,
+  `chicago`, and `deep` clips across seeds. Confirmed the halved gated snare
+  (`0.55`/`0.45`) and centre-weighted JP-8000 unison pads sound clean and
+  well-balanced; caught by ear that `SYNTHWAVE`'s 8th-note arp (`+7.0 dB`)
+  overpowered the chorus lead (`+3.5 dB`), and pulled `SYNTHWAVE` arp back to
+  `+5.5 dB` (`generator_balance` verified). Added the `"orchestral"` mode in
+  `crates/music` (`frenchHorn`, `brassSection`, `stringSection`, `contrabass`
+  patches, concert percussion `kit_tweak("orchestral")`, `BassStyle::Orchestral`,
+  and narrative-arc sections `prelude` → `defence` → `walker march` →
+  `rebuilding` → `community` → `decline` (with `sparse_melody`) → `epilogue`)
+  for Mech Works (`games/mech-works/docs/SPEC.md`, `AUDIO.md`), verified and
+  refined by ear.
 
 ## The owner's answers (2026-10-19)
 

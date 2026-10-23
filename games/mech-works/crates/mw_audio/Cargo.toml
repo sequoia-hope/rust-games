@@ -1,0 +1,13 @@
+[package]
+name = "mw_audio"
+description = "Simulation-driven procedural sound effects for Mech Works: footsteps, 12-joint actuators, thermal derate/trip, faults, impacts, falls and ambience"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Standalone AudioWorklet wasm C-ABI exports (no Bevy, no wasm-bindgen).
+worklet = []

@@ -62,6 +62,7 @@ sb_radio = { path = "games/snowboarding/crates/sb_radio" }
 mw_sim = { path = "games/mech-works/crates/mw_sim" }
 mw_sim_py = { path = "games/mech-works/crates/mw_sim_py" }
 mw_policy = { path = "games/mech-works/crates/mw_policy" }
+mw_audio = { path = "games/mech-works/crates/mw_audio" }
 mw_demo = { path = "games/mech-works/crates/mw_demo" }
 # Its physics, the same version and features in training and the browser.
 rapier3d = { version = "=0.36.1", features = ["enhanced-determinism"] }
@@ -103,6 +104,12 @@ opt-level = 3
 opt-level = 3
 
 [profile.web-release.package.music]
+opt-level = 3
+
+[profile.dev.package.mw_audio]
+opt-level = 3
+
+[profile.web-release.package.mw_audio]
 opt-level = 3
 
 # The xtasks' image metrics run over hundreds of screenshots.

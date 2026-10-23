@@ -193,9 +193,15 @@ banned = "no_engine"
 allowed = []
 banned = "no_engine"
 
+# Simulation-driven sound effects (games/mech-works/docs/AUDIO.md): no
+# dependencies at all, so it also builds as a standalone AudioWorklet wasm.
+[crates.mw_audio]
+allowed = []
+banned = "sim"
+
 # The tech demos and training viewer (Bevy client).
 [crates.mw_demo]
-allowed = ["mw_sim", "mw_policy", "pk_shell"]
+allowed = ["mw_sim", "mw_policy", "mw_audio", "music", "pk_shell"]
 banned = []
 
 [crates.mw_xtask]

@@ -53,7 +53,7 @@ fn loudness(genre: &str, seed: u32, solo: &str) -> Option<f64> {
     let chorus = s
         .sections
         .iter()
-        .find(|x| matches!(x.name.as_str(), "chorus" | "main"))
+        .find(|x| matches!(x.name.as_str(), "chorus" | "main" | "defence" | "community"))
         .unwrap()
         .bar;
     let mut pl = SongPlayer::new(5, 48000.0);
@@ -126,5 +126,23 @@ fn the_house_chords_and_lead_sit_with_the_bass() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn the_orchestral_theme_leads_the_ensemble() {
+    for seed in [1, 2] {
+        let bass = loudness("orchestral", seed, "bass").unwrap();
+        let rel = |name: &str| loudness("orchestral", seed, name).map(|l| l - bass);
+        let lead = rel("lead").unwrap();
+        assert!(
+            (-6.0..=3.0).contains(&lead),
+            "orchestral {seed}: lead {lead:.1} LU"
+        );
+        let chords = rel("chords").unwrap();
+        assert!(
+            (-16.0..=-1.0).contains(&chords),
+            "orchestral {seed}: chords {chords:.1} LU"
+        );
     }
 }

@@ -189,9 +189,13 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         a
     };
     let progs = [pool[a].0.clone(), pool[b].0.clone()];
-    // The middle eight a minor third up, then back (p = 0.15
-    // [synthwave#12]).
-    let key_change = p.form.iter().any(|f| f.name == "middle eight") && dh.chance(0.15);
+    // The middle eight (or community climax) a minor third up, then back
+    // (p = 0.15 [synthwave#12]).
+    let key_change = p
+        .form
+        .iter()
+        .any(|f| matches!(f.name, "middle eight" | "community"))
+        && dh.chance(0.15);
 
     let bars: u32 = p.form.iter().map(|b| b.bars).sum();
     let mut song = Song::new(p.key, seed, bpm, bars);
@@ -213,7 +217,12 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     // Block starts.
     song.sections = sections(p);
     let starts: Vec<u32> = song.sections.iter().map(|s| s.bar).collect();
-    let chorus = |i: usize| matches!(p.form[i].name, "chorus" | "drop" | "main" | "solo");
+    let chorus = |i: usize| {
+        matches!(
+            p.form[i].name,
+            "chorus" | "drop" | "main" | "solo" | "defence" | "walker march" | "community"
+        )
+    };
 
     // The lead's hook: a call and an answer over the chorus progression
     // (G9.7, G9.8: stated exactly wherever it plays).
@@ -303,9 +312,14 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         .unwrap_or(0);
 
     let mut dd = dice.fork("drums");
+    let tweak_key = if p.key == "orchestral" {
+        "orchestral"
+    } else {
+        p.kit
+    };
     let kit = |kit: &str| Sound::Drums {
         kit: kit.to_owned(),
-        tweak: profile::kit_tweak(kit),
+        tweak: profile::kit_tweak(tweak_key),
     };
     for (rk, cells) in p.template {
         let Some((role, min_energy, pumped)) = role_of(rk) else {
@@ -318,6 +332,7 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                 let sounds = match *rk {
                     "B" => p.bass_sounds,
                     "Pd" => p.pad_sounds,
+                    "Atm" if p.key == "orchestral" => &["celloPad", "stringSection"],
                     "Atm" => &["darkPad"],
                     "A" => p.arp_sounds,
                     _ => p.lead_sounds,
@@ -443,7 +458,11 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
                         } else {
                             core.clone()
                         };
-                        let sp = parts::sparse(&core);
+                        let sp = if *rk == "L" && p.key == "orchestral" {
+                            parts::sparse_melody(&core)
+                        } else {
+                            parts::sparse(&core)
+                        };
                         let ci = layer.pattern(core);
                         let vi = layer.pattern(var);
                         let si = layer.pattern(sp);
