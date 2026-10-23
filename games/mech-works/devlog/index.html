@@ -58,6 +58,74 @@
 </ul>
 </article>
 
+<article id="2026-10-23-m4">
+<h2>M4: the estimator, smoother walking, visible shots, an armoured mech</h2>
+<time>2026-10-23, afternoon</time>
+
+<h3>Status</h3>
+<table>
+<tr><th>Piece</th><th>State</th></tr>
+<tr><td><code>teacher-v1</code>, 150M steps</td><td class="ok">done; final checkpoint now ships (falls 3/8 → 30/64 with pushes and damage, from 6/8)</td></tr>
+<tr><td>Estimator (<code>train/estimator.py</code>, <code>mw_policy::Estimator</code>)</td><td class="ok">trained, ships, matches PyTorch to 1e-5</td></tr>
+<tr><td>Autonomous calibration in the calibration demo</td><td class="ok">done: the lane walks on the estimator's guess</td></tr>
+<tr><td>Smooth movement (owner: "a lot of foot wiggle")</td><td>training: <code>teacher-v2</code>, a fine-tune of v1 with smoothness rewards</td></tr>
+<tr><td>Projectiles in the impact demo</td><td class="ok">fixed: they worked but could not be seen</td></tr>
+<tr><td>The mech's look</td><td class="ok">first pass: armour, actuator drums, pistons, a cockpit</td></tr>
+</table>
+
+<h3>The estimator</h3>
+<p>The second half of Rapid Motor Adaptation. A per-step embedding (61 → 32) and three 1D convolutions over the last 50 policy steps (one second), then two heads: the teacher's body latent z (16, the target) and the 32 body parameters (an auxiliary guess, for the demo's bars). It trains online against the frozen teacher. For the first 2M steps the teacher drives on the true z; over the next 8M the envs hand over to the actor driving on the <em>estimated</em> z (DAgger), so the estimator learns from the states its own errors lead to. In Rust it keeps a ring of embedded steps and runs the convolutions each policy step: about 0.2 M multiply-adds.</p>
+<img src="img/2026-10-23-estimator-v1.png" alt="Estimator training: latent error falls from 0.14 to 0.05, rising to 0.065 as the student takes over; parameter errors fall for torso mass, latency, CoM, legs; friction barely">
+<p class="cap">The latent error falls to a third of z's variance, then rises a little as the estimator takes over driving (its own states are harder). It reads torso mass and control latency best, then centre of mass, leg lengths and drivers. Friction is nearly unreadable: on flat ground at these speeds the feet hardly ever slip, so nothing in the motion depends on it. It stopped improving by 10M steps, and the run was stopped at 17M to free the CPUs for <code>teacher-v2</code>.</p>
+
+<h3>Finding: teacher-v1 hardly needs to be told its body</h3>
+<p>The closed-loop eval now runs each set three ways: the policy told its true body, walking on the estimator's guess, and told the <em>nominal</em> body whatever it really is. Sixty-four 20 s episodes each, asked 1 m/s:</p>
+<table>
+<tr><th>Conditions</th><th>told</th><th>estimated</th><th>told nominal</th></tr>
+<tr><td>nominal body</td><td>0 fell, 0.80 m/s</td><td>0 fell, <span class="bad">0.52 m/s</span></td><td>0 fell, 0.80 m/s</td></tr>
+<tr><td>random bodies</td><td>4 fell, 0.59 m/s</td><td>4 fell, 0.58 m/s</td><td>5 fell, 0.64 m/s</td></tr>
+<tr><td>bodies + damage</td><td>7 fell</td><td>7 fell</td><td>10 fell</td></tr>
+<tr><td>bodies + pushes + damage</td><td>30 fell</td><td>32 fell</td><td>30 fell</td></tr>
+</table>
+<p>Telling the policy the wrong body costs little: three more falls in 64 under damage, nothing measurable elsewhere. The actor does respond to its body input: switching to the nominal body moves its actions by 0.14 on average, mostly from leg lengths and centre of mass. But that response barely changes the outcome. The teacher learned one robust gait rather than a gait per body, so there is little for an estimator to recover. Pushes dominate the falls in the hardest set. Two things follow:</p>
+<ul>
+<li>The calibration demo's premise (a stale body makes it stumble) is weak with this teacher: a heavier torso or a longer leg gives a small wobble, not a stumble. To make the body matter, the next teacher needs wider ranges (heavier loads, weaker actuators), which change what the normalized parameters mean, so they wait for a decision.</li>
+<li>On a nominal body the estimator walks slow (0.52 m/s): training at curriculum level 0.95 almost never shows it the exact nominal body (zero latency is the end of its range). The next estimator run will mix in nominal episodes.</li>
+</ul>
+
+<h3>Smooth movement: teacher-v2</h3>
+<p>The policy commands a new joint target at 50 Hz, and stiff ankle PD loops turn a target that flips each step into the foot wiggle the owner saw. Under teacher-v1 the joints' RMS acceleration was about 47 rad/s². Three reward terms now cost it: the action rate (weight raised from 0.02 to 0.15), the action's second difference (<code>action_jerk</code>), and the joints' acceleration (<code>joint_acc</code>). <code>teacher-v2</code> fine-tunes v1 (<code>train.py --init teacher-v1</code>) for 80M steps. The curriculum now steps on the fall rate over ten updates' episodes, not one update's handful. In its first 10M steps the joint-acceleration penalty fell from 2.0 to 0.78 per second, and action rate and jerk fell about 45%.</p>
+
+<h3>Projectiles: they worked, but could not be seen</h3>
+<p>A 40 kg shot was drawn as a ball 14 cm across, dark grey, crossing 25 m in 0.4 s. Now each one is drawn at least 44 cm across and glows, with an additive tracer about 0.1 s long. The default speed is 40 m/s, so a shot takes 0.75 s to cross 30 m, and the hit flash is additive.</p>
+<img src="img/2026-10-23-tracers.jpg" alt="Two tracers inbound, a flash at the foot that was hit">
+<p class="cap">Impact range at three shots a second: two tracers inbound, a flash where one struck the left foot.</p>
+
+<h3>The mech's look, first pass</h3>
+<p>Each link is now dressed in parts made from primitives, laid over its collision shape and sized from it, so a longer leg gets longer plates. The torso has a cockpit with a visor, a sloped glacis, shoulder pods, a reactor pack with two stacks, and a skirt. The thighs carry armour, the hip-pitch drum and a piston to the knee. The shins have a knee cap, a shin guard and a piston, and the feet a toe cap and heel. Hull grey dominates, with orange only for stripes and caps. Two lighting fixes: with no environment map, metal surfaces in shade went black, so metalness is low throughout; and a sky fill light from the side away from the sun lights the shaded side, which the ambient term alone left near black.</p>
+<img src="img/2026-10-23-mech-front.jpg" alt="The armoured mech from the front quarter, visor lit">
+<img src="img/2026-10-23-mech-back.jpg" alt="The mech from behind: reactor pack and stacks, pistons on the legs">
+<p class="cap">Front quarter and back. (The native client now takes <code>--stage '{json}'</code> and <code>--shot out.png --after 6</code>, so a change can be looked at without serving a build.)</p>
+
+<h3>teacher-v2 and estimator-v2 ship</h3>
+<p><code>teacher-v2</code> finished its 80M steps. The joints' RMS acceleration is 17–21 rad/s², against teacher-v1's 46–50: 60% less jerk, at the same fall rates (64 episodes each, asked 1 m/s). The cost was speed: 0.62 m/s on the nominal body, against 0.80. Its estimator, <code>estimator-v2</code>, trained with nominal episodes mixed in. It reaches a latent error of 0.018 (estimator-v1 got 0.065) and walks a little faster on its guess than on the truth:</p>
+<table>
+<tr><th>teacher-v2, asked 1 m/s</th><th>told</th><th>estimated</th><th>told nominal</th></tr>
+<tr><td>nominal body</td><td>0 fell, 0.62 m/s</td><td>0 fell, 0.68 m/s</td><td>0 fell, 0.62 m/s</td></tr>
+<tr><td>random bodies</td><td>4 fell, 0.60 m/s</td><td>4 fell, 0.64 m/s</td><td>4 fell, 0.50 m/s</td></tr>
+<tr><td>bodies + damage</td><td>6 fell, 0.58 m/s</td><td>6 fell, 0.63 m/s</td><td>8 fell, 0.44 m/s</td></tr>
+<tr><td>bodies + pushes + damage</td><td>34 fell</td><td>34 fell</td><td>29 fell</td></tr>
+</table>
+<p>The demos now load <code>teacher-v2</code> and its estimator. Body knowledge still buys little: told the nominal body, v2 walks slower but falls no more often. The next teacher is trained on wider bodies and a side-mounted tool of up to 900 kg, so that knowing the body has to pay.</p>
+
+<h3>Next</h3>
+<ul>
+<li><code>teacher-v3</code> on wider bodies and a side-mounted tool, then its estimator.</li>
+<li>Decide the wider body ranges, so knowing the body pays (needs the owner).</li>
+<li>Native vs WASM replay parity test.</li>
+</ul>
+</article>
+
 <article id="2026-10-23">
 <h2>M0 and the first walk: Rapier passes, the teacher trains, the browser viewer exists</h2>
 <time>2026-10-23</time>

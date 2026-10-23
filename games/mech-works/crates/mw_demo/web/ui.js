@@ -45,10 +45,10 @@ function setMode(m) {
   q.set('mode', m);
   history.replaceState(null, '', location.pathname + '?' + q.toString());
   if (m !== 'viewer') {
-    // One mech, the best policy there is.
+    // One mech, on the shipped policy and its estimator.
     $('lanes').value = '1';
     send({ cmd: 'lanes', n: 1 });
-    loadLatest(0);
+    loadShipped(0);
   } else if (index.length) {
     applyLanes();
   }
@@ -104,11 +104,20 @@ async function findData() {
     } catch { /* try the next */ }
   }
   $('curves-note').textContent = 'no training data found';
-  // No gallery: the shipped policy alone.
-  try {
-    const bytes = await page.download('assets/policies/teacher-v1.bin', () => {});
-    glue.load_policy(0, 'teacher-v1', bytes);
-  } catch (e) { console.warn('no shipped policy', e); }
+  if (mode === 'viewer') loadShipped(0);
+}
+
+// The shipped policy and the estimator distilled from it: a pair (an
+// estimator guesses its own teacher's latent, no other's).
+const SHIPPED = 'teacher-v2';
+let shipped = null;
+async function loadShipped(lane) {
+  shipped ??= Promise.all(['.bin', '.estimator.bin'].map((ext) =>
+    page.download(`assets/policies/${SHIPPED}${ext}`, () => {}).catch((e) => { console.warn(e); return null; })));
+  const [policy, estimator] = await shipped;
+  if (policy) glue.load_policy(lane, SHIPPED, policy);
+  if (estimator) glue.load_policy(lane, SHIPPED + ' estimator', estimator);
+  send({ cmd: 'adapt', lane, on: mode === 'calibration' && $('cal-mode').value === 'autonomous' });
 }
 
 function fillRuns(runs) {
@@ -128,7 +137,7 @@ async function openRun(name) {
   $('ckpt').max = String(index.length - 1);
   $('ckpt').value = String(index.length - 1);
   showCkpt();
-  if (mode === 'viewer') applyLanes(true); else loadLatest(0);
+  if (mode === 'viewer') applyLanes(true);
   loadCurves();
 }
 
@@ -152,11 +161,6 @@ async function loadInto(lane, c) {
   try {
     glue.load_policy(lane, ckptLabel(c), await blob(c.file));
   } catch (e) { console.warn(e); }
-}
-
-async function loadLatest(lane) {
-  if (!index.length) return;
-  await loadInto(lane, index[index.length - 1]);
 }
 
 // The lanes: one at the chosen checkpoint, or spread from the first to it.
@@ -299,6 +303,14 @@ function wireCalibration() {
     send({ cmd: 'swap', params: p });
   };
   $('calibrate').onclick = () => send({ cmd: 'calibrate', secs: +$('cal').value });
+  const calMode = () => {
+    const auto = $('cal-mode').value === 'autonomous';
+    for (const el of document.querySelectorAll('.explicit-only')) el.hidden = auto;
+    for (const el of document.querySelectorAll('.autonomous-only')) el.hidden = !auto;
+    send({ cmd: 'adapt', on: auto });
+  };
+  $('cal-mode').onchange = calMode;
+  calMode();
 }
 
 // ── Telemetry: the HUD and the inspector ──────────────────────────────────
@@ -314,7 +326,8 @@ function readTelemetry() {
   $('hud').innerHTML = `<b>${(t.speed).toFixed(2)}</b> m/s · height <b>${t.height.toFixed(2)}</b> m`
     + ` · falls <b>${t.lanes.map((l) => l.falls).join(' / ')}</b>`
     + (lane && lane.label ? ` · ${lane.label}` : (lane && !lane.policy ? ' · no policy: holding the pose' : ''))
-    + (t.calibrating !== null && t.calibrating !== undefined ? ` · calibrating ${(100 * t.calibrating).toFixed(0)}%` : '');
+    + (t.calibrating !== null && t.calibrating !== undefined ? ` · calibrating ${(100 * t.calibrating).toFixed(0)}%` : '')
+    + (t.adaptive ? ' · walking on the estimator' : '');
   if (inspectorOn) drawInspector(t);
 }
 
@@ -338,9 +351,16 @@ function drawInspector(t) {
   });
   $('joints').innerHTML = rows.join('');
   $('feet').innerHTML = 'feet: ' + t.feet.map((f, i) => `${i ? 'R' : 'L'} ${f.on ? (f.force / 1000).toFixed(1) + ' kN' : 'in the air'}`).join(' · ');
-  // Body parameters: the truth (white) and what the policy is told (orange).
-  const show = [0, 1, 2, 3, 4, 5, ...t.params.map((_, i) => i).filter((i) => i >= 6 && i < 30 && (t.params[i] < 0.999 || t.believed[i] < 0.999))];
-  $('params').innerHTML = '<div style="margin:4px 0">body parameters: <span style="color:#f4f0e8">true</span> · <span style="color:var(--accent)">what the policy is told</span></div>'
+  // Body parameters: the truth (white), what the policy is told (orange)
+  // and the estimator's guess from the motion (blue).
+  const est = t.estimated;
+  const off = (i) => t.params[i] < 0.999 || t.believed[i] < 0.999 || (est && est[i] < 0.8);
+  const show = [0, 1, 2, 3, 4, 5, ...t.params.map((_, i) => i).filter((i) => i >= 6 && i < 30 && off(i)), 30, 31];
+  const at = (x) => (50 + 50 * Math.max(-1.1, Math.min(1.1, x))).toFixed(1);
+  $('params').innerHTML = '<div style="margin:4px 0">body parameters: <span style="color:#f4f0e8">true</span> · '
+    + `<span style="color:var(--accent)">${t.adaptive ? 'told (unused)' : 'what the policy is told'}</span>`
+    + (est ? ' · <span style="color:var(--est)">estimated from the motion</span>' : '') + '</div>'
     + show.map((i) => `<div class="prow"><span>${PARAM_NAMES[i]}</span><div class="pbar"><span class="mid"></span>`
-      + `<i class="true" style="left:${(50 + 50 * t.params[i]).toFixed(1)}%"></i><i class="told" style="left:${(50 + 50 * t.believed[i]).toFixed(1)}%"></i></div></div>`).join('');
+      + `<i class="true" style="left:${at(t.params[i])}%"></i><i class="told" style="left:${at(t.believed[i])}%"></i>`
+      + (est ? `<i class="est" style="left:${at(est[i])}%"></i>` : '') + '</div></div>').join('');
 }

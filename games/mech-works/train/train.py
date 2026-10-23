@@ -47,6 +47,7 @@ def parse():
     p.add_argument("--max-level", type=float, default=1.0)
     p.add_argument("--level", type=float, default=0.0, help="starting curriculum level")
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--init", help="start from this run's weights and curriculum level (a fine-tune)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return p.parse_args()
 
@@ -90,6 +91,11 @@ def main():
         update, total_steps, level, lr = st["update"], st["steps"], st["level"], st["lr"]
         index = json.loads((out / "index.json").read_text())["checkpoints"]
         env.set_curriculum(**curriculum(level))
+    elif a.init:
+        st = torch.load(HERE.parent / "checkpoints" / a.init / "model.pt", map_location=dev)
+        model.load_state_dict(st["model"])
+        level = max(level, st["level"])
+        env.set_curriculum(**curriculum(level))
     (out / "config.json").write_text(json.dumps(vars(a), indent=1))
     register_run(out.parent, a.run)
 
@@ -109,6 +115,9 @@ def main():
     coverage_f = open(out / "coverage.jsonl", "a")
     t_start = time.time()
     recent = []  # the last episodes' bodies and outcomes, for the coverage map
+    # The curriculum steps on the fall rate over the last 10 updates' episodes,
+    # not on one update's handful (teacher-v1 climbed on lucky samples).
+    window_falls, window_ends = [], []
     test_obs = env.reset()[:4].copy()
     obs = torch.as_tensor(env.reset(), device=dev)
 
@@ -209,7 +218,9 @@ def main():
         terms_mean = {k: float(v) / (n * T) for k, v in zip(terms_names, term_sums)}
         # The lin tracking term's best is 1.5 * POLICY_DT per step.
         track = terms_mean["track_lin"] / (1.5 / mw_sim_py.POLICY_HZ)
-        if a.curriculum and update % 10 == 0 and fall_rate < 0.15 and track > 0.7 and level < a.max_level:
+        window_falls, window_ends = (window_falls + [falls])[-10:], (window_ends + [ends])[-10:]
+        window_rate = sum(window_falls) / max(sum(window_ends), 1)
+        if a.curriculum and update % 10 == 0 and sum(window_ends) >= 100 and window_rate < 0.15 and track > 0.7 and level < a.max_level:
             level = min(a.max_level, level + 0.05)
             env.set_curriculum(**curriculum(level))
         m = {

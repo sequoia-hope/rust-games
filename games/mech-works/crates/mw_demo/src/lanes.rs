@@ -3,7 +3,7 @@
 //! Commands from the page set the walk, push, damage, swap parts and reset.
 
 use bevy::prelude::*;
-use mw_policy::Policy;
+use mw_policy::{Estimator, Policy};
 use mw_sim::env::{Command, Env, POLICY_DT};
 use mw_sim::mech::{BodyParams, JOINTS, joint_design};
 use mw_sim::rapier3d::prelude::Vector;
@@ -32,6 +32,14 @@ pub struct Lane {
     /// The calibration demo: the body the policy is told it has moves from
     /// `from` to the true one over `secs` (explicit calibration).
     pub calibrating: Option<Calibration>,
+    /// The estimator paired with the policy: it guesses the body from the
+    /// last second of motion, every step.
+    pub estimator: Option<Estimator>,
+    /// Walk on the estimator's guess rather than on what the policy is told
+    /// (autonomous calibration).
+    pub adaptive: bool,
+    /// The estimator's history was just restarted on the current state.
+    fresh: bool,
     obs: Vec<f32>,
     action: [f32; JOINTS],
 }
@@ -57,6 +65,9 @@ impl Lane {
             fallen_for: None,
             falls: 0,
             calibrating: None,
+            estimator: None,
+            adaptive: false,
+            fresh: false,
             obs: Vec::new(),
             action: [0.0; JOINTS],
         };
@@ -86,6 +97,16 @@ impl Lane {
         self.fallen_for = None;
         self.calibrating = None;
         self.action = [0.0; JOINTS];
+        self.restart_estimator();
+    }
+
+    /// Starts the estimator's history over from the mech as it stands.
+    fn restart_estimator(&mut self) {
+        if let Some(e) = &mut self.estimator {
+            e.reset(&self.env.observe());
+            e.estimate();
+            self.fresh = true;
+        }
     }
 
     fn step(&mut self) {
@@ -97,11 +118,22 @@ impl Lane {
                 self.calibrating = None;
             }
         }
+        self.obs.clear();
+        self.obs.extend(self.env.observe());
+        if let Some(e) = &mut self.estimator {
+            if !std::mem::take(&mut self.fresh) {
+                e.push(&self.obs);
+            }
+            e.estimate();
+        }
         if let Some(p) = &mut self.policy {
-            self.obs.clear();
-            self.obs.extend(self.env.observe());
             if self.obs.len() == p.header.obs_dim {
-                p.act(&self.obs, &mut self.action);
+                match &self.estimator {
+                    Some(e) if self.adaptive && e.header.latent == p.header.latent => {
+                        p.act_with_latent(&self.obs, e.latent(), &mut self.action)
+                    }
+                    _ => p.act(&self.obs, &mut self.action),
+                }
             }
         } else {
             self.action = [0.0; JOINTS];
@@ -187,6 +219,18 @@ fn take_policies(mut lanes: ResMut<Lanes>) {
         if lane >= lanes.lanes.len() {
             lanes.set_count(lane + 1);
         }
+        if mw_policy::arch(&bytes).is_ok_and(|a| a == "estimator_v1") {
+            match Estimator::from_bytes(&bytes) {
+                Ok(e) => {
+                    info!("lane {lane}: estimator {label}");
+                    let l = &mut lanes.lanes[lane];
+                    l.estimator = Some(e);
+                    l.restart_estimator();
+                }
+                Err(e) => warn!("lane {lane}: estimator {label}: {e}"),
+            }
+            continue;
+        }
         match Policy::from_bytes(&bytes) {
             Ok(p) => {
                 info!(
@@ -207,7 +251,7 @@ fn num(v: &Value, k: &str) -> Option<f32> {
     v.get(k).and_then(Value::as_f64).map(|x| x as f32)
 }
 
-fn take_commands(mut lanes: ResMut<Lanes>) {
+pub fn take_commands(mut lanes: ResMut<Lanes>) {
     let Some(list) = COMMANDS.take() else { return };
     for line in list {
         match serde_json::from_str::<Value>(&line) {
@@ -222,7 +266,8 @@ fn take_commands(mut lanes: ResMut<Lanes>) {
 /// z}` (N·s per kg of mech), `damage {lane?, joint, health}`, `swap {lane?,
 /// params: [..]}` (a new body, the policy still told the old one),
 /// `calibrate {lane?, secs}` (move what it is told to the truth),
-/// `believe {lane?, params}`, `repair {lane?}`.
+/// `believe {lane?, params}`, `repair {lane?}`, `adapt {lane?, on}` (walk on
+/// the estimator's guess: autonomous calibration).
 pub fn apply(lanes: &mut Lanes, v: &Value) {
     let cmd = v.get("cmd").and_then(Value::as_str).unwrap_or("");
     let which = v
@@ -311,6 +356,10 @@ pub fn apply(lanes: &mut Lanes, v: &Value) {
             } else {
                 l.env.believed = p;
             }
+        }
+        "adapt" => {
+            let l = &mut lanes.lanes[which];
+            l.adaptive = v.get("on").and_then(Value::as_bool).unwrap_or(!l.adaptive);
         }
         "calibrate" => {
             let l = &mut lanes.lanes[which];
@@ -444,5 +493,7 @@ pub fn telemetry(lanes: &Lanes) -> Value {
         "believed": l.env.believed.to_vec().to_vec(),
         "calibrating": l.calibrating.as_ref().map(|c| c.elapsed / c.secs),
         "latent": l.policy.as_ref().map(|p| p.latent().to_vec()),
+        "estimated": l.estimator.as_ref().map(|e| e.params().to_vec()),
+        "adaptive": l.adaptive && l.estimator.is_some(),
     })
 }

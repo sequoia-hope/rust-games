@@ -15,7 +15,7 @@ code you touch.
 | `crates/music/` | the **music engine** (package `music`): the Music Lab's procedural music (instruments, sequencer, composer, genre grammars, mix) and the radio station player; also built as its own AudioWorklet wasm |
 | `games/midnight-playground/` | **Midnight Playground**, the street racer (`mp_*` crates, plus the frozen legacy JS game) |
 | `games/snowboarding/` | **Snowboarding**, the 1080°-style snowboarding game (`sb_*` crates) |
-| `games/mech-works/` | **Mech Works**, a mech game whose mech walks on a learned locomotion policy (`mw_*` crates; spec only so far: `docs/SPEC.md`) |
+| `games/mech-works/` | **Mech Works**, a mech game whose mech walks on a learned locomotion policy (`mw_*` crates: the Rapier simulation, PPO training, the policy and its estimator in Rust, the Bevy demos; `docs/SPEC.md`) |
 | `apps/` | tools with a page of their own on the engines, such as `apps/music-lab/`, the **Music Lab** (the music engine's workbench: `./serve.sh`, registered as `music-lab`) |
 | `docs/` | architecture, the reorganization plan, kickoff prompts for new projects |
 | `site/` | the public site's list (`games.toml`) and front page (below) |
@@ -125,10 +125,11 @@ game ships.
 `./serve.sh` at the root serves the same site locally, on the `rust-games`
 port: `scripts/pages.py build dist/local` runs every entry's `pages.sh` and
 writes the front page over them, exactly as the workflow assembles it, so the
-site can be seen whole before a push. Building it is two release wasm builds,
-so `serve.sh` only builds when `dist/local/` is empty — `REBUILD=1 ./serve.sh`
-(or `scripts/pages.py build dist/local`) refreshes it. It mirrors what is
-committed, not the working tree; for that, serve the game.
+site can be seen whole before a push. It tracks the local `main`: while it
+runs, it rebuilds whenever `main` moves (each build is release wasm builds of
+every entry, minutes) and swaps the new site in whole; `dist/local/.built-from`
+says which commit is up. `REBUILD=1 ./serve.sh` forces a build at start. It
+mirrors what is committed, not the working tree; for that, serve the game.
 
 ## Commits
 

@@ -15,7 +15,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23111'/%3E%3Crect x='9' y='5' width='14' height='12' rx='2' fill='%23ea851f'/%3E%3Crect x='10' y='18' width='4' height='10' fill='%23ea851f'/%3E%3Crect x='18' y='18' width='4' height='10' fill='%23ea851f'/%3E%3C/svg%3E">
 <style>
   :root { color-scheme: dark;
-          --bg: #121314; --fg: #ece9e4; --dim: #a39d94; --accent: #ea851f; --accent2: #f6c27a;
+          --bg: #121314; --fg: #ece9e4; --dim: #a39d94; --accent: #ea851f; --accent2: #f6c27a; --est: #5fb3e8;
           --loading-bg: radial-gradient(ellipse at 50% 40%, #2a2622, #0d0d0e 70%);
           --logo-font: ui-sans-serif, system-ui, sans-serif; }
 </style>
@@ -77,7 +77,7 @@
   .spacer { flex: 1; }
   #panel { position: absolute; top: 48px; right: 10px; bottom: 10px; width: 320px; overflow-y: auto;
            background: rgba(22,22,23,.88); border: 1px solid #3a3632; border-radius: 10px; padding: 4px 14px 12px; }
-  #panel[hidden] { display: none; }
+  #panel[hidden], #panel [hidden] { display: none; }
   #panel h3 { margin: 12px 0 6px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
   #panel h4 { margin: 12px 0 4px; font-size: 12px; color: var(--fg); } #panel h4 small { color: var(--dim); font-weight: 400; }
   #panel label { display: block; margin: 6px 0; color: var(--dim); }
@@ -107,6 +107,7 @@
   .pbar { position: relative; height: 9px; background: #2b2a29; border-radius: 3px; }
   .pbar i { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1px; }
   .pbar i.true { background: #f4f0e8; } .pbar i.told { background: var(--accent); height: 5px; top: 2px; }
+  .pbar i.est { background: var(--est); height: 5px; top: 4px; }
   .pbar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #555; }
   #hud { position: absolute; left: 12px; top: 52px; color: var(--fg); text-shadow: 0 1px 3px #000; font-variant-numeric: tabular-nums; }
   #hud b { color: var(--accent); }
@@ -161,7 +162,7 @@
     <section data-for="impact">
       <h3>Impact range</h3>
       <label>Mass <output id="mass-v"></output><input id="mass" type="range" min="5" max="400" step="5" value="40"></label>
-      <label>Speed <output id="pspeed-v"></output><input id="pspeed" type="range" min="10" max="200" step="5" value="60"></label>
+      <label>Speed <output id="pspeed-v"></output><input id="pspeed" type="range" min="10" max="200" step="5" value="40"></label>
       <label>Rate <output id="rate-v"></output><input id="rate" type="range" min="0" max="3" step="0.1" value="0.5"></label>
       <label>Target <select id="target"><option value="">anywhere</option></select></label>
       <div class="row"><button id="fire">Fire</button><span class="note">hits <b id="hits">0</b></span></div>
@@ -182,9 +183,14 @@
         <option value="shin">longer left leg (+10%)</option>
         <option value="light">lighter torso (−30%)</option>
       </select></label>
-      <div class="row"><button id="swap">Swap the part</button><button id="calibrate">Calibrate</button></div>
-      <label>Calibration time <output id="cal-v"></output><input id="cal" type="range" min="0.5" max="10" step="0.5" value="3"></label>
-      <p class="note">After a swap the policy is still told the old body, so it walks miscalibrated for real. Calibrating moves what it is told to the true values over the time set. (Autonomous calibration, from the estimator, comes in M4.)</p>
+      <label>Calibration <select id="cal-mode">
+        <option value="explicit">explicit: move what it is told to the truth</option>
+        <option value="autonomous">autonomous: the estimator works it out</option>
+      </select></label>
+      <div class="row"><button id="swap">Swap the part</button><button id="calibrate" class="explicit-only">Calibrate</button></div>
+      <label class="explicit-only">Calibration time <output id="cal-v"></output><input id="cal" type="range" min="0.5" max="10" step="0.5" value="3"></label>
+      <p class="note explicit-only">After a swap the policy is still told the old body, so it walks miscalibrated for real. Calibrating moves what it is told to the true values over the time set.</p>
+      <p class="note autonomous-only">The policy ignores what it is told and walks on the estimator's guess, which it makes from the last second of its own motion. Swap a part and watch the blue marks find the new body in the inspector.</p>
     </section>
   </aside>
   <div id="inspector" hidden>

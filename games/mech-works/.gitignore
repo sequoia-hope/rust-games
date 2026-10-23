@@ -1,6 +1,6 @@
 # Training output: runs are tens to hundreds of MB. A checkpoint the demos
 # ship is copied into the demo's assets instead.
-/checkpoints/
+/checkpoints
 # The Python module train/build.sh builds.
 /train/mw_sim_py.so
 __pycache__/

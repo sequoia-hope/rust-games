@@ -33,6 +33,20 @@ impl Default for Orbit {
     }
 }
 
+impl Orbit {
+    /// `camera {yaw?, pitch?, distance?}`.
+    pub fn apply(&mut self, v: &serde_json::Value) {
+        let num = |k: &str| {
+            v.get(k)
+                .and_then(serde_json::Value::as_f64)
+                .map(|x| x as f32)
+        };
+        self.yaw = num("yaw").unwrap_or(self.yaw);
+        self.pitch = num("pitch").unwrap_or(self.pitch);
+        self.distance = num("distance").unwrap_or(self.distance);
+    }
+}
+
 pub fn plugin(app: &mut App) {
     app.init_resource::<Orbit>()
         .add_systems(Startup, (spawn, no_light_clustering))
