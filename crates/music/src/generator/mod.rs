@@ -125,15 +125,18 @@ pub fn shape(genre: &str, seed: u32, settings: &Settings) -> Option<(f64, Vec<Se
 fn tempo(p: &Profile, dice: &Dice, settings: &Settings) -> (f64, f64) {
     let mut dt = dice.fork("tempo");
     let (lo, hi, typ) = p.tempo;
-    let bpm = settings.bpm.unwrap_or_else(|| {
-        let u = (dt.f() + dt.f()) / 2.0;
-        if u < 0.5 {
-            lo + (typ - lo) * u * 2.0
-        } else {
-            typ + (hi - typ) * (u - 0.5) * 2.0
+    let bpm = match settings.bpm {
+        Some(b) => b.clamp(40.0, 220.0).round(),
+        None => {
+            let u = (dt.f() + dt.f()) / 2.0;
+            let b = if u < 0.5 {
+                lo + (typ - lo) * u * 2.0
+            } else {
+                typ + (hi - typ) * (u - 0.5) * 2.0
+            };
+            b.clamp(lo, hi).round()
         }
-    });
-    let bpm = bpm.clamp(lo, hi).round();
+    };
     let swing = dt.range(p.swing.0, p.swing.1).round();
     (bpm, swing)
 }

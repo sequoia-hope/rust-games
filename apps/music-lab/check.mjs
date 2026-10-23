@@ -85,6 +85,19 @@ try {
   const rows = await page.$$eval('#mTable tr', (rs) => rs.slice(1).map((r) => [...r.children].map((c) => c.textContent)));
   check(measured.startsWith('Done') && rows.length === 4 && rows.every((r) => Number(r[2]) > -60), `measured offline: ${rows.map((r) => `${r[1]} ${r[2]} dB`).join(', ')}`);
 
+  // Autoplay with multi-genre select and fine-grained key/tempo controls.
+  await page.click('#selNone');
+  await page.click('#autoGenres button[data-g="french"]');
+  await page.click('#autoGenres button[data-g="acid"]');
+  await page.select('#key', '9'); // A
+  await page.click('#autoplay');
+  const autoOn = await page.waitForFunction(() => window.musicLab.autoplaying && window.musicLab.playing && ['french', 'acid'].includes(window.musicLab.cur.genre), { timeout: 30000 }).then(() => true, () => false);
+  const autoFirst = await page.evaluate(() => window.musicLab.cur.genre);
+  await page.click('#nextSong');
+  const autoSecond = await page.evaluate(() => window.musicLab.cur.genre);
+  check(autoOn && ['french', 'acid'].includes(autoSecond) && autoSecond !== autoFirst, `autoplay multi-genre select: ${autoFirst} → ${autoSecond}`);
+  await page.click('#play'); // stop
+
   const status = await page.$eval('#status', (e) => e.textContent);
   check(!/refused|failed|stopped with an error/i.test(status), `status: ${status}`);
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
