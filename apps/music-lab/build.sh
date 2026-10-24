@@ -13,7 +13,7 @@ out=${1:-dist}
 cargo build -p music --lib --features worklet --target wasm32-unknown-unknown --profile "$profile"
 target=$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json, sys; print(json.load(sys.stdin)["target_directory"])')
 mkdir -p "$out"
-cp index.html main.js knobs.js measure.js lab-worklet.js "$out/"
+cp index.html hardware.html main.js hardware.js knobs.js measure.js lab-worklet.js "$out/"
 cp "$target/wasm32-unknown-unknown/$profile/music.wasm" "$out/"
 if [[ $profile == web-release ]]; then
   # The features the games' builds pass (crates/engine/pk_xtask).

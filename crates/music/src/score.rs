@@ -539,6 +539,58 @@ impl Song {
                                         ("bars", Val::num(c.bars as f64)),
                                         ("mark", Val::str(c.mark.key())),
                                         ("pattern", Val::str(&l.patterns[c.pattern].name)),
+                                        ("patIdx", Val::num(c.pattern as f64)),
+                                    ])
+                                })
+                                .collect(),
+                        )),
+                    ),
+                    (
+                        "patterns",
+                        Some(Val::Arr(
+                            l.patterns
+                                .iter()
+                                .map(|p| {
+                                    Val::obj(vec![
+                                        ("name", Val::str(&p.name)),
+                                        ("len", Val::num(p.len)),
+                                        (
+                                            "notes",
+                                            Some(Val::Arr(
+                                                p.notes
+                                                    .iter()
+                                                    .map(|n| {
+                                                        Val::obj(vec![
+                                                            ("at", Val::num(n.at)),
+                                                            ("len", Val::num(n.len)),
+                                                            ("vel", Val::num(n.vel)),
+                                                            (
+                                                                "midis",
+                                                                (!n.midis.is_empty()).then(|| {
+                                                                    Val::Arr(
+                                                                        n.midis
+                                                                            .iter()
+                                                                            .filter_map(|&m| {
+                                                                                Val::num(m)
+                                                                            })
+                                                                            .collect(),
+                                                                    )
+                                                                }),
+                                                            ),
+                                                            ("lane", Val::ostr(&n.lane)),
+                                                            (
+                                                                "accent",
+                                                                n.accent.then_some(Val::Bool(true)),
+                                                            ),
+                                                            (
+                                                                "slide",
+                                                                n.slide.then_some(Val::Bool(true)),
+                                                            ),
+                                                        ])
+                                                    })
+                                                    .collect(),
+                                            )),
+                                        ),
                                     ])
                                 })
                                 .collect(),
