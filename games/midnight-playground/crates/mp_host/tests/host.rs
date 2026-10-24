@@ -126,14 +126,35 @@ fn read_for(ws: &mut Ws, ms: u64) -> Vec<Msg> {
     out
 }
 
+/// [`read_for`] until a message `want` accepts has come (or `ms` have
+/// passed): a loaded machine (the whole workspace's tests at once) can
+/// take longer than a fixed wait to answer.
+fn read_until(ws: &mut Ws, ms: u64, want: impl Fn(&Msg) -> bool) -> Vec<Msg> {
+    let t = Instant::now();
+    let mut out = Vec::new();
+    while t.elapsed() < Duration::from_millis(ms) {
+        let got = read_for(ws, 50);
+        let done = got.iter().any(&want);
+        out.extend(got);
+        if done {
+            break;
+        }
+    }
+    out
+}
+
 #[test]
 fn players_meet_in_the_lobby_and_race() {
     let h = start();
     let mut a = join(h.1, "Marisol");
-    let got = read_for(&mut a, 400);
+    let got = read_until(&mut a, 10_000, |m| *m == Msg::Welcome { slot: 0 });
     assert!(got.contains(&Msg::Welcome { slot: 0 }), "{got:?}");
     let mut b = join(h.1, "Kit");
-    let got = read_for(&mut b, 400);
+    let got = read_until(
+        &mut b,
+        10_000,
+        |m| matches!(m, Msg::Lobby { players, .. } if players.len() == 2),
+    );
     assert!(got.contains(&Msg::Welcome { slot: 1 }));
     let lobby = got.iter().rev().find_map(|m| match m {
         Msg::Lobby { players, .. } => Some(players.clone()),
@@ -150,7 +171,7 @@ fn players_meet_in_the_lobby_and_race() {
     };
     send(&mut a, &Msg::Configure(s));
     send(&mut a, &Msg::Go(true));
-    let got = read_for(&mut b, 600);
+    let got = read_until(&mut b, 10_000, |m| matches!(m, Msg::Start(_)));
     let start = got.iter().find_map(|m| match m {
         Msg::Start(s) => Some(s.clone()),
         _ => None,
