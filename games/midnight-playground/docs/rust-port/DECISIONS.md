@@ -11683,6 +11683,57 @@ The owner still saw the menu's flyover stutter while the other levels' views (se
 - **Measured** (release web build, headless Chrome on this machine, Sierra saved): before, the camera flew through 4.1 s of preparation with 18 frames over 50 ms (the longest 267 ms); after, it stands at one place for the same 3.7 to 4.3 s (WebGPU, WebGL2) and then flies with no frame over 50 ms. The long frames (mostly the stand-ins' pipeline compiles) are still there while it stands, but nothing moves to show them. Raising the menu's budgets (20 ms of build and of spawning a frame) was tried and dropped: no faster to all up, and the menu's median frame went from 17 to 33 ms.
 - **Not done:** pre-rendered pictures of each level. The section's own first frame is the still picture; it needs no extra assets, matches what then flies, and a tab still shows the level the menu selects.
 
+## D1239 (2026-10-24): the bay side's data
+
+Stage 6b of `docs/vision/peninsula.md`: the data the bay side's network,
+streaming and city kit (6c to 6e) build on. Nothing here is wired into a
+level yet.
+
+- **The first network in the plan.** 27 places (the junctions of 92, 84,
+  280, 101 and El Camino, the six cross streets' ends, San Francisco's
+  corners) and 17 routes: `hwy-92-east`, `hwy-84-east`, `us-101`, `i-280`,
+  `el-camino`, `ralston`, `hillsdale`, `third-ave`, `broadway`, `millbrae`,
+  `san-bruno`, `sf-19th-ave`, `sf-lombard`, `sf-van-ness`, `sf-market`,
+  `sf-geary`, `sf-embarcadero`: 222 km of real road, 111 km of game road.
+  Each has its corridor file (`mp-atlas corridor <id>`), 0.9 MB of text in
+  all; the stale test now checks every corridor file in the folder.
+- **A route keeps to one carriageway** (`mp_atlas::graph`). The map has no
+  one-way flags, and a freeway's two carriageways carry its number but
+  meet only where they merge (280's never do inside the box). Snapping each
+  place to its nearest road sent 280 nowhere and would have sent 101 round
+  by the far end of the other carriageway. Each place now has candidates
+  (every allowed road within 80 m of the nearest, six at most) and the
+  resolver picks the snaps whose way through all the places is shortest,
+  a metre off the road counting as ten of road, so a place keeps its
+  nearest road unless that costs kilometres. Every existing route resolves
+  exactly as before (`resolved.json`'s old routes are unchanged).
+- **Unnamed links in named routes.** A route by road names may cross a
+  short (under 60 m) road with no name or number whose both ends touch its
+  roads: Mission Street in Daly City is drawn as a pair round an island
+  with such a link between the halves, which cut El Camino in two.
+- **84 east** follows `Woodside Road` by name as well as its number: the
+  map drops the number through Woodside's village.
+- **The ground and cover** under the bay side's box (`bayside.ground.bin`
+  and `.cover.bin`): 24 m cells, not the loop's 16 m (the bay side is
+  mostly flat, and 16 m would be 1.5 MB), with ground.py's 1.2 km margin:
+  593 x 1078 cells from (-3240, -20040), 687 kB and 29 kB.
+- **The city grid** (`tools/atlas/city.py`, `bayside.city.bin`,
+  `mp_levels::ground::CityGrid`): Overture's buildings over the same box in
+  32 m cells, three bytes a cell: the share of the ground under footprints,
+  and the median and ninetieth-percentile height in units of 2 real metres.
+  The footprints are rasterised 16 x 16 samples a cell, each sample holding
+  its building's height, so a building counts by the area of its footprint
+  in each cell it covers (a first try that counted each building in its
+  centroid's cell left built cells with no height under large footprints).
+  Heights stay real, as stage 6 draws the buildings full size; a building
+  without one (20 %) takes its floors times 3.2 m, else a default by class
+  (6 m for a house or an unclassed building). 445 x 809 cells, 212 kB;
+  downtown San Francisco's p90 reaches 326 m (Salesforce Tower).
+- **Not fixed, for 6c:** Market Street's mapped end is at Steuart Street,
+  175 m short of the Embarcadero; the profiles still follow the 50 m
+  planning grid, so a freeway in a cut reads up to 18 to 23 % for a few
+  tens of metres (92 and Hillsdale at their interchange).
+
 ## D1240 (2026-10-24): the open world's roads form a network
 
 Stage 6c of `docs/vision/peninsula.md`. The bay side's city is crossing
