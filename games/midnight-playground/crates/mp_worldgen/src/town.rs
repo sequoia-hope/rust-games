@@ -9,7 +9,7 @@
 //! A section draws the buildings that stand in it, merged in chunks small
 //! enough that each chunk's centre lies in the section that drew it.
 
-use mp_track::Footprint;
+use mp_track::{Footprint, Track};
 use pk_math::{Mulberry32, kernel};
 
 use crate::geom::{GeoBuilder, P2, P3, PrismOpts, StaticOpts};
@@ -20,6 +20,10 @@ use crate::world::{Scenery, SceneryInfo, World};
 
 /// Metres of ground a merged chunk covers.
 const CHUNK: f64 = 200.0;
+/// The sidewalk either side of a town's streets (`mp_levels::city::WALK`)
+/// and its height over the road at the kerb.
+const WALK: f64 = 4.0;
+const KERB: f64 = 0.15;
 
 pub struct Town {
     pub label: &'static str,
@@ -142,6 +146,131 @@ pub fn draw(b: &mut GeoBuilder, fp: &Footprint) {
     }
 }
 
+/// Whether the sidewalk at (x, z) beside road `road` would lie on another
+/// road's tarmac (a crossing, a mouth).
+fn on_another(net: &Track, road: usize, x: f64, z: f64) -> bool {
+    net.net.roads_near(x, z, 30.0).into_iter().any(|r| {
+        if r == road {
+            return false;
+        }
+        let t = net.road(r);
+        let d = t.distance_to_road(x, z, 30.0);
+        d.s.is_some_and(|s| {
+            let f = t.frame(s.clamp(0.0, t.length));
+            d.d < f.hw + f.margin + 0.5
+        })
+    })
+}
+
+/// The sidewalks of the town's streets: a strip of pavement either side
+/// from the kerb out [`WALK`] metres, level across at kerb height, with a
+/// skirt down to the land beyond, every 4 m that this build holds.
+fn sidewalks(world: &World, chunks: &mut Chunks) {
+    let (Some(net), Some(terrain)) = (&world.track, &world.terrain) else {
+        return;
+    };
+    for (r, t) in net.roads().enumerate() {
+        let zone = t.zone.first().copied().unwrap_or(0) as usize;
+        let town = world
+            .level
+            .zones
+            .get(zone)
+            .is_some_and(|z| z.scenery == "Town");
+        if r == 0 || !town {
+            continue;
+        }
+        let mut s = 0.0;
+        while s + 4.0 <= t.length {
+            let held = world
+                .section
+                .as_ref()
+                .is_none_or(|sec| sec.holds_road(r, t, s, sec.scenery_radius));
+            let key = mp_track::ROAD_TYPES
+                .get(t.road_type[t.idx(s)] as usize)
+                .map_or("", |rt| rt.key);
+            if held && key != "freeway" {
+                let (a, b) = (t.frame(s), t.frame(s + 4.0));
+                for side in [-1.0, 1.0] {
+                    let lat0 = |f: &mp_track::Frame| f.hw + f.margin;
+                    let p = |f: &mp_track::Frame, lat: f64| {
+                        [f.x + f.rx * lat * side, f.z + f.rz * lat * side]
+                    };
+                    let mid = p(&a, lat0(&a) + WALK / 2.0);
+                    if on_another(net, r, mid[0], mid[1]) {
+                        continue;
+                    }
+                    let ya = t.surface_y(s, lat0(&a) * side) + KERB;
+                    let yb = t.surface_y(s + 4.0, lat0(&b) * side) + KERB;
+                    let (ai, ao) = (p(&a, lat0(&a)), p(&a, lat0(&a) + WALK));
+                    let (bi, bo) = (p(&b, lat0(&b)), p(&b, lat0(&b) + WALK));
+                    let g = chunks.at(mid[0], mid[1]);
+                    let grey = Some([0.62, 0.6, 0.57]);
+                    let uv = |l: f64, u: f64| [l / 4.0, u / 4.0];
+                    // Wound to face up whichever side it is on (the right is south of
+                    // east here: forward × right points down).
+                    let (q0, q1, q2, q3) = if side < 0.0 {
+                        (
+                            [ai[0], ya, ai[1]],
+                            [bi[0], yb, bi[1]],
+                            [bo[0], yb, bo[1]],
+                            [ao[0], ya, ao[1]],
+                        )
+                    } else {
+                        (
+                            [ao[0], ya, ao[1]],
+                            [bo[0], yb, bo[1]],
+                            [bi[0], yb, bi[1]],
+                            [ai[0], ya, ai[1]],
+                        )
+                    };
+                    g.quad(
+                        q0,
+                        q1,
+                        q2,
+                        q3,
+                        Some([uv(0.0, s), uv(0.0, s + 4.0), uv(WALK, s + 4.0), uv(WALK, s)]),
+                        grey,
+                        0.0,
+                    );
+                    // The skirt down to the land past the outer edge.
+                    let (ga, gb) = (
+                        terrain.height_at(ao[0], ao[1]),
+                        terrain.height_at(bo[0], bo[1]),
+                    );
+                    if ga < ya - 0.05 || gb < yb - 0.05 {
+                        let (lo_a, lo_b) = (ga.min(ya) - 0.3, gb.min(yb) - 0.3);
+                        let (w0, w1, w2, w3) = if side < 0.0 {
+                            (
+                                [ao[0], lo_a, ao[1]],
+                                [ao[0], ya, ao[1]],
+                                [bo[0], yb, bo[1]],
+                                [bo[0], lo_b, bo[1]],
+                            )
+                        } else {
+                            (
+                                [bo[0], lo_b, bo[1]],
+                                [bo[0], yb, bo[1]],
+                                [ao[0], ya, ao[1]],
+                                [ao[0], lo_a, ao[1]],
+                            )
+                        };
+                        g.quad(
+                            w0,
+                            w1,
+                            w2,
+                            w3,
+                            Some([uv(0.0, 0.0), uv(0.0, 1.0), uv(1.0, 1.0), uv(1.0, 0.0)]),
+                            grey,
+                            0.0,
+                        );
+                    }
+                }
+            }
+            s += 4.0;
+        }
+    }
+}
+
 impl Scenery for Town {
     fn name(&self) -> &str {
         "Town"
@@ -153,9 +282,6 @@ impl Scenery for Town {
 
     fn build(&mut self, world: &mut World) -> Result<(), String> {
         let t = world.track.as_ref().ok_or("the route is surveyed first")?;
-        if t.buildings.is_empty() {
-            return Ok(());
-        }
         let list = t.buildings.clone();
         let mine: Vec<usize> = (0..list.list.len())
             .filter(|&i| {
@@ -163,9 +289,8 @@ impl Scenery for Town {
                 crate::section::owns_point(world, fp.x, fp.z)
             })
             .collect();
-        if mine.is_empty() {
-            return Ok(());
-        }
+        let mut walks = Chunks::new(CHUNK, true, false);
+        sidewalks(world, &mut walks);
         let World {
             graph,
             textures,
@@ -185,6 +310,28 @@ impl Scenery for Town {
             fac,
             &StaticOpts {
                 cast: true,
+                receive: true,
+                name: String::new(),
+            },
+        );
+        // The sidewalks: Downtown Streets' pavement, lit a little by the
+        // street as its are.
+        let pv = crate::streets::textures::pavement_texture(textures);
+        let pv = graph.cached_texture(&pv, crate::object::Layer::Main, "");
+        let pave = graph.add_material(crate::streets::ambient_patch(
+            crate::material::Material::standard()
+                .set("map", pv)
+                .set("vertexColors", true)
+                .set("roughness", 0.78),
+            [0.05, 0.042, 0.036],
+            "pave",
+        ));
+        walks.emit(
+            graph,
+            group,
+            pave,
+            &StaticOpts {
+                cast: false,
                 receive: true,
                 name: String::new(),
             },
