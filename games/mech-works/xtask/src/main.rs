@@ -2,7 +2,7 @@
 //! profiling copy, dependency rules and image diff, all from Playground
 //! Kit's `pk_xtask`; this file only says what this game's web build is.
 
-use pk_xtask::{Backend, RuntimeFiles, WebBuild};
+use pk_xtask::{Backend, RuntimeFiles, SideWasm, WebBuild};
 use std::path::Path;
 
 static WEB: WebBuild = WebBuild {
@@ -30,7 +30,22 @@ static WEB: WebBuild = WebBuild {
         required: &[("assets/policies", "assets/policies")],
         optional: &[],
     },
-    side_wasm: &[],
+    side_wasm: &[
+        SideWasm {
+            krate: "mw_audio",
+            features: &["worklet"],
+            opt_level: "-O3",
+            shim_js: Some("crates/mw_demo/web/mw-audio-worklet.js"),
+            what: "mech sound effects worklet",
+        },
+        SideWasm {
+            krate: "music",
+            features: &["worklet"],
+            opt_level: "-O3",
+            shim_js: Some("../../crates/music/web/music-worklet.js"),
+            what: "orchestral score worklet",
+        },
+    ],
     build_json_extra: None,
     wasm_opt: "116",
     size_budget_gzip: pk_xtask::size::DEFAULT_BUDGET_GZIP,

@@ -1,13 +1,15 @@
-// The demo's controls, curves and inspector, around the client's canvas.
+// The demo's controls, curves, inspector, and Web Audio (mw_audio + music),
+// around the client's canvas.
 // The client (mw_demo) runs the lanes; this page hands it policies
 // (glue.load_policy) and commands (glue.stage, JSON), and reads the selected
-// lane's telemetry from the status global (G.telemetry, JSON, 10 Hz).
+// lane's telemetry (G.telemetry, JSON, 10 Hz) and audio steps (G.audio, JSON,
+// every render frame).
 //
 // Training data has one layout wherever it comes from: <base>runs.json lists
-// the runs; <base><run>/index.json its checkpoints; metrics.jsonl, and
-// coverage_recent.json beside them. On the dev server <base> is the
-// trainer's live checkpoints/ folder; in a build without it (the public
-// site) it is the gallery copied into assets/policies/gallery/.
+// the runs; <base><run>/index.json its checkpoints (or estimators);
+// metrics.jsonl, and coverage_recent.json beside them. On the dev server
+// <base> is the trainer's live checkpoints/ folder; in a build without it
+// (the public site) it is the gallery copied into assets/policies/gallery/.
 
 const $ = (id) => document.getElementById(id);
 const JOINT_NAMES = ['hip yaw', 'hip roll', 'hip pitch', 'knee', 'ankle pitch', 'ankle roll'];
@@ -20,21 +22,29 @@ const PARAM_NAMES = ['torso mass', 'CoM fwd', 'CoM up', 'CoM right', 'L leg leng
 
 let glue, G, params, page;
 let base = null;          // where training data comes from
-let run = null, index = [], mode = 'viewer';
+let run = null, runTeacher = null, index = [], mode = 'viewer';
 const send = (o) => glue.stage(JSON.stringify(o));
 
 export async function start(glue_, G_, params_, page_) {
   glue = glue_; G = G_; params = params_; page = page_;
   mode = params.get('mode') || 'viewer';
   wireCommon();
+  wirePath();
   wireImpact();
   wireDamage();
   wireCalibration();
+  wireAudioGestures();
   setMode(mode);
   await findData();
   setInterval(readTelemetry, 100);
   setInterval(() => { if (mode === 'viewer' && run) loadCurves(); }, 15000);
-  window.addEventListener('keydown', (e) => { if (e.key === 'i' || e.key === 'I') toggleInspector(); });
+  requestAnimationFrame(pumpAudio);
+  window.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if (e.key === 'i' || e.key === 'I') toggleInspector();
+    if (e.key === 'm' || e.key === 'M') toggleSfx();
+    if (e.key === 'o' || e.key === 'O') toggleMusic();
+  });
 }
 
 function setMode(m) {
@@ -53,13 +63,15 @@ function setMode(m) {
   } else if (index.length) {
     applyLanes();
   }
-  if (m === 'damage' || m === 'calibration') setInspector(true);
+  if (m === 'damage' || m === 'calibration' || m === 'path') setInspector(true);
 }
 
 // ── Common controls ───────────────────────────────────────────────────────
 
 function wireCommon() {
-  for (const b of document.querySelectorAll('#modes button')) b.onclick = () => setMode(b.dataset.mode);
+  for (const b of document.querySelectorAll('#modes button')) {
+    b.onclick = () => { uiClick(0); setMode(b.dataset.mode); };
+  }
   const walk = () => {
     $('fwd-v').textContent = (+$('fwd').value).toFixed(2) + ' m/s';
     $('yaw-v').textContent = (+$('yaw').value).toFixed(2) + ' rad/s';
@@ -67,13 +79,36 @@ function wireCommon() {
   };
   $('fwd').oninput = walk;
   $('yaw').oninput = walk;
-  $('stop').onclick = () => { $('fwd').value = 0; $('yaw').value = 0; walk(); };
-  $('reset').onclick = () => send({ cmd: 'reset' });
-  $('pause').onclick = () => { $('pause').classList.toggle('on'); send({ cmd: 'pause', paused: $('pause').classList.contains('on') }); };
-  $('push').onclick = () => { const a = Math.random() * 2 * Math.PI; send({ cmd: 'push', x: 0.5 * Math.cos(a), z: 0.5 * Math.sin(a) }); };
-  $('speed').oninput = () => { $('speed-v').textContent = (+$('speed').value).toFixed(2) + '×'; send({ cmd: 'speed', speed: +$('speed').value }); };
-  $('toggle-inspector').onclick = toggleInspector;
-  $('toggle-panel').onclick = () => { $('panel').hidden = !$('panel').hidden; $('toggle-panel').classList.toggle('on', !$('panel').hidden); };
+  $('stop').onclick = () => { uiClick(0); $('fwd').value = 0; $('yaw').value = 0; walk(); };
+  $('reset').onclick = () => { uiClick(0); send({ cmd: 'reset' }); };
+  $('pause').onclick = () => {
+    uiClick(0);
+    $('pause').classList.toggle('on');
+    send({ cmd: 'pause', paused: $('pause').classList.contains('on') });
+  };
+  $('push').onclick = () => {
+    uiClick(0);
+    const a = Math.random() * 2 * Math.PI;
+    send({ cmd: 'push', x: 0.5 * Math.cos(a), z: 0.5 * Math.sin(a) });
+  };
+  $('speed').oninput = () => {
+    $('speed-v').textContent = (+$('speed').value).toFixed(2) + '×';
+    send({ cmd: 'speed', speed: +$('speed').value });
+  };
+  if ($('dust')) {
+    $('dust').oninput = () => {
+      $('dust-v').textContent = `${Math.round(100 * +$('dust').value)}%`;
+      send({ cmd: 'weather', dust: +$('dust').value });
+    };
+  }
+  if ($('toggle-sfx')) $('toggle-sfx').onclick = () => { toggleSfx(); uiClick(0); };
+  if ($('toggle-music')) $('toggle-music').onclick = () => { toggleMusic(); uiClick(0); };
+  $('toggle-inspector').onclick = () => { uiClick(0); toggleInspector(); };
+  $('toggle-panel').onclick = () => {
+    uiClick(0);
+    $('panel').hidden = !$('panel').hidden;
+    $('toggle-panel').classList.toggle('on', !$('panel').hidden);
+  };
   $('toggle-panel').classList.add('on');
   walk();
 }
@@ -118,7 +153,7 @@ async function loadShipped(lane) {
   const [policy, estimator] = await shipped;
   if (policy) glue.load_policy(lane, SHIPPED, policy);
   if (estimator) glue.load_policy(lane, SHIPPED + ' estimator', estimator);
-  send({ cmd: 'adapt', lane, on: mode === 'calibration' && $('cal-mode').value === 'autonomous' });
+  send({ cmd: 'adapt', lane, on: mode === 'path' || (mode === 'calibration' && $('cal-mode').value === 'autonomous') });
 }
 
 function fillRuns(runs) {
@@ -128,39 +163,68 @@ function fillRuns(runs) {
   sel.onchange = () => openRun(sel.value);
   $('ckpt').oninput = () => { showCkpt(); applyLanes(); };
   $('lanes').onchange = applyLanes;
-  $('spread').onclick = () => { $('ckpt').value = $('ckpt').max; applyLanes(true); };
+  $('spread').onclick = () => { uiClick(0); $('ckpt').value = $('ckpt').max; applyLanes(true); };
   openRun(sel.value);
 }
 
 async function openRun(name) {
   run = name;
-  index = (await getJSON(`${base}${run}/index.json`)).checkpoints;
-  $('ckpt').max = String(index.length - 1);
-  $('ckpt').value = String(index.length - 1);
+  const meta = await getJSON(`${base}${run}/index.json`);
+  index = meta.checkpoints || meta.estimators || [];
+  runTeacher = meta.teacher || null;
+  $('ckpt').max = String(Math.max(0, index.length - 1));
+  $('ckpt').value = String(Math.max(0, index.length - 1));
   showCkpt();
-  if (mode === 'viewer') applyLanes(true);
+  if (mode === 'viewer' && index.length) applyLanes(true);
   loadCurves();
 }
 
 function ckptLabel(c) {
+  if (!c) return 'none';
   const m = c.steps >= 1e6 ? (c.steps / 1e6).toFixed(1) + 'M' : (c.steps / 1e3).toFixed(0) + 'k';
   return `${m} steps`;
 }
 
 function showCkpt() {
   const c = index[+$('ckpt').value];
-  if (c) $('ckpt-v').textContent = `${ckptLabel(c)} · falls ${(100 * c.fall_rate).toFixed(0)}%`;
+  if (!c) return;
+  const fallText = c.fall_rate !== undefined && c.fall_rate !== null
+    ? ` · falls ${(100 * c.fall_rate).toFixed(0)}%`
+    : (runTeacher ? ` · teacher ${runTeacher}` : '');
+  $('ckpt-v').textContent = `${ckptLabel(c)}${fallText}`;
 }
 
 const blobs = new Map();
-async function blob(file) {
-  if (!blobs.has(file)) blobs.set(file, page.download(`${base}${run}/${file}`, () => {}));
-  return blobs.get(file);
+async function blob(runName, file) {
+  const key = `${runName}/${file}`;
+  if (!blobs.has(key)) blobs.set(key, page.download(`${base}${key}`, () => {}));
+  return blobs.get(key);
+}
+
+async function loadTeacherFor(lane, teacherRun) {
+  try {
+    const tmeta = await getJSON(`${base}${teacherRun}/index.json`);
+    const ckpts = tmeta.checkpoints || [];
+    if (ckpts.length) {
+      const last = ckpts[ckpts.length - 1];
+      glue.load_policy(lane, teacherRun, await blob(teacherRun, last.file));
+      return;
+    }
+  } catch { /* fall back to shipped */ }
+  await loadShipped(lane);
 }
 
 async function loadInto(lane, c) {
+  if (!c) return;
   try {
-    glue.load_policy(lane, ckptLabel(c), await blob(c.file));
+    if (runTeacher) {
+      await loadTeacherFor(lane, runTeacher);
+      glue.load_policy(lane, `${run} (${ckptLabel(c)})`, await blob(run, c.file));
+      send({ cmd: 'adapt', lane, on: true });
+    } else {
+      glue.load_policy(lane, ckptLabel(c), await blob(run, c.file));
+      send({ cmd: 'adapt', lane, on: false });
+    }
   } catch (e) { console.warn(e); }
 }
 
@@ -168,6 +232,7 @@ async function loadInto(lane, c) {
 let spread = true;
 async function applyLanes(spreadNow) {
   if (spreadNow !== undefined) spread = spreadNow;
+  if (!index.length) return;
   const n = +$('lanes').value;
   send({ cmd: 'lanes', n });
   const last = +$('ckpt').value;
@@ -189,10 +254,20 @@ async function loadCurves() {
     const r = await fetch(`${base}${run}/metrics.jsonl`, { cache: 'no-store' });
     rows = (await r.text()).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   } catch { return; }
+  if (!rows.length) return;
   const at = (k) => rows.map((r) => [r.steps, typeof k === 'function' ? k(r) : r[k]]).filter((p) => p[1] !== null && p[1] !== undefined && !Number.isNaN(p[1]));
   const last = rows[rows.length - 1];
-  $('curves-note').textContent = last ? `${(last.steps / 1e6).toFixed(1)}M steps, ${(last.time / 60).toFixed(0)} min` : '';
-  const charts = [
+  const isEstimator = last.latent_mse !== undefined;
+  $('curves-note').textContent = last
+    ? `${(last.steps / 1e6).toFixed(1)}M steps, ${(last.time / 60).toFixed(0)} min${isEstimator ? ' (estimator DAgger)' : ''}`
+    : '';
+  const charts = isEstimator ? [
+    ['latent MSE', at('latent_mse'), '#ea851f'],
+    ['body param MSE', at('params_mse'), '#6cc0e5'],
+    ['fall rate', at('fall_rate'), '#e5603b', [0, 1]],
+    ['speed tracking', at('track'), '#7fc97f', [0, 1]],
+    ['student share', at('student_share'), '#9ab8e0', [0, 1]],
+  ] : [
     ['episode reward', at('reward'), '#ea851f'],
     ['episode length (s)', at((r) => (r.ep_len === null ? null : r.ep_len / 50)), '#f6c27a'],
     ['fall rate', at('fall_rate'), '#e5603b', [0, 1]],
@@ -240,12 +315,14 @@ function drawChart(cv, title, pts, color, range) {
   pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
   ctx.stroke();
   ctx.fillStyle = '#ece9e4';
-  ctx.fillText(`${title}  ${pts[pts.length - 1][1].toFixed(2)}`, 6, 12);
+  const val = pts[pts.length - 1][1];
+  ctx.fillText(`${title}  ${val < 0.1 && val > 0 ? val.toFixed(3) : val.toFixed(2)}`, 6, 12);
 }
 
 async function loadCoverage() {
+  const targetRun = runTeacher || run;
   let eps;
-  try { eps = (await getJSON(`${base}${run}/coverage_recent.json`)).episodes; } catch { return; }
+  try { eps = (await getJSON(`${base}${targetRun}/coverage_recent.json`)).episodes; } catch { return; }
   const cv = $('coverage'), ctx = cv.getContext('2d');
   const W = cv.width, H = cv.height;
   ctx.clearRect(0, 0, W, H);
@@ -262,6 +339,30 @@ async function loadCoverage() {
 
 // ── Demos ─────────────────────────────────────────────────────────────────
 
+function wirePath() {
+  if (!$('pdens')) return;
+  const upd = (rebuild = false) => {
+    $('pdens-v').textContent = (+$('pdens').value).toFixed(2);
+    $('pscale-v').textContent = (+$('pscale').value).toFixed(2) + '×';
+    $('prough-v').textContent = (+$('prough').value).toFixed(2) + ' m';
+    send({
+      cmd: 'path',
+      density: +$('pdens').value,
+      scale: +$('pscale').value,
+      roughness: +$('prough').value,
+      rebuild,
+    });
+  };
+  for (const id of ['pdens', 'pscale', 'prough']) $(id).oninput = () => upd(false);
+  $('prebuild').onclick = () => { uiClick(0); upd(true); };
+  $('pdamage').onclick = () => {
+    uiClick(1);
+    const legJoints = [2, 3, 4, 8, 9, 10];
+    const joint = legJoints[Math.floor(Math.random() * legJoints.length)];
+    send({ cmd: 'damage', joint, health: -0.5, driver: -0.5 });
+  };
+}
+
 function wireImpact() {
   $('target').innerHTML += LINK_NAMES.map((n, i) => `<option value="${i}">${n}</option>`).join('');
   const upd = () => {
@@ -273,7 +374,7 @@ function wireImpact() {
   };
   for (const id of ['mass', 'pspeed', 'rate']) $(id).oninput = upd;
   $('target').onchange = upd;
-  $('fire').onclick = () => send({ cmd: 'fire' });
+  $('fire').onclick = () => { uiClick(0); send({ cmd: 'fire' }); };
   upd();
 }
 
@@ -283,9 +384,15 @@ function wireDamage() {
   const upd = () => { $('health-v').textContent = `${Math.round(100 * (0.6 + 0.4 * +$('health').value))}% torque`; };
   $('health').oninput = upd;
   upd();
-  $('damage').onclick = () => send({ cmd: 'damage', joint: +$('joint').value, health: +$('health').value, ...($('weak-driver').checked ? { driver: -0.6 } : {}) });
-  $('heat').onclick = () => send({ cmd: 'damage', joint: +$('joint').value, health: 1, heat: 112 });
-  $('repair').onclick = () => send({ cmd: 'repair' });
+  $('damage').onclick = () => {
+    uiClick(1);
+    send({ cmd: 'damage', joint: +$('joint').value, health: +$('health').value, ...($('weak-driver').checked ? { driver: -0.6 } : {}) });
+  };
+  $('heat').onclick = () => {
+    uiClick(1);
+    send({ cmd: 'damage', joint: +$('joint').value, health: 1, heat: 112 });
+  };
+  $('repair').onclick = () => { uiClick(0); send({ cmd: 'repair' }); };
 }
 
 function wireCalibration() {
@@ -293,6 +400,7 @@ function wireCalibration() {
   $('cal').oninput = upd;
   upd();
   $('swap').onclick = () => {
+    uiClick(2);
     const t = lastTelemetry;
     if (!t) return;
     const p = t.params.slice();
@@ -306,7 +414,7 @@ function wireCalibration() {
     if (part === 'no-tool') p[32] = -1;
     send({ cmd: 'swap', params: p });
   };
-  $('calibrate').onclick = () => send({ cmd: 'calibrate', secs: +$('cal').value });
+  $('calibrate').onclick = () => { uiClick(0); send({ cmd: 'calibrate', secs: +$('cal').value }); };
   const calMode = () => {
     const auto = $('cal-mode').value === 'autonomous';
     for (const el of document.querySelectorAll('.explicit-only')) el.hidden = auto;
@@ -320,12 +428,30 @@ function wireCalibration() {
 // ── Telemetry: the HUD and the inspector ──────────────────────────────────
 
 let lastTelemetry = null;
+function syncSlider(id, valId, val, fmt) {
+  const el = $(id);
+  if (!el || val === undefined || val === null || document.activeElement === el) return;
+  if (Math.abs(+el.value - val) > 1e-3) {
+    el.value = String(val);
+    if (valId && $(valId)) $(valId).textContent = fmt(val);
+  }
+}
+
 function readTelemetry() {
   if (!G.telemetry) return;
   let t;
   try { t = JSON.parse(G.telemetry); } catch { return; }
   lastTelemetry = t;
   if (G.hits !== undefined) $('hits').textContent = G.hits;
+  if (t.obstacles !== undefined && $('pobs')) $('pobs').textContent = t.obstacles;
+
+  // Keep UI sliders/buttons synced with staged commands and keyboard keys.
+  syncSlider('fwd', 'fwd-v', t.forward, (v) => v.toFixed(2) + ' m/s');
+  syncSlider('yaw', 'yaw-v', t.yaw, (v) => v.toFixed(2) + ' rad/s');
+  syncSlider('speed', 'speed-v', t.speedScale, (v) => v.toFixed(2) + '×');
+  syncSlider('dust', 'dust-v', t.dust, (v) => `${Math.round(100 * v)}%`);
+  if (t.paused !== undefined && $('pause')) $('pause').classList.toggle('on', !!t.paused);
+
   const lane = t.lanes[t.lane];
   $('hud').innerHTML = `<b>${(t.speed).toFixed(2)}</b> m/s · height <b>${t.height.toFixed(2)}</b> m`
     + ` · falls <b>${t.lanes.map((l) => l.falls).join(' / ')}</b>`
@@ -355,6 +481,28 @@ function drawInspector(t) {
   });
   $('joints').innerHTML = rows.join('');
   $('feet').innerHTML = 'feet: ' + t.feet.map((f, i) => `${i ? 'R' : 'L'} ${f.on ? (f.force / 1000).toFixed(1) + ' kN' : 'in the air'}`).join(' · ');
+
+  // 5×3 terrain height scan (heading frame: 5 longitudinal × 3 lateral).
+  if ($('scan') && Array.isArray(t.scan) && t.scan.length === 15) {
+    const cells = t.scan.map((dh) => {
+      const cm = Math.round(dh * 100);
+      const hi = Math.max(0, Math.min(1, Math.abs(dh) / 0.35));
+      const bg = dh > 0.03
+        ? `rgba(234, 133, 31, ${(0.18 + 0.65 * hi).toFixed(2)})`
+        : dh < -0.03
+          ? `rgba(108, 192, 229, ${(0.15 + 0.55 * hi).toFixed(2)})`
+          : 'rgba(255, 255, 255, 0.05)';
+      return `<span style="background:${bg}">${cm >= 0 ? '+' + cm : cm}cm</span>`;
+    });
+    // Render rows from left (-Z) to right (+Z), columns from back (-0.35 m) to ahead (+1.25 m).
+    const ordered = [];
+    for (let iz = 0; iz < 3; iz++) {
+      for (let ix = 0; ix < 5; ix++) ordered.push(cells[ix * 3 + iz]);
+    }
+    $('scan').innerHTML = '<div style="margin-top:4px">height scan (5×3 ahead, relative to support foot):</div>'
+      + `<div class="scan-grid">${ordered.join('')}</div>`;
+  }
+
   // Body parameters: the truth (white), what the policy is told (orange)
   // and the estimator's guess from the motion (blue).
   const est = t.estimated;
@@ -367,4 +515,211 @@ function drawInspector(t) {
     + show.map((i) => `<div class="prow"><span>${PARAM_NAMES[i]}</span><div class="pbar"><span class="mid"></span>`
       + `<i class="true" style="left:${at(t.params[i])}%"></i><i class="told" style="left:${at(t.believed[i])}%"></i>`
       + (est ? `<i class="est" style="left:${at(est[i])}%"></i>` : '') + '</div></div>').join('');
+}
+
+// ── Web Audio: mw_audio (physics-driven SFX) + music (orchestral score) ───
+
+const SCORE_STATIONS = JSON.stringify([{
+  key: 'orchestral',
+  name: 'Walker Score',
+  freq: 'SCORE',
+  tagline: 'Procedural orchestral score',
+  dj: '',
+  genres: [['orchestral', 1.0]],
+}]);
+
+let audioCtx = null;
+let sfxOn = false, sfxReady = false, sfxPort = null, sfxFallback = null, sfxGain = null;
+let musicOn = false, musicReady = false, musicPort = null, musicFallback = null, musicGain = null;
+let lastAudioSeq = 0;
+
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC({ latencyHint: 'interactive' });
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+function wireAudioGestures() {
+  // Auto-enable physics SFX on the user's first gesture on the page.
+  const wake = () => {
+    window.removeEventListener('pointerdown', wake);
+    window.removeEventListener('keydown', wake);
+    if (!sfxOn) toggleSfx(true);
+  };
+  window.addEventListener('pointerdown', wake, { passive: true });
+  window.addEventListener('keydown', wake, { passive: true });
+}
+
+async function initSfx() {
+  if (sfxReady) return;
+  sfxReady = true;
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
+  sfxGain = ctx.createGain();
+  sfxGain.gain.value = sfxOn ? 0.85 : 0.0;
+  sfxGain.connect(ctx.destination);
+
+  try {
+    const wasmBytes = await (await fetch('mw_audio.wasm')).arrayBuffer();
+    if (ctx.audioWorklet) {
+      await ctx.audioWorklet.addModule('mw-audio-worklet.js');
+      const node = new AudioWorkletNode(ctx, 'mw-sfx', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      });
+      node.connect(sfxGain);
+      node.port.postMessage({ wasmBytes }, [wasmBytes]);
+      sfxPort = node.port;
+      return;
+    }
+    // Fallback for non-secure (http://) origins without AudioWorklet:
+    const { instance } = await WebAssembly.instantiate(wasmBytes, {});
+    const wasm = instance.exports;
+    wasm.mw_audio_init(ctx.sampleRate);
+    const proc = ctx.createScriptProcessor(512, 0, 2);
+    const frames = 512;
+    const ptr = wasm.mw_audio_alloc_f32(frames * 2);
+    proc.onaudioprocess = (ev) => {
+      const L = ev.outputBuffer.getChannelData(0);
+      const R = ev.outputBuffer.getChannelData(1);
+      if (!sfxOn) { L.fill(0); R.fill(0); return; }
+      wasm.mw_audio_render(ptr, frames);
+      const view = new Float32Array(wasm.memory.buffer, ptr, frames * 2);
+      for (let i = 0; i < frames; i++) {
+        L[i] = view[i * 2];
+        R[i] = view[i * 2 + 1];
+      }
+    };
+    proc.connect(sfxGain);
+    sfxFallback = wasm;
+  } catch (e) {
+    console.warn('mw_audio init failed:', e);
+  }
+}
+
+async function initMusic() {
+  if (musicReady) return;
+  musicReady = true;
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
+  musicGain = ctx.createGain();
+  musicGain.gain.value = musicOn ? 0.42 : 0.0;
+  musicGain.connect(ctx.destination);
+
+  try {
+    const wasmBytes = await (await fetch('music.wasm')).arrayBuffer();
+    if (ctx.audioWorklet) {
+      await ctx.audioWorklet.addModule('music-worklet.js');
+      const node = new AudioWorkletNode(ctx, 'music-radio', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [2],
+      });
+      node.connect(musicGain);
+      node.port.postMessage({ wasmBytes, stationsJson: SCORE_STATIONS }, [wasmBytes]);
+      node.port.postMessage({ station: 0 });
+      node.port.postMessage({ playing: musicOn });
+      musicPort = node.port;
+      return;
+    }
+    const { instance } = await WebAssembly.instantiate(wasmBytes, {});
+    const wasm = instance.exports;
+    const enc = new TextEncoder().encode(SCORE_STATIONS);
+    const jptr = wasm.music_alloc_bytes(enc.length);
+    new Uint8Array(wasm.memory.buffer, jptr, enc.length).set(enc);
+    wasm.music_init_stations(ctx.sampleRate, ((Date.now() & 0xffffffff) >>> 0) || 1, jptr, enc.length);
+    wasm.music_set_station(0);
+    const proc = ctx.createScriptProcessor(1024, 0, 2);
+    const frames = 1024;
+    const ptr = wasm.music_alloc_f32(frames * 2);
+    proc.onaudioprocess = (ev) => {
+      const L = ev.outputBuffer.getChannelData(0);
+      const R = ev.outputBuffer.getChannelData(1);
+      if (!musicOn) { L.fill(0); R.fill(0); return; }
+      wasm.music_render(ptr, frames);
+      const view = new Float32Array(wasm.memory.buffer, ptr, frames * 2);
+      for (let i = 0; i < frames; i++) {
+        L[i] = view[i * 2];
+        R[i] = view[i * 2 + 1];
+      }
+    };
+    proc.connect(musicGain);
+    musicFallback = wasm;
+  } catch (e) {
+    console.warn('music init failed:', e);
+  }
+}
+
+function toggleSfx(force) {
+  sfxOn = force !== undefined ? force : !sfxOn;
+  if ($('toggle-sfx')) $('toggle-sfx').classList.toggle('on', sfxOn);
+  if (sfxOn) initSfx();
+  if (sfxGain && audioCtx) {
+    sfxGain.gain.setTargetAtTime(sfxOn ? 0.85 : 0.0, audioCtx.currentTime, 0.02);
+  }
+}
+
+function toggleMusic(force) {
+  musicOn = force !== undefined ? force : !musicOn;
+  if ($('toggle-music')) $('toggle-music').classList.toggle('on', musicOn);
+  if (musicOn) initMusic();
+  if (musicPort) musicPort.postMessage({ playing: musicOn });
+  if (musicGain && audioCtx) {
+    musicGain.gain.setTargetAtTime(musicOn ? 0.42 : 0.0, audioCtx.currentTime, 0.04);
+  }
+}
+
+function uiClick(kind = 0) {
+  if (!sfxOn) return;
+  if (sfxPort) sfxPort.postMessage({ ui: kind });
+  else if (sfxFallback && sfxFallback.mw_audio_push_ui) sfxFallback.mw_audio_push_ui(kind);
+}
+
+function pushFallbackStep(wasm, s) {
+  const ptr = wasm.mw_audio_step_buf_ptr();
+  const buf = new Float32Array(wasm.memory.buffer, ptr, 65);
+  buf[0] = s.dt ?? 0.002;
+  buf[1] = s.body_mass ?? 4200;
+  buf[2] = s.foot_force ? s.foot_force[0] : 0;
+  buf[3] = s.foot_force ? s.foot_force[1] : 0;
+  buf[4] = s.foot_slip ? s.foot_slip[0] : 0;
+  buf[5] = s.foot_slip ? s.foot_slip[1] : 0;
+  buf[6] = s.foot_on && s.foot_on[0] ? 1 : 0;
+  buf[7] = s.foot_on && s.foot_on[1] ? 1 : 0;
+  for (let j = 0; j < 12; j++) {
+    buf[8 + j] = s.torque ? s.torque[j] : 0;
+    buf[20 + j] = s.qd ? s.qd[j] : 0;
+    buf[32 + j] = s.temp ? s.temp[j] : 30;
+    buf[44 + j] = (s.tripped && (s.tripped & (1 << j))) ? 1 : 0;
+  }
+  buf[56] = s.at_limit_mask ?? 0;
+  buf[57] = s.overcurrent_mask ?? 0;
+  buf[58] = s.fell ? 1 : 0;
+  buf[59] = s.torso_acc ?? 0;
+  buf[60] = s.torso_omega ?? 0;
+  buf[61] = s.wind ?? 0.25;
+  const imp = s.impacts && s.impacts.length ? s.impacts[0] : null;
+  buf[62] = imp ? imp[0] : 0;
+  buf[63] = imp ? imp[1] : 0;
+  buf[64] = imp ? imp[2] : 0;
+  wasm.mw_audio_push_step();
+}
+
+function pumpAudio() {
+  requestAnimationFrame(pumpAudio);
+  if (!sfxOn || !G || !G.audio) return;
+  let pkt;
+  try { pkt = JSON.parse(G.audio); } catch { return; }
+  if (!pkt || !pkt.seq || pkt.seq === lastAudioSeq || !Array.isArray(pkt.steps)) return;
+  lastAudioSeq = pkt.seq;
+  if (sfxPort) {
+    sfxPort.postMessage({ steps: pkt.steps });
+  } else if (sfxFallback) {
+    for (const s of pkt.steps) pushFallbackStep(sfxFallback, s);
+  }
 }

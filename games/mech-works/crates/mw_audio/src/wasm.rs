@@ -5,7 +5,9 @@
 
 use std::cell::RefCell;
 
-use crate::{AudioFrame, FEET, FootFrame, ImpactEvent, JOINTS, JointFrame, MechAudio, StruckLink};
+use crate::{
+    AudioFrame, FEET, FootFrame, ImpactEvent, JOINTS, JointFrame, MechAudio, StruckLink, UiEvent,
+};
 
 struct WorkletState {
     audio: MechAudio,
@@ -122,6 +124,20 @@ pub extern "C" fn mw_audio_push_impact(impulse: f32, link: u32, pan: f32) {
     STATE.with(|cell| {
         if let Some(st) = cell.borrow_mut().as_mut() {
             st.frame.impacts.push(ImpactEvent { impulse, link, pan });
+        }
+    });
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn mw_audio_push_ui(kind: u32) {
+    let ev = match kind {
+        1 => UiEvent::Damage,
+        2 => UiEvent::PartSwap,
+        _ => UiEvent::Click,
+    };
+    STATE.with(|cell| {
+        if let Some(st) = cell.borrow_mut().as_mut() {
+            st.frame.ui.push(ev);
         }
     });
 }

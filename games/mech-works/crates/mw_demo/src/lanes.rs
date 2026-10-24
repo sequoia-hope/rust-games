@@ -5,19 +5,44 @@
 use bevy::prelude::*;
 use mw_policy::{Estimator, Policy};
 use mw_sim::env::{Command, Env, POLICY_DT};
-use mw_sim::mech::{BodyParams, JOINTS, joint_design};
+use mw_sim::mech::{BodyParams, JOINTS, LEGS, joint_design};
 use mw_sim::rapier3d::prelude::Vector;
 use mw_sim::sim::BodyPose;
+use mw_sim::terrain::Terrain;
 use serde_json::Value;
 
-use crate::{COMMANDS, POLICIES, Status};
+use crate::{COMMANDS, Mode, POLICIES, Status};
 
 /// Lanes are this far apart, m, across the walk.
 pub const LANE_GAP: f32 = 7.0;
 /// A fallen mech stands up again after this long, s.
 pub const RESET_AFTER: f32 = 2.5;
-/// A lane walking this far from its start is brought back, m.
+/// A lane walking this far from its start is brought back, m (unless on the endless path).
 pub const WRAP: f32 = 150.0;
+
+/// Settings for Demo 2: the endless dirt path with obstacles (M5).
+#[derive(Clone, Debug)]
+pub struct PathConfig {
+    pub enabled: bool,
+    pub roughness: f32,
+    pub density: f32,
+    pub obs_scale: f32,
+    pub mid_walk_damage: bool,
+    pub seed: u64,
+}
+
+impl Default for PathConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            roughness: 0.45,
+            density: 0.65,
+            obs_scale: 0.95,
+            mid_walk_damage: false,
+            seed: 23,
+        }
+    }
+}
 
 pub struct Lane {
     pub env: Env,
@@ -42,6 +67,10 @@ pub struct Lane {
     fresh: bool,
     obs: Vec<f32>,
     action: [f32; JOINTS],
+    /// Previous foot world positions `[x, y, z]` for computing tangential slip speed.
+    prev_foot_pos: [[f32; 3]; LEGS],
+    /// Foot tangential slip speed `m/s` on the last policy step.
+    pub foot_slip: [f32; LEGS],
 }
 
 #[derive(Clone, Debug)]
@@ -52,7 +81,7 @@ pub struct Calibration {
 }
 
 impl Lane {
-    fn new(index: usize) -> Self {
+    fn new(index: usize, path_cfg: &PathConfig) -> Self {
         let mut env = Env::new(1000 + index as u64);
         env.hold_command = true;
         env.command = Command::default();
@@ -70,19 +99,32 @@ impl Lane {
             fresh: false,
             obs: Vec::new(),
             action: [0.0; JOINTS],
+            prev_foot_pos: [[0.0; 3]; LEGS],
+            foot_slip: [0.0; LEGS],
         };
-        lane.place(index);
+        lane.place(index, path_cfg);
         lane
     }
 
     /// Restarts this lane's mech standing at its place, with its body.
-    fn place(&mut self, index: usize) {
+    fn place(&mut self, index: usize, path_cfg: &PathConfig) {
         let params = self.env.sim.params.clone();
-        self.reset_body(index, params);
+        self.reset_body(index, params, path_cfg);
     }
 
-    fn reset_body(&mut self, index: usize, params: BodyParams) {
+    fn reset_body(&mut self, index: usize, params: BodyParams, path_cfg: &PathConfig) {
         let command = self.env.command;
+        self.env.terrain = if path_cfg.enabled {
+            Terrain::path(
+                400.0,
+                path_cfg.roughness,
+                path_cfg.density,
+                path_cfg.obs_scale,
+                path_cfg.seed.wrapping_add(index as u64),
+            )
+        } else {
+            Terrain::flat(400.0)
+        };
         self.env.reset_with(params);
         self.env.command = command;
         // Each lane on its own line across the walk.
@@ -94,6 +136,11 @@ impl Lane {
         self.env.sim.refresh_kinematics();
         self.cur = self.env.sim.link_poses();
         self.prev = self.cur.clone();
+        self.prev_foot_pos = std::array::from_fn(|leg| {
+            let p = self.env.sim.foot_collider_position(leg);
+            [p.x, p.y, p.z]
+        });
+        self.foot_slip = [0.0; LEGS];
         self.fallen_for = None;
         self.calibrating = None;
         self.action = [0.0; JOINTS];
@@ -109,7 +156,7 @@ impl Lane {
         }
     }
 
-    fn step(&mut self) {
+    fn step(&mut self, mid_walk_damage: bool) -> bool {
         if let Some(c) = &mut self.calibrating {
             c.elapsed += POLICY_DT;
             let t = (c.elapsed / c.secs.max(1e-3)).min(1.0);
@@ -117,6 +164,11 @@ impl Lane {
             if t >= 1.0 {
                 self.calibrating = None;
             }
+        }
+        if mid_walk_damage && self.env.steps > 50 && self.env.steps.is_multiple_of(350) {
+            let j = ((self.env.steps / 350) as usize * 5 + 3) % JOINTS;
+            let cur = self.env.sim.params.health[j];
+            self.env.damage(j, (cur - 0.55).max(-0.65));
         }
         self.obs.clear();
         self.obs.extend(self.env.observe());
@@ -141,10 +193,25 @@ impl Lane {
         self.prev = std::mem::take(&mut self.cur);
         let r = self.env.step(&self.action);
         self.cur = self.env.sim.link_poses();
-        if r.terminated && self.fallen_for.is_none() {
+        let contacts = self.env.sim.foot_contacts();
+        for (leg, &(touching, _)) in contacts.iter().enumerate() {
+            let p = self.env.sim.foot_collider_position(leg);
+            let prev = self.prev_foot_pos[leg];
+            let dx = p.x - prev[0];
+            let dz = p.z - prev[2];
+            self.foot_slip[leg] = if touching {
+                (dx * dx + dz * dz).sqrt() / POLICY_DT
+            } else {
+                0.0
+            };
+            self.prev_foot_pos[leg] = [p.x, p.y, p.z];
+        }
+        let just_fell = r.terminated && self.fallen_for.is_none();
+        if just_fell {
             self.fallen_for = Some(0.0);
             self.falls += 1;
         }
+        just_fell
     }
 }
 
@@ -157,23 +224,36 @@ pub struct Lanes {
     pub paused: bool,
     /// Simulated seconds per real second.
     pub speed: f32,
+    pub path_cfg: PathConfig,
+    /// Environmental wind / dust storm intensity (`0.0..=1.0`).
+    pub dust_storm: f32,
+    /// Projectile impacts `[impulse_ns, link_kind, pan]` since the last audio step.
+    pub pending_impacts: Vec<[f32; 3]>,
     acc: f32,
     /// Fraction of the way from the previous policy step to the current one.
     pub blend: f32,
     telemetry_in: f32,
+    audio_seq: u64,
+    audio_steps: Vec<Value>,
 }
 
 impl Default for Lanes {
     fn default() -> Self {
+        let path_cfg = PathConfig::default();
         Self {
-            lanes: vec![Lane::new(0)],
+            lanes: vec![Lane::new(0, &path_cfg)],
             command: Command::default(),
             selected: 0,
             paused: false,
             speed: 1.0,
+            path_cfg,
+            dust_storm: 0.0,
+            pending_impacts: Vec::new(),
             acc: 0.0,
             blend: 1.0,
             telemetry_in: 0.0,
+            audio_seq: 0,
+            audio_steps: Vec::new(),
         }
     }
 }
@@ -182,7 +262,7 @@ impl Lanes {
     pub fn set_count(&mut self, n: usize) {
         let n = n.clamp(1, 8);
         while self.lanes.len() < n {
-            let mut lane = Lane::new(self.lanes.len());
+            let mut lane = Lane::new(self.lanes.len(), &self.path_cfg);
             lane.env.command = self.command;
             self.lanes.push(lane);
         }
@@ -191,8 +271,9 @@ impl Lanes {
     }
 
     pub fn reset_all(&mut self) {
+        let cfg = self.path_cfg.clone();
         for (i, l) in self.lanes.iter_mut().enumerate() {
-            l.place(i);
+            l.place(i, &cfg);
         }
     }
 
@@ -209,8 +290,20 @@ impl Lanes {
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<Lanes>()
+        .add_systems(Startup, init_mode)
         .add_systems(PreUpdate, (take_policies, take_commands))
         .add_systems(Update, (keys, step_lanes).chain());
+}
+
+fn init_mode(mode: Res<Mode>, mut lanes: ResMut<Lanes>) {
+    if *mode == Mode::Path {
+        lanes.path_cfg.enabled = true;
+        lanes.command = Command {
+            forward: 0.75,
+            yaw: 0.0,
+        };
+        lanes.reset_all();
+    }
 }
 
 fn take_policies(mut lanes: ResMut<Lanes>) {
@@ -237,10 +330,11 @@ fn take_policies(mut lanes: ResMut<Lanes>) {
                     "lane {lane}: policy {label} ({} weights)",
                     p.parameter_count()
                 );
+                let cfg = lanes.path_cfg.clone();
                 let l = &mut lanes.lanes[lane];
                 l.policy = Some(p);
                 l.label = label;
-                l.place(lane);
+                l.place(lane, &cfg);
             }
             Err(e) => warn!("lane {lane}: policy {label}: {e}"),
         }
@@ -267,7 +361,8 @@ pub fn take_commands(mut lanes: ResMut<Lanes>) {
 /// params: [..]}` (a new body, the policy still told the old one),
 /// `calibrate {lane?, secs}` (move what it is told to the truth),
 /// `believe {lane?, params}`, `repair {lane?}`, `adapt {lane?, on}` (walk on
-/// the estimator's guess: autonomous calibration).
+/// the estimator's guess: autonomous calibration), `path {roughness?,
+/// density?, scale?, damage?, rebuild?}`, `weather {dust}`.
 pub fn apply(lanes: &mut Lanes, v: &Value) {
     let cmd = v.get("cmd").and_then(Value::as_str).unwrap_or("");
     let which = v
@@ -276,6 +371,44 @@ pub fn apply(lanes: &mut Lanes, v: &Value) {
         .map_or(lanes.selected, |l| l as usize)
         .min(lanes.lanes.len() - 1);
     match cmd {
+        "mode" => {
+            let m = Mode::parse(v.get("mode").and_then(Value::as_str).unwrap_or(""));
+            let want_path = m == Mode::Path;
+            if lanes.path_cfg.enabled != want_path {
+                lanes.path_cfg.enabled = want_path;
+                if want_path && lanes.command.forward.abs() < 0.05 {
+                    lanes.command.forward = 0.75;
+                    let c = lanes.command;
+                    for l in &mut lanes.lanes {
+                        l.env.command = c;
+                    }
+                }
+                lanes.reset_all();
+            }
+        }
+        "path" => {
+            if let Some(r) = num(v, "roughness") {
+                lanes.path_cfg.roughness = r.clamp(0.0, 1.0);
+            }
+            if let Some(d) = num(v, "density") {
+                lanes.path_cfg.density = d.clamp(0.0, 1.0);
+            }
+            if let Some(s) = num(v, "scale") {
+                lanes.path_cfg.obs_scale = s.clamp(0.4, 2.0);
+            }
+            if let Some(dmg) = v.get("damage").and_then(Value::as_bool) {
+                lanes.path_cfg.mid_walk_damage = dmg;
+            }
+            if v.get("rebuild").and_then(Value::as_bool).unwrap_or(false) {
+                lanes.path_cfg.seed = lanes.path_cfg.seed.wrapping_add(7);
+                lanes.reset_all();
+            }
+        }
+        "weather" => {
+            if let Some(d) = num(v, "dust") {
+                lanes.dust_storm = d.clamp(0.0, 1.0);
+            }
+        }
         "lanes" => lanes.set_count(v.get("n").and_then(Value::as_u64).unwrap_or(1) as usize),
         "walk" => {
             lanes.command = Command {
@@ -322,11 +455,12 @@ pub fn apply(lanes: &mut Lanes, v: &Value) {
             }
         }
         "repair" => {
+            let cfg = lanes.path_cfg.clone();
             let l = &mut lanes.lanes[which];
             let mut p = l.env.sim.params.clone();
             p.health = [1.0; JOINTS];
             p.driver = [1.0; JOINTS];
-            l.reset_body(which, p);
+            l.reset_body(which, p, &cfg);
         }
         "swap" | "believe" => {
             let Some(arr) = v.get("params").and_then(Value::as_array) else {
@@ -347,11 +481,12 @@ pub fn apply(lanes: &mut Lanes, v: &Value) {
                 return;
             }
             let p = BodyParams::from_slice(&vals);
+            let cfg = lanes.path_cfg.clone();
             let l = &mut lanes.lanes[which];
             if cmd == "swap" {
                 // The new body, but the policy is still told the old one.
                 let old = l.env.believed.clone();
-                l.reset_body(which, p);
+                l.reset_body(which, p, &cfg);
                 l.env.believed = old;
             } else {
                 l.env.believed = p;
@@ -418,6 +553,10 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, mut lanes: ResMut<Lanes>) {
 
 pub fn step_lanes(time: Res<Time>, mut lanes: ResMut<Lanes>, mut status: ResMut<Status>) {
     let dt = time.delta_secs().min(0.1);
+    let sel = lanes.selected;
+    let dust = lanes.dust_storm;
+    let cfg = lanes.path_cfg.clone();
+    let wrap_dist = if cfg.enabled { 185.0 } else { WRAP };
     if !lanes.paused {
         lanes.acc += dt * lanes.speed;
         // At most a few steps a frame: a slow frame slows the mech down
@@ -426,27 +565,102 @@ pub fn step_lanes(time: Res<Time>, mut lanes: ResMut<Lanes>, mut status: ResMut<
         while lanes.acc >= POLICY_DT && n < 6 {
             lanes.acc -= POLICY_DT;
             n += 1;
+            let mut sel_step = None;
             for (i, l) in lanes.lanes.iter_mut().enumerate() {
-                l.step();
+                let just_fell = l.step(cfg.enabled && cfg.mid_walk_damage);
+                if i == sel {
+                    sel_step = Some(just_fell);
+                }
                 let fallen = l.fallen_for.map(|t| t + POLICY_DT);
                 l.fallen_for = fallen;
-                let far = l.env.sim.torso().translation().x.abs() > WRAP;
+                let far = l.env.sim.torso().translation().x.abs() > wrap_dist;
                 if fallen.is_some_and(|t| t > RESET_AFTER) || far {
-                    l.place(i);
+                    l.place(i, &cfg);
                 }
+            }
+            if let Some(just_fell) = sel_step {
+                let impacts = std::mem::take(&mut lanes.pending_impacts);
+                let step_val = audio_step(&lanes.lanes[sel], dust, just_fell, &impacts);
+                lanes.audio_steps.push(step_val);
             }
         }
         if n == 6 {
             lanes.acc = 0.0;
         }
+    } else if !lanes.pending_impacts.is_empty() {
+        let impacts = std::mem::take(&mut lanes.pending_impacts);
+        let step_val = audio_step(&lanes.lanes[sel], dust, false, &impacts);
+        lanes.audio_steps.push(step_val);
     }
     lanes.blend = (lanes.acc / POLICY_DT).clamp(0.0, 1.0);
+
+    if !lanes.audio_steps.is_empty() {
+        lanes.audio_seq += 1;
+        let steps = std::mem::take(&mut lanes.audio_steps);
+        status.audio = serde_json::json!({
+            "seq": lanes.audio_seq,
+            "steps": steps,
+        })
+        .to_string();
+    }
 
     lanes.telemetry_in -= dt;
     if lanes.telemetry_in <= 0.0 {
         lanes.telemetry_in = 0.1;
         status.telemetry = telemetry(&lanes).to_string();
     }
+}
+
+/// Compact per-step audio telemetry for `mw_audio` (`mw-audio-worklet.js`).
+fn audio_step(lane: &Lane, dust: f32, just_fell: bool, impacts: &[[f32; 3]]) -> Value {
+    let sim = &lane.env.sim;
+    let t = sim.torso();
+    let v = t.linvel();
+    let w = t.angvel();
+    let q = sim.joint_angles();
+    let qd = sim.joint_velocities();
+    let contacts = sim.foot_contacts();
+    let joints: Vec<[f32; 10]> = (0..JOINTS)
+        .map(|j| {
+            let a = &sim.actuators[j];
+            [
+                a.torque,
+                a.current,
+                a.spec.max_current,
+                a.torque_limit(),
+                a.temperature,
+                a.health,
+                q[j],
+                qd[j],
+                if a.tripped { 1.0 } else { 0.0 },
+                a.fault_left,
+            ]
+        })
+        .collect();
+    let feet = [
+        [
+            if contacts[0].0 { 1.0 } else { 0.0 },
+            contacts[0].1,
+            lane.foot_slip[0],
+            -0.32,
+        ],
+        [
+            if contacts[1].0 { 1.0 } else { 0.0 },
+            contacts[1].1,
+            lane.foot_slip[1],
+            0.32,
+        ],
+    ];
+    serde_json::json!({
+        "mass": sim.total_mass(),
+        "dust": dust,
+        "term": just_fell,
+        "vx": v.x, "vy": v.y, "vz": v.z,
+        "wx": w.x, "wy": w.y, "wz": w.z,
+        "feet": feet,
+        "joints": joints,
+        "impacts": impacts,
+    })
 }
 
 /// The selected lane, for the inspector and the page's readouts.
@@ -476,6 +690,7 @@ pub fn telemetry(lanes: &Lanes) -> Value {
         })
         .collect();
     let contacts = sim.foot_contacts();
+    let scan = l.env.height_scan();
     serde_json::json!({
         "lane": lanes.selected,
         "lanes": lanes.lanes.iter().map(|l| serde_json::json!({
@@ -486,7 +701,10 @@ pub fn telemetry(lanes: &Lanes) -> Value {
         "time": sim.time,
         "command": {"forward": l.env.command.forward, "yaw": l.env.command.yaw},
         "speed": (v.x * v.x + v.z * v.z).sqrt(),
-        "height": t.translation().y,
+        "speedScale": lanes.speed,
+        "paused": lanes.paused,
+        "dust": lanes.dust_storm,
+        "height": t.translation().y - l.env.terrain.base_height(t.translation().x, t.translation().z),
         "joints": joints,
         "feet": contacts.iter().map(|(on, f)| serde_json::json!({"on": on, "force": f})).collect::<Vec<_>>(),
         "params": sim.params.to_vec().to_vec(),
@@ -495,5 +713,7 @@ pub fn telemetry(lanes: &Lanes) -> Value {
         "latent": l.policy.as_ref().map(|p| p.latent().to_vec()),
         "estimated": l.estimator.as_ref().map(|e| e.params().to_vec()),
         "adaptive": l.adaptive && l.estimator.is_some(),
+        "scan": scan.to_vec(),
+        "obstacles": l.env.terrain.obstacles.len(),
     })
 }

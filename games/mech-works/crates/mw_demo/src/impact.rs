@@ -238,6 +238,22 @@ fn fly(
                 // Strike: the projectile's momentum into the link at the point.
                 let dir = s.velocity.normalize();
                 let impulse = dir * s.mass * s.velocity.length();
+                if s.lane == lanes.selected {
+                    let torso_z = lanes.lanes[s.lane].env.sim.torso().translation().z;
+                    let pan = ((aim.z - torso_z) * 0.5).clamp(-0.85, 0.85);
+                    let kind = if s.link == 0 {
+                        0
+                    } else {
+                        match (s.link - 1) % 6 {
+                            2 => 1,
+                            3 => 2,
+                            _ => 3,
+                        }
+                    };
+                    lanes
+                        .pending_impacts
+                        .push([impulse.length(), kind as f32, pan]);
+                }
                 let lane = &mut lanes.lanes[s.lane];
                 lane.env.sim.push_at(
                     s.link,
