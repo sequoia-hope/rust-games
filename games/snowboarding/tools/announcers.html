@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snowboarding Announcers — Booth Audition</title>
+<link rel="icon" href="data:,">
+<style>
+:root { --bg: #0b1424; --card: #132038; --line: #243554; --fg: #e6eef8; --muted: #8ea2c0; --accent: #ff5a36; --ok: #4dff8a; --dani: #ff9b42; --wren: #5ec8ff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 16px; }
+h1 { font-size: 1.25rem; margin: 0 0 6px; }
+h2 { font-size: 1.05rem; margin: 26px 0 4px; }
+h3 { font-size: 0.95rem; margin: 20px 0 6px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+p { color: var(--muted); margin: 0 0 10px; max-width: 820px; }
+code { color: var(--fg); font-size: 13px; }
+button, select { background: #1b2c4a; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 14px; white-space: nowrap; }
+button:hover { border-color: var(--accent); }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.alt { background: #16243d; color: var(--muted); font-size: 13px; padding: 6px 10px; }
+button.yes.picked { background: #1d4d2c; border-color: var(--ok); }
+button.no.picked { background: #4d1d24; border-color: #ff6b6b; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#status { position: sticky; top: 0; z-index: 2; margin: 10px -16px 0; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); color: var(--muted); }
+#status.err { color: #ff8a8a; }
+#status b { color: var(--fg); font-weight: 600; }
+.hosts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); max-width: 1200px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.card.dani { border-top: 3px solid var(--dani); }
+.card.wren { border-top: 3px solid var(--wren); }
+.card b { font-size: 17px; }
+.card .role { color: var(--muted); margin-left: 6px; font-size: 13px; }
+.card p { margin: 6px 0 10px; font-size: 13px; }
+.cand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.cand span { flex: 1; min-width: 120px; }
+.cand .tag { color: var(--ok); font-size: 12px; }
+.bit { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; max-width: 1200px; }
+.bit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.line { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.05); }
+.line:first-of-type { border-top: none; }
+.line .text { flex: 1; white-space: pre-line; }
+.line small { color: var(--muted); display: block; }
+.line .who { font-size: 12px; font-weight: 700; width: 56px; flex: none; text-transform: uppercase; }
+.who.dani { color: var(--dani); }
+.who.wren { color: var(--wren); }
+input[type=search] { background: #0f1a2e; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font: inherit; width: min(320px, 100%); }
+@media (max-width: 640px) { .line { flex-wrap: wrap; } .line .text { flex-basis: 100%; order: -1; } .line .who { width: auto; } }
+</style>
+</head>
+<body>
+<h1>Ten-Eighty Mountain Series — Announcer Booth</h1>
+<p>Audition Dani Reyes (play-by-play) and Wren Halvorsen (color analyst).
+The script is <code>tools/announcers/lines.json</code> (from <code>crates/sb_radio/src/script.rs</code>);
+reference voices are in <code>tools/announcers/voices.json</code>.
+Play individual lines or full back-and-forth exchanges, mark 👍 or 👎, and <b>Copy my notes</b>.</p>
+<div id="status">Tap any ▶ button to listen.</div>
+
+<h2>The Booth &amp; Reference Voices</h2>
+<p>Each announcer has candidate reference clips in <code>tools/announcers/voices/</code>.
+The one marked <span style="color:var(--ok)">● chosen</span> recorded the lines below.</p>
+<div class="hosts" id="hosts"></div>
+
+<h2>The Broadcast Script</h2>
+<div class="row" style="margin:6px 0">
+  <select id="who"><option value="">Both announcers</option></select>
+  <select id="topic"><option value="">Every topic</option></select>
+  <input type="search" id="filter" placeholder="Search lines or ids…">
+</div>
+<div class="row" style="margin:6px 0 4px">
+  <button id="random">▶ Random booth exchange</button>
+  <button id="copy">Copy my notes</button>
+  <button id="clear">Clear my notes</button>
+</div>
+<p id="count"></p>
+<div id="bits"></div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const status = (html, err = false) => { $('status').innerHTML = html; $('status').classList.toggle('err', err); };
+const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+
+const BIOS = {
+  dani: {
+    name: 'Dani Reyes',
+    role: 'Play-by-play · Retired halfpipe pro (New Jersey)',
+    about: 'Forty-two, loud, warm, gravelly contralto chest voice. Lives for big air and clean landings; treats a four-rider field like the Olympic finals.',
+  },
+  wren: {
+    name: 'Wren Halvorsen',
+    role: 'Color analyst · Retired boardercross racer (New Zealand)',
+    about: 'Late twenties, crisp, quick-witted Southern Hemisphere mezzo. Keeps a color-coded trick spreadsheet and punctures Dani’s hype with dry one-liners.',
+  },
+};
+
+const [data, voices, index, oldIndex] = await Promise.all([
+  fetch('announcers/lines.json').then((r) => r.json()),
+  fetch('announcers/voices.json').then((r) => r.json()),
+  fetch('../audio/announcers/index.json').then((r) => (r.ok ? r.json() : { clips: {} })).catch(() => ({ clips: {} })),
+  fetch('../audio/announcers-old/index.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+]);
+const hasOld = Boolean(oldIndex && oldIndex.clips);
+
+// Parse clip id `<topic>-<bit>-<turn>` into topic & bit key `<topic>-<bit>`.
+const clips = data.clips.map((c) => {
+  const parts = c.id.split('-');
+  const turn = Number(parts.pop());
+  const bitNum = parts.pop();
+  const topic = parts.join('-');
+  const bitId = `${topic}-${bitNum}`;
+  return { ...c, topic, bitId, turn };
+});
+
+const topics = [...new Set(clips.map((c) => c.topic))];
+const bitsByTopic = new Map();
+for (const t of topics) bitsByTopic.set(t, []);
+const bitMap = new Map();
+for (const c of clips) {
+  if (!bitMap.has(c.bitId)) {
+    const b = { id: c.bitId, topic: c.topic, lines: [] };
+    bitMap.set(c.bitId, b);
+    bitsByTopic.get(c.topic).push(b);
+  }
+  bitMap.get(c.bitId).lines.push(c);
+}
+
+const fileUrl = (id, old = false) => `../audio/${old ? 'announcers-old' : 'announcers'}/${id}.mp3`;
+
+let ctx = null, outGain = null;
+function audioReady() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    outGain = ctx.createGain();
+    outGain.connect(ctx.destination);
+  }
+  if (ctx.state !== 'running') ctx.resume();
+}
+
+const decoded = new Map();
+function buffer(url) {
+  if (!decoded.has(url)) {
+    decoded.set(url, fetch(url).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+      .then((b) => ctx.decodeAudioData(b)).catch((e) => { decoded.delete(url); throw e; }));
+  }
+  return decoded.get(url);
+}
+
+let now = null;
+function stop() {
+  if (!now) return;
+  now.cancelled = true;
+  try { now.src?.stop(); } catch {}
+  now.button?.classList.remove('on');
+  now = null;
+}
+
+async function playUrl(url, me) {
+  const b = await buffer(url);
+  if (me.cancelled) return;
+  const src = ctx.createBufferSource();
+  src.buffer = b;
+  src.connect(outGain);
+  me.src = src;
+  await new Promise((res) => { src.onended = res; src.start(); });
+}
+
+async function play(button, list, label) {
+  if (now?.button === button) { stop(); status('Stopped.'); return; }
+  stop();
+  audioReady();
+  const me = { button, cancelled: false };
+  now = me;
+  button.classList.add('on');
+  try {
+    for (const [i, item] of list.entries()) {
+      if (me.cancelled) return;
+      status(`Playing <b>${item.label ?? label}</b>${list.length > 1 ? ` (${i + 1}/${list.length})` : ''}…`);
+      await playUrl(item.url, me);
+      if (list.length > 1 && i < list.length - 1) await new Promise((r) => setTimeout(r, 220));
+    }
+    if (now === me) { button.classList.remove('on'); now = null; status('Done. Tap any ▶ button to listen.'); }
+  } catch (e) {
+    if (now === me) { button.classList.remove('on'); now = null; }
+    status(`Couldn't play <b>${label}</b>: ${e.message || e}`, true);
+  }
+}
+
+for (const [who, v] of Object.entries(voices.announcers)) {
+  const bio = BIOS[who] || { name: who, role: '', about: '' };
+  const card = el('div', { className: `card ${who}` },
+    el('b', { textContent: bio.name }),
+    el('span', { className: 'role', textContent: bio.role }),
+    el('p', { textContent: bio.about }));
+  for (const [cand, cfg] of Object.entries(v.candidates || {})) {
+    const desc = cfg.instruct || (cfg.clone ? `Cloned from ${cfg.clone}` : '');
+    const row = el('div', { className: 'cand' }, el('span', { textContent: `${cand} (seed ${cfg.seed ?? 7})` }));
+    if (cand === v.chosen) row.append(el('span', { className: 'tag', textContent: '● chosen' }));
+    row.title = desc;
+    const b = el('button', { textContent: '▶ Reference (.flac)' });
+    b.onclick = () => play(b, [{ url: `announcers/voices/${cand}.flac`, label: `${cand} reference` }], cand);
+    row.append(b);
+    card.append(row);
+  }
+  $('hosts').append(card);
+  $('who').append(el('option', { value: who, textContent: bio.name }));
+}
+for (const t of topics) $('topic').append(el('option', { value: t, textContent: t }));
+
+const KEY = 'sb-announcer-notes';
+let notes = {};
+try { notes = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+const saveNotes = () => { try { localStorage.setItem(KEY, JSON.stringify(notes)); } catch {} };
+
+const bitNodes = [];
+for (const t of topics) {
+  const head = el('h3', { textContent: t });
+  $('bits').append(head);
+  for (const bit of bitsByTopic.get(t)) {
+    const bitDiv = el('div', { className: 'bit' });
+    const headBtns = el('div', { className: 'row' });
+    const playBitBtn = el('button', { textContent: bit.lines.length > 1 ? `▶ Play exchange (${bit.lines.length})` : '▶ Play' });
+    playBitBtn.onclick = () => play(
+      playBitBtn,
+      bit.lines.map((c) => ({ url: fileUrl(c.id, false), label: `${BIOS[c.who]?.name || c.who}: “${c.text}”` })),
+      bit.id
+    );
+    headBtns.append(playBitBtn);
+    if (hasOld) {
+      const playOldBitBtn = el('button', { className: 'alt', textContent: '▶ Old voices' });
+      playOldBitBtn.onclick = () => play(
+        playOldBitBtn,
+        bit.lines.map((c) => ({ url: fileUrl(c.id, true), label: `[OLD] ${BIOS[c.who]?.name || c.who}: “${c.text}”` })),
+        `${bit.id} (old)`
+      );
+      headBtns.append(playOldBitBtn);
+    }
+    bitDiv.append(el('div', { className: 'bit-head' }, el('code', { textContent: bit.id }), headBtns));
+
+    for (const c of bit.lines) {
+      const rec = index.clips?.[c.id];
+      const text = el('div', { className: 'text', textContent: c.text });
+      if (!rec) text.append(el('small', { textContent: '(not recorded yet)' }));
+      const lineDiv = el('div', { className: 'line' },
+        el('span', { className: `who ${c.who}`, textContent: c.who }),
+        text);
+      const b = el('button', { textContent: '▶' });
+      b.onclick = () => play(b, [{ url: fileUrl(c.id, false), label: `${BIOS[c.who]?.name || c.who}: “${c.text}”` }], c.id);
+      lineDiv.append(b);
+      if (hasOld) {
+        const bOld = el('button', { className: 'alt', textContent: '▶ Old' });
+        bOld.onclick = () => play(bOld, [{ url: fileUrl(c.id, true), label: `[OLD] ${BIOS[c.who]?.name || c.who}: “${c.text}”` }], `${c.id} (old)`);
+        lineDiv.append(bOld);
+      }
+      const yes = el('button', { className: 'yes', textContent: '👍' });
+      const no = el('button', { className: 'no', textContent: '👎' });
+      const paint = () => { yes.classList.toggle('picked', notes[c.id] === 'yes'); no.classList.toggle('picked', notes[c.id] === 'no'); };
+      yes.onclick = () => { notes[c.id] = notes[c.id] === 'yes' ? undefined : 'yes'; saveNotes(); paint(); };
+      no.onclick = () => { notes[c.id] = notes[c.id] === 'no' ? undefined : 'no'; saveNotes(); paint(); };
+      paint();
+      lineDiv.append(yes, no);
+      bitDiv.append(lineDiv);
+    }
+    $('bits').append(bitDiv);
+    bitNodes.push({ bit, bitDiv, head });
+  }
+}
+
+function filter() {
+  const who = $('who').value, topic = $('topic').value, q = $('filter').value.toLowerCase();
+  let shownBits = 0, shownLines = 0;
+  const shownHeads = new Set();
+  for (const n of bitNodes) {
+    const matchTopic = !topic || n.bit.topic === topic;
+    const matchWho = !who || n.bit.lines.some((c) => c.who === who);
+    const matchQ = !q || n.bit.id.toLowerCase().includes(q) || n.bit.lines.some((c) => c.text.toLowerCase().includes(q));
+    const on = matchTopic && matchWho && matchQ;
+    n.bitDiv.hidden = !on;
+    if (on) {
+      shownBits++;
+      shownLines += n.bit.lines.length;
+      shownHeads.add(n.head);
+    }
+  }
+  for (const n of bitNodes) n.head.hidden = !shownHeads.has(n.head);
+  $('count').textContent = `${shownBits} exchanges (${shownLines} of ${clips.length} lines) shown`;
+}
+for (const id of ['who', 'topic']) $(id).onchange = filter;
+$('filter').oninput = filter;
+filter();
+
+$('random').onclick = function () {
+  const visible = bitNodes.filter((n) => !n.bitDiv.hidden);
+  if (!visible.length) return;
+  const pick = visible[Math.floor(Math.random() * visible.length)].bit;
+  play(this, pick.lines.map((c) => ({ url: fileUrl(c.id, false), label: `${BIOS[c.who]?.name || c.who}: “${c.text}”` })), pick.id);
+};
+
+$('copy').onclick = async () => {
+  const marked = clips.filter((c) => notes[c.id]).map((c) => `${notes[c.id] === 'yes' ? '👍' : '👎'} ${c.id} (${c.who}): ${c.text}`);
+  const text = marked.length ? `Snowboarding announcer notes (${marked.length} lines):\n${marked.join('\n')}` : 'No notes yet.';
+  try { await navigator.clipboard.writeText(text); status(`Copied notes on <b>${marked.length}</b> lines.`); }
+  catch { status('Clipboard blocked; logged to console.', true); console.log(text); }
+};
+$('clear').onclick = () => { if (confirm('Clear every 👍 and 👎?')) { notes = {}; saveNotes(); location.reload(); } };
+</script>
+</body>
+</html>
