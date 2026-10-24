@@ -319,6 +319,10 @@ plays today:
   map: the roads are half size, the cars and the buildings are full
   size, so the city is the real one's density and skyline drawn with
   fewer, full-size buildings.
+  Built 2026-10-24: the 17 routes below in `plan.json` and their
+  corridors (222 km real, 111 km game), `bayside.ground.bin` and
+  `.cover.bin` (24 m cells), `bayside.city.bin` (`tools/atlas/city.py`,
+  `mp_levels::ground::CityGrid`).
 - **6c. A road network** (D1240). Roads that meet any road, at their
   ends or crossing in the middle: junctions found from the geometry (a
   road that ends on another, two that cross), each naming both roads and

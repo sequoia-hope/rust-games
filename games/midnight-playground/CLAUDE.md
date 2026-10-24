@@ -79,6 +79,8 @@ and carry on with the option that best preserves parity.
 | The open world's plan, measured (`resolve` rewrites what the planner draws; `corridor <id>` writes a route's road for a level, `docs/vision/peninsula.md`) | `cargo run --release -p mp_atlas -- report` |
 | Rebuild the atlas from real data (python3 with numpy, Pillow, shapely, pyarrow) | `python3 tools/atlas/build.py` |
 | The ground and land cover under the open world's corridors (stages 2 and 4a of `docs/vision/peninsula.md`) | `python3 tools/atlas/ground.py coast-south hwy-92 skyline-south hwy-84 --margin 1200 --step 16 --name peninsula` |
+| The same for the bay side (stage 6b; pyarrow, numpy, Pillow, shapely: `uv run --with ...` where they are not installed) | `python3 tools/atlas/ground.py hwy-92-east hwy-84-east us-101 i-280 el-camino ralston hillsdale third-ave broadway millbrae san-bruno sf-19th-ave sf-lombard sf-van-ness sf-market sf-geary sf-embarcadero --margin 1200 --step 24 --name bayside` |
+| The city grid over a ground box: built cover and building heights from Overture (stage 6b) | `python3 tools/atlas/city.py --name bayside` |
 | Drive the web client round the loop with the keyboard | `node tools/parity/drive-branch.mjs --level peninsula [--phone] [--secs 900]` |
 | Drive the web client along the open world's roads with the keyboard, watching for a hang (console, ticks, frame time) | `node tools/parity/drive-branch.mjs [--phone] [--query "touch=1&assist=2&physics=player"]` |
 | The police radio's script (every clip, for `tools/radio-voice/render.py`) | `cargo run -p mp_audio --example radio_lines` |

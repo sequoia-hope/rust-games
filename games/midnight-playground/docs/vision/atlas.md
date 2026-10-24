@@ -36,6 +36,8 @@ on it, and a proposal for them. Nothing here changes a level yet.
 | The atlas files | `assets/atlas/peninsula/` | `terrain.bin`, `geo.json` (generated), `plan.json` (by hand), `resolved.json` (measured) |
 | `mp_atlas` | `crates/mp_atlas/` | Reads them; resolves routes over the real roads; profiles them over the real ground; reports |
 | `mp-atlas` | `cargo run -p mp_atlas -- report` | The plan measured, as text (`resolve` rewrites `resolved.json`; `profile <id>` prints CSV) |
+| The ground and cover under corridors | `tools/atlas/ground.py` | Real heights and land cover in game metres over the corridors' box (`<name>.ground.bin`, `<name>.cover.bin`; `docs/vision/peninsula.md` stages 2 and 4a) |
+| The city grid | `tools/atlas/city.py` | Overture's buildings over a ground box, in 32 m cells: how much of the ground is built on, and the median and 90th-percentile height, real metres (`<name>.city.bin`, read by `mp_levels::ground::CityGrid`; stage 6b) |
 | The planner | `tools/atlas.html` | The map: terrain, land cover, roads, rail, parks, towns; the plan's regions, routes and places; profiles; editing |
 
 ### 2.1 The data
@@ -64,8 +66,14 @@ Golden Gate (37.84° N), and from the ocean (122.56° W) to the bay shore
   bucket). OpenStreetMap's own servers and USGS's are blocked from the
   cloud sessions, which is why Overture is the source.
 
+- **Buildings** (stage 6b, `tools/atlas/city.py`): Overture Maps'
+  buildings (OpenStreetMap and others, ODbL), about half a million
+  footprints over the bay side's box, 80 % with a height, reduced to the
+  city grid.
+
 Sizes in git: `terrain.bin` 3.7 MB, `geo.json` 2.1 MB, `resolved.json`
-85 kB.
+200 kB; the bay side's corridors 0.9 MB, its ground 687 kB, cover 29 kB
+and city grid 212 kB.
 
 ### 2.2 The local frame
 
@@ -106,7 +114,13 @@ names must exist: the loader refuses the plan otherwise.
   on a road the route may use (not the nearest junction: on the coast a
   road runs kilometres between junctions), then the shortest way between
   them over those roads. A place more than 150 m from its roads is
-  flagged.
+  flagged. A divided highway's two carriageways both carry its number and
+  the map has no one-way flags, so each place may snap to any allowed road
+  within 80 m of its nearest, and the resolver picks the snaps whose way
+  through every place is shortest (a metre off the road costs ten of
+  road): a freeway route keeps to one carriageway. A route by road names
+  also crosses the short unnamed links between its roads (a street drawn
+  as a pair round an island).
 - **Profiled over the real ground** every 20 m: length, climb and
   descent, lowest and highest, the steepest grade over 200 m, and the
   crests (a high point the road drops at least 6 m from on both sides

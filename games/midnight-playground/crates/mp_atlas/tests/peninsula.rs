@@ -92,11 +92,25 @@ fn tunnels_keep_the_road_level() {
 fn the_corridors_are_up_to_date() {
     // The game includes the corridor files at compile time (mp_levels), so
     // a change to the plan, the atlas or the writer must be written out.
+    // Every corridor file in the folder is checked, so a new one is too.
     let dir = Atlas::dir("peninsula");
     let a = atlas();
     let m = measure(&a).unwrap();
-    for id in ["coast-south", "hwy-84-lower"] {
-        let r = m.routes.iter().find(|r| r.id == id).unwrap();
+    let mut ids: Vec<String> = std::fs::read_dir(dir.join("corridors"))
+        .unwrap()
+        .filter_map(|e| {
+            let n = e.ok()?.file_name().into_string().ok()?;
+            Some(n.strip_suffix(".txt")?.to_owned())
+        })
+        .collect();
+    ids.sort();
+    assert!(ids.len() >= 24, "{ids:?}");
+    for id in &ids {
+        let r = m
+            .routes
+            .iter()
+            .find(|r| r.id == *id)
+            .unwrap_or_else(|| panic!("corridors/{id}.txt: no route or event `{id}`"));
         let now = mp_atlas::corridor::text(&mp_atlas::corridor::corridor(r, &a.terrain));
         let file =
             std::fs::read_to_string(dir.join(format!("corridors/{id}.txt"))).unwrap_or_default();
