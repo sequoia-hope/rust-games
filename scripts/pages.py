@@ -35,12 +35,24 @@ def built():
 
 
 def index(out):
-    items = "\n".join(
-        f'<li><a class="game" href="{html.escape(g.get("href", g["name"] + "/"))}">'
+    def href(g):
+        return html.escape(g.get("href", g["name"] + "/"))
+
+    items = [
+        f'<li><a class="game" href="{href(g)}">'
         f'<strong>{html.escape(g["title"])}</strong>'
         f'<span>{html.escape(g["blurb"])}</span></a></li>'
         for g in games()
-    )
+        if not g.get("small")
+    ]
+    small = [
+        f'<a class="tool" href="{href(g)}" title="{html.escape(g["blurb"])}">{html.escape(g["title"])}</a>'
+        for g in games()
+        if g.get("small")
+    ]
+    if small:
+        items.append(f'<li class="tools">{"".join(small)}</li>')
+    items = "\n".join(items)
     page = (ROOT / "site/index.html").read_text()
     if MARK not in page:
         sys.exit("pages.py: site/index.html has lost its GAMES marker")

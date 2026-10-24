@@ -18,8 +18,8 @@ const $ = (id) => document.getElementById(id);
 const status = (html, err = false) => { $('status').innerHTML = html; $('status').classList.toggle('err', err); };
 
 // ── The engine on the main thread: tables and tracks ─────────────
-const WASM_URL = new URL('music.wasm', import.meta.url);
-const module = await WebAssembly.compileStreaming(fetch(WASM_URL));
+const WASM_URL = new URL('music.wasm?v=20261023c', import.meta.url);
+const module = await WebAssembly.compileStreaming(fetch(WASM_URL, { cache: 'no-store' }));
 const wasm = (await WebAssembly.instantiate(module, {})).exports;
 const text = (ptr) => new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, wasm.music_text_len()));
 function passText(s) {
@@ -41,9 +41,9 @@ function generate(genre, seed, dejavu) {
   return JSON.parse(text(wasm.music_generate(ptr, len, seed, dejavu ?? -1)));
 }
 // A new generator's song (its summary: sections, layers, clips, notes).
-function makeSong(genre, seed) {
+function makeSong(genre, seed, bpm = -1, key = -1) {
   const [ptr, len] = passText(genre);
-  return JSON.parse(text(wasm.music_song(ptr, len, seed, -1, -1)));
+  return JSON.parse(text(wasm.music_song(ptr, len, seed, bpm, key)));
 }
 // A song shown with the classic track's fields, so the sections and parts
 // tables serve both.
@@ -59,7 +59,8 @@ function asTrack(song) {
 
 // A song is what makes it: (genre, seed, déjà vu), and the kit it plays on.
 const made = [];
-let cur = null, playing = false;
+let cur = null, playing = false, autoplaying = false;
+const autoGenres = new Set(Object.keys(NEW));
 let ctx = null, lab = null, hp = null, mono = null, vol = null, analyser = null;
 const mute = new Set();
 let solo = null;
@@ -82,8 +83,9 @@ function bindRange(el, fmt = (v) => v, on = null) {
 }
 const pct = (v) => Math.round(v * 100) + '%';
 const post = (m) => lab?.port.postMessage(m);
+bindRange($('bpm'), (v) => (v < 60 ? 'auto' : `${v} bpm`));
 bindRange($('dejavu'), pct);
-bindRange($('energy'), pct, (v) => post({ type: 'energy', value: v }));
+bindRange($('energy'), pct, (v) => { $('energyAuto').checked = false; post({ type: 'energy', value: v }); });
 for (const k of ['tape', 'glue', 'reverb', 'revTone']) bindRange($(k), pct, (v) => post({ type: 'mix', [k]: v }));
 bindRange($('revSize'), (v) => v.toFixed(1), (v) => post({ type: 'mix', revSize: v }));
 bindRange($('vol'), pct, (v) => vol?.gain.setTargetAtTime(v, ctx.currentTime, 0.03));
@@ -115,14 +117,46 @@ for (const [label, list] of [['New generator', NEW], ['Classic (the radio today)
   for (const [k, v] of Object.entries(list)) g.append(new Option(v, k));
   $('genre').append(g);
 }
+
+const ALL_KEYS = Object.keys(GENRES);
+const EDM_KEYS = ALL_KEYS.filter((k) => !['orchestral', 'chicha', 'country'].includes(k));
+function buildAutoGenres() {
+  const el = $('autoGenres');
+  el.innerHTML = '';
+  for (const [k, name] of Object.entries(GENRES)) {
+    const b = document.createElement('button');
+    b.className = 'sm' + (autoGenres.has(k) ? ' on' : '');
+    b.textContent = name;
+    b.dataset.g = k;
+    b.title = k in NEW ? `${name} (New generator)` : `${name} (Classic)`;
+    b.onclick = () => {
+      if (autoGenres.has(k)) autoGenres.delete(k); else autoGenres.add(k);
+      buildAutoGenres();
+    };
+    el.append(b);
+  }
+  $('autoCount').textContent = autoGenres.size ? `(${autoGenres.size} of ${ALL_KEYS.length})` : `(using ${GENRES[$('genre').value]})`;
+}
+const setAutoPool = (keys) => { autoGenres.clear(); for (const k of keys) autoGenres.add(k); buildAutoGenres(); };
+$('selAll').onclick = () => setAutoPool(ALL_KEYS);
+$('selNew').onclick = () => setAutoPool(Object.keys(NEW));
+$('selEdm').onclick = () => setAutoPool(EDM_KEYS);
+$('selClassic').onclick = () => setAutoPool(Object.keys(CLASSIC));
+$('selNone').onclick = () => setAutoPool([]);
+$('genre').onchange = () => { if (!autoGenres.size) buildAutoGenres(); };
+buildAutoGenres();
+
 $('dice').onclick = () => { $('seed').value = 1 + Math.floor(Math.random() * 99999); makeTrack(true); };
 $('make').onclick = () => makeTrack(true);
 function makeTrack(autoplay) {
   const genre = $('genre').value, seed = Math.max(1, Number($('seed').value) | 0), dejavu = Number($('dejavu').value);
+  const bpmVal = Number($('bpm').value), bpm = bpmVal >= 60 ? bpmVal : -1;
+  const key = Number($('key').value);
   let S;
   if (genre in NEW) {
-    const song = makeSong(genre, seed);
-    S = { genre, seed, song, track: asTrack(song), kit: 'tr909' };
+    const song = makeSong(genre, seed, bpm, key);
+    const kit = song.layers.find((l) => !l.lab)?.sound ?? 'tr909';
+    S = { genre, seed, bpm, key, song, track: asTrack(song), kit };
   } else {
     const track = generate(genre, seed, dejavu);
     S = { genre, seed, dejavu, track, kit: track.kitName ?? 'tr909' };
@@ -132,8 +166,18 @@ function makeTrack(autoplay) {
   selectSong(S, autoplay);
 }
 
+function nextAutoTrack(playNow = true) {
+  const pool = autoGenres.size ? [...autoGenres] : [$('genre').value];
+  const choices = pool.length > 1 && cur ? pool.filter((g) => g !== cur.genre) : pool;
+  $('genre').value = choices[Math.floor(Math.random() * choices.length)];
+  $('seed').value = 1 + Math.floor(Math.random() * 99999);
+  makeTrack(playNow);
+}
+
 // ── Song ─────────────────────────────────────────────────────────
-const trackMsg = (S) => (S.song ? { type: 'song', genre: S.genre, seed: S.seed } : { type: 'track', genre: S.genre, seed: S.seed, dejavu: S.dejavu, kit: S.kit });
+const trackMsg = (S) => (S.song
+  ? { type: 'song', genre: S.genre, seed: S.seed, ...(S.bpm > 0 ? { bpm: S.bpm } : {}), ...(S.key >= 0 ? { key: S.key } : {}) }
+  : { type: 'track', genre: S.genre, seed: S.seed, dejavu: S.dejavu, kit: S.kit });
 function selectSong(S, autoplay = false) {
   cur = S;
   fillSongs();
@@ -145,6 +189,8 @@ function selectSong(S, autoplay = false) {
   if (lab) {
     post(trackMsg(S));
     post({ type: 'kit', name: S.kit, tweak: kitTweak });
+    post({ type: 'mix', ...mixNow() });
+    post({ type: 'energy', value: Number($('energy').value) });
     sendMutes();
   }
   if (playing || autoplay) startAt(0);
@@ -181,12 +227,27 @@ function stopAll() {
 async function togglePlay() {
   if (!playing) { status('Starting audio…'); await startAt(0); } else stopAll();
 }
+async function toggleAutoplay() {
+  autoplaying = !autoplaying;
+  $('autoplay').classList.toggle('on', autoplaying);
+  if (autoplaying && !playing) {
+    status('Starting autoplay…');
+    if (autoGenres.size > 0 && !autoGenres.has(cur.genre)) nextAutoTrack(true);
+    else await startAt(0);
+  } else {
+    showPlaying();
+  }
+}
 $('play').onclick = togglePlay;
+$('autoplay').onclick = toggleAutoplay;
+$('nextSong').onclick = () => nextAutoTrack(true);
 
 function showPlaying() {
   $('play').textContent = playing ? '■ Stop' : '▶ Play';
   $('play').classList.toggle('on', playing);
-  status(playing ? `Playing <b>${cur.track.title}</b> (${cur.track.style}). Space to stop.` : 'Stopped.');
+  $('autoplay').classList.toggle('on', autoplaying);
+  const mode = autoplaying ? ` · Autoplay (${autoGenres.size || 1} genres)` : '';
+  status(playing ? `Playing <b>${cur.track.title}</b> (${cur.track.style})${mode}. Space to stop.` : `Stopped${mode}.`);
 }
 
 // ── Parts ────────────────────────────────────────────────────────
@@ -247,7 +308,7 @@ $('partReset').onclick = () => {
   if (!editing) return;
   // The patch as the grammar made it.
   const base = cur.song
-    ? makeSong(cur.genre, cur.seed).layers.find((l) => l.name === editing).lab
+    ? makeSong(cur.genre, cur.seed, cur.bpm ?? -1, cur.key ?? -1).layers.find((l) => l.name === editing).lab
     : generate(cur.genre, cur.seed, cur.dejavu).parts[editing].lab;
   cur.track.parts[editing].lab = base;
   post({ type: 'patch', part: editing, lab: structuredClone(base) });
@@ -437,9 +498,20 @@ function onLab(d) {
       $('loadM').firstChild.style.width = Math.min(100, d.load * 100) + '%';
       $('loadM').classList.toggle('warn', d.load > 0.6);
     }
+    if ($('energyAuto').checked && p.playing && p.bars > 0) {
+      const frac = (p.barIndex + p.step / 16) / p.bars;
+      const e = +(0.5 + 0.5 * Math.min(1, frac / 0.67)).toFixed(2);
+      if (Math.abs(Number($('energy').value) - e) >= 0.01) {
+        $('energy').value = e;
+        $('energy').parentElement.querySelector('output').textContent = pct(e);
+        post({ type: 'energy', value: e });
+      }
+    }
     [...$('sections').children].forEach((b, i) => b.classList.toggle('cur', i === p.sec && p.playing));
     window.musicLab.pos = p;
     posAt = { bar: p.barIndex + p.step / 16, t: performance.now(), playing: p.playing };
+  } else if (d.type === 'end' && autoplaying && playing) {
+    nextAutoTrack(true);
   } else if (d.type === 'error') {
     status(`The engine refused a message: ${d.message}`, true);
     console.error(d);
@@ -556,11 +628,21 @@ $('measure').onclick = async () => {
   $('measure').disabled = false;
 };
 
-window.musicLab = { GENRES, BPATCH, KITS, made, generate, makeSong, selectSong, togglePlay, startAt, get cur() { return cur; }, get playing() { return playing; } };
+window.musicLab = {
+  GENRES, BPATCH, KITS, made, autoGenres, generate, makeSong, selectSong, togglePlay, toggleAutoplay, nextAutoTrack, startAt,
+  get cur() { return cur; }, get playing() { return playing; }, get autoplaying() { return autoplaying; },
+};
 const q = new URLSearchParams(location.search);
-if (q.get('genre') in GENRES) $('genre').value = q.get('genre');
 if (q.get('seed')) $('seed').value = q.get('seed');
-makeTrack(false);
+if (q.get('genre') in GENRES) {
+  $('genre').value = q.get('genre');
+  makeTrack(false);
+} else {
+  for (const g of Object.keys(NEW).reverse()) {
+    $('genre').value = g;
+    makeTrack(false);
+  }
+}
 selectInst(inst);
 buildKeys();
 status('Tap <b>▶ Play</b> to start.');

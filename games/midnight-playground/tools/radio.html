@@ -33,10 +33,10 @@ h1 { font-size: 1.25rem; margin: 0 0 6px; }
 h2 { font-size: 1rem; margin: 0 0 8px; }
 p { color: var(--muted); margin: 0 0 10px; max-width: 760px; }
 code { color: var(--fg); font-size: 13px; }
-button, select { background: #222834; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 14px; }
-button:hover { border-color: var(--accent); }
+button, select, a.btn { background: #222834; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 14px; text-decoration: none; display: inline-block; }
+button:hover, a.btn:hover { border-color: var(--accent); }
 button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-button:disabled { opacity: 0.4; cursor: default; }
+button:disabled, a.btn.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .player { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; }
 .player button { font-size: 20px; min-width: 56px; min-height: 48px; padding: 6px 12px; }
@@ -124,6 +124,7 @@ blocks, the same on every device. Tune away and back and the song has moved on. 
     <div class="row skip">
       <button id="skip" title="Skip to the next song (S)">⏩ Skip song</button>
       <button id="live" title="Back to the stations' clock (L)" hidden>● Live</button>
+      <a class="btn" id="openLab" href="../../music-lab/" target="_blank" rel="noopener" title="Open the current song in the Music Lab generator (new window)">🎛 Open in Music Lab ↗</a>
       <span class="sub" id="skew"></span>
     </div>
     <!-- Rating (radio.md 8): keep or reject the song playing, with a note.

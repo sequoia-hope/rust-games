@@ -348,7 +348,10 @@ impl Ladder {
             y = lp;
         }
         if mode == 1 {
-            return out[2] * 1.25 - out[3] * 0.3;
+            // 303 4-pole diode ladder: 24 dB/oct roll-off with a softer
+            // transition knee from the top-pole capacitor ratio and resonance
+            // pass-band makeup.
+            return (out[3] * 0.85 + out[2] * 0.35) * (1.0 + k * 0.22);
         }
         if mode == 2 {
             return out[1] * (1.0 + k * 0.2);
