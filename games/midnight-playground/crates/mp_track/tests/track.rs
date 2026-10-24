@@ -51,6 +51,7 @@ fn level(route: Route, zones: usize) -> Level {
         open: false,
         branches: Vec::new(),
         stream_cell: None,
+        buildings: None,
         sea_y: None,
         zones: KEYS[..zones].iter().map(|k| zone(k)).collect(),
         sky: Vec::new(),

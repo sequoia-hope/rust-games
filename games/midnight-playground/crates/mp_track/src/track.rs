@@ -247,6 +247,9 @@ pub struct Track {
     /// Every road's samples in one index ([`NetIndex`]); road 0's Track
     /// holds it, the branches' are empty.
     pub net: NetIndex,
+    /// The level's buildings (`Level::buildings`, stage 6e), shared by
+    /// every clone; road 0's Track holds them.
+    pub buildings: std::sync::Arc<crate::buildings::Buildings>,
     pub elevated: Vec<u8>,
     /// Collision limits either side of the centreline (positive distances).
     pub wall_l: Vec<f32>,
@@ -328,6 +331,10 @@ impl Track {
                 }
                 t.junctions.extend(crossings);
             }
+        }
+        if let Some(place) = &level.buildings {
+            let list = place(&t);
+            t.buildings = std::sync::Arc::new(crate::buildings::Buildings::new(list));
         }
         Ok(t)
     }
@@ -1361,6 +1368,7 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
         open_end: false,
         junctions: Vec::new(),
         net: NetIndex::default(),
+        buildings: Default::default(),
         elevated: elev_raw,
         wall_l,
         wall_r,

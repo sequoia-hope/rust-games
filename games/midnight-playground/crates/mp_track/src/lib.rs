@@ -5,11 +5,13 @@
 // Index loops stay index loops: they mirror the JS line for line (DECISIONS D52).
 #![allow(clippy::needless_range_loop)]
 
+pub mod buildings;
 pub mod level;
 pub mod network;
 pub mod road_types;
 pub mod track;
 
+pub use buildings::{Buildings, Footprint, Push};
 pub use level::*;
 pub use network::{Junction, JunctionKind, NetIndex};
 pub use road_types::{ROAD_TYPES, RoadType, road_index, road_type};

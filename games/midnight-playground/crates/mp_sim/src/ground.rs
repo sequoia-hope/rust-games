@@ -7,7 +7,7 @@
 
 use mp_track::Track;
 use mp_vdyn::{Aabb, Collider, Ground, GroundSample, SdfSample, Surface, Vec3};
-use pk_math::clamp;
+use pk_math::{clamp, kernel};
 
 /// Surface ids a sim car's tyres report.
 pub const SURFACE_ROAD: u16 = 0;
@@ -119,8 +119,26 @@ impl Ground for TrackGround<'_> {
         let f = t.frame(p.s);
         let y = t.surface_y(p.s, p.lat);
         // The corridor's walls as planes facing the road, from the frame
-        // nearest the box's centre. An open level has none.
+        // nearest the box's centre. An open level has none, but its
+        // buildings stand: the face of each near the box that the box's
+        // centre is outside of (stage 6e).
         if t.open_ground.is_some() {
+            let net = self.track;
+            let r = 0.5 * kernel::hypot(aabb.max.x - aabb.min.x, aabb.max.z - aabb.min.z);
+            for id in net.buildings.near(cx, cz, r) {
+                let b = &net.buildings.list[id];
+                // Only a building the box reaches: a face's plane runs on
+                // past its corners.
+                let (la, lb) = b.local(cx, cz);
+                if la.abs() > b.hx + r || lb.abs() > b.hz + r {
+                    continue;
+                }
+                let (pt, n) = net.buildings.face(id, cx, cz);
+                out.push(Collider::Plane {
+                    point: Vec3::new(pt[0], b.y, pt[1]),
+                    normal: Vec3::new(n[0], 0.0, n[1]),
+                });
+            }
             return;
         }
         out.push(Collider::Plane {

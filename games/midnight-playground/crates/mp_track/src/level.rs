@@ -15,6 +15,9 @@ pub type GroundFn = Arc<dyn Fn(f64, f64) -> f64 + Send + Sync>;
 /// The land cover at (x, z) on an open level ([`Cover`] as a byte), from
 /// the atlas (docs/vision/peninsula.md, stage 4a).
 pub type CoverFn = Arc<dyn Fn(f64, f64) -> u8 + Send + Sync>;
+/// An open level's buildings, placed from its built road network
+/// (docs/vision/peninsula.md, stage 6e).
+pub type BuildingsFn = Arc<dyn Fn(&crate::Track) -> Vec<crate::buildings::Footprint> + Send + Sync>;
 
 /// A land cover class of the atlas's planning grid (`tools/atlas/build.py`
 /// and `mp_atlas::Cover` number them the same): what grows where on an
@@ -380,6 +383,10 @@ pub struct Level {
     /// stage 6d): a city's crossing streets are near each other wherever
     /// they run. `None` streams by road.
     pub stream_cell: Option<f64>,
+    /// The buildings of its towns and cities, which the simulation
+    /// collides cars with and world generation draws (stage 6e); the
+    /// Track places them once its network is built.
+    pub buildings: Option<BuildingsFn>,
     pub sea_y: Option<f64>,
     pub zones: Vec<Zone>,
     pub sky: Vec<SkyKey>,

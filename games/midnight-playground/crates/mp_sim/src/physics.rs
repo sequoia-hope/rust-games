@@ -666,10 +666,13 @@ impl CarPhysics {
         let prev_ground = rt.ground_y(v.x, v.z, v.road_s, v.road_lat);
         v.x += v.vx * dt;
         v.z += v.vz * dt;
-        let rt = v.project_onto(t);
-        // An open level has no walls: the car may leave the road.
+        let mut rt = v.project_onto(t);
+        // An open level has no walls: the car may leave the road, but not
+        // drive through its buildings.
         if t.open_ground.is_none() {
             self.collide_walls(v, t, dt);
+        } else if !t.buildings.is_empty() && self.collide_buildings(v, t, dt) {
+            rt = v.project_onto(t);
         }
 
         // Vertical: follow the road unless it falls away faster than gravity.
@@ -701,6 +704,67 @@ impl CarPhysics {
             }
         }
         v.vis_y = Some(if v.on_ground { ground } else { v.y });
+    }
+
+    /// Pushes the car out of the building it has run into, the way a
+    /// wall does (docs/vision/peninsula.md, stage 6e): out along the
+    /// shortest way, the speed into the face bounced a little and the
+    /// rest scrubbed, the nose swung along the face, an impact when it is
+    /// hard and the scrape while it rubs. Returns whether it moved the car
+    /// (the caller projects it again).
+    pub fn collide_buildings(&mut self, v: &mut Vehicle, t: &Track, dt: f64) -> bool {
+        self.scrape = js::max(0.0, self.scrape - dt * 4.0);
+        let (c, s) = (kernel::cos(v.yaw), kernel::sin(v.yaw));
+        let Some(p) = t.buildings.push_out(v.x, v.z, c, s, v.half_w, v.half_l) else {
+            return false;
+        };
+        let b = &t.buildings.list[p.id];
+        // Over the roof (a jump), nothing.
+        if v.y > b.y + b.height {
+            return false;
+        }
+        v.x += p.nx * p.depth;
+        v.z += p.nz * p.depth;
+        // Which side of the car the building is on: +1 right, -1 left.
+        let side = if -p.nx * -s + -p.nz * c >= 0.0 { 1 } else { -1 };
+        let vn = -(v.vx * p.nx + v.vz * p.nz); // into the face
+        if vn > 0.0 {
+            let e = 0.25;
+            v.vx += p.nx * vn * (1.0 + e);
+            v.vz += p.nz * vn * (1.0 + e);
+            let scrub = 1.0 - clamp(0.05 + vn * 0.025, 0.0, 0.35);
+            v.vx *= scrub;
+            v.vz *= scrub;
+            // Swing the nose along the face, toward whichever way along
+            // it the car already points.
+            let face = kernel::atan2(p.nx, -p.nz);
+            let mut rel = wrap_angle(v.yaw - face);
+            if rel.abs() > PI / 2.0 {
+                rel = wrap_angle(rel - PI);
+            }
+            v.yaw -= rel * clamp(vn * 0.06, 0.05, 0.5);
+            if v.yaw_rate * rel > 0.0 {
+                v.yaw_rate *= 0.5;
+            }
+            if vn > 1.5 {
+                self.events.push(PhysEvent::Impact {
+                    strength: clamp(vn / 18.0, 0.0, 1.0),
+                    x: v.x - p.nx * v.half_w,
+                    y: v.y + 0.5,
+                    z: v.z - p.nz * v.half_w,
+                    side,
+                });
+            }
+        }
+        let sp = kernel::hypot(v.vx, v.vz);
+        if sp > 1.0 {
+            let k = js::max(0.0, 1.0 - 4.0 * dt / sp);
+            v.vx *= k;
+            v.vz *= k;
+            self.scrape = js::min(1.0, 0.4 + sp / 60.0);
+            self.scrape_side = Some(side);
+        }
+        true
     }
 
     pub fn collide_walls(&mut self, v: &mut Vehicle, t: &Track, dt: f64) {

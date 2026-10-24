@@ -71,6 +71,7 @@ fn level() -> Level {
             elevation_smooth: None,
         }],
         stream_cell: None,
+        buildings: None,
         sea_y: None,
         zones: vec![Zone {
             key: "coast",
