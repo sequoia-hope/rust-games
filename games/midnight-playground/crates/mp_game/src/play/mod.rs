@@ -78,6 +78,9 @@ pub struct Params {
     /// `?cruise=1`, or the menu's Cruise on the open world: the road with
     /// no race on it ([`cruise_level`], D1211).
     pub cruise: bool,
+    /// `?start=<id>`, or the card's pick: where a cruise of an open level
+    /// starts (`Level::starts`, stage 6f); the level's own when `None`.
+    pub start: Option<String>,
     pub heat: f64,
     /// `?cops=N`: Hot Pursuit's cap on units (6 by default).
     pub cops: f64,
@@ -125,6 +128,7 @@ impl Params {
                 .unwrap_or(1.0),
             pursuit: get("pursuit") == Some("1"),
             cruise: get("cruise") == Some("1"),
+            start: get("start").map(str::to_owned),
             heat: get("heat")
                 .and_then(|s| s.parse().ok())
                 .filter(|h: &f64| *h >= 1.0)
@@ -164,6 +168,20 @@ impl Params {
 /// the loop, no laps (endless, as the Night City Cruise is). The
 /// level's traffic stays as it is; the world is built from the level by
 /// id, so nothing drawn changes.
+/// [`cruise_level`] begun at the start `start` names (stage 6f), when it
+/// is a cruise and the level offers that start.
+pub fn cruise_level_at(
+    level: mp_track::Level,
+    cruise: bool,
+    start: Option<&str>,
+) -> mp_track::Level {
+    let mut level = cruise_level(level, cruise);
+    if level.mode == mp_track::Mode::Cruise {
+        level.start = start.and_then(|id| level.starts.iter().find(|s| s.id == id).map(|s| s.id));
+    }
+    level
+}
+
 pub fn cruise_level(mut level: mp_track::Level, cruise: bool) -> mp_track::Level {
     if cruise && level.open {
         level.mode = mp_track::Mode::Cruise;
@@ -386,7 +404,11 @@ fn start(
     // The new field's light setters take their slots afresh (D456).
     lights.values.clear();
     let Some(level) = &tr.level else { return };
-    let lr = match LevelRuntime::new(cruise_level(level.clone(), play.params.cruise)) {
+    let lr = match LevelRuntime::new(cruise_level_at(
+        level.clone(),
+        play.params.cruise,
+        play.params.start.as_deref(),
+    )) {
         Ok(lr) => lr,
         Err(e) => {
             warn!("race: {e}");
@@ -1083,7 +1105,11 @@ pub fn smoke_race_cli(o: &crate::options::Options) -> Result<(), String> {
         let d = mp_levels::SeasideData::parse(&bytes)?;
         mp_levels::seaside::prepare(&mut level, std::sync::Arc::new(d));
     }
-    let lr = LevelRuntime::new(cruise_level(level, params.cruise))?;
+    let lr = LevelRuntime::new(cruise_level_at(
+        level,
+        params.cruise,
+        params.start.as_deref(),
+    ))?;
     let opts = RaceOpts {
         seed: params.seed.unwrap_or(1),
         ..params.race_opts()

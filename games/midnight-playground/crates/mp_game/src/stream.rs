@@ -437,7 +437,13 @@ pub fn drive(
     let car = play.as_ref().and_then(|pl| {
         let r = pl.race.as_ref()?;
         let st = &r.session.curr;
-        if st.race.state == mp_sim::race::RaceStateKind::Countdown && st.race.event.is_none() {
+        // A cruise begun at a chosen start (stage 6f) is round the car
+        // from the first frame: the level's start may be far off.
+        let elsewhere = r.session.lr.track.chosen_start().is_some();
+        if st.race.state == mp_sim::race::RaceStateKind::Countdown
+            && st.race.event.is_none()
+            && !elsewhere
+        {
             return None;
         }
         st.players.first().map(|pl| (pl.v.x, pl.v.z))
