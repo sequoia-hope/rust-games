@@ -240,6 +240,7 @@ pub fn level() -> Level {
             zone: 0,
             elevation_smooth: None,
         }],
+        stream_cell: None,
         sea_y: Some(0.),
         zones: vec![
             zone(

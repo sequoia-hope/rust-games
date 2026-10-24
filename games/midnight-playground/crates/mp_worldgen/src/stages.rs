@@ -83,7 +83,7 @@ pub fn road_stage() -> StageFn {
         let mut branches = Vec::new();
         for (j, b) in track.branches.iter().enumerate() {
             if let Some(sec) = section
-                && sec.road != j + 1
+                && !sec.has_road(j + 1)
             {
                 continue;
             }

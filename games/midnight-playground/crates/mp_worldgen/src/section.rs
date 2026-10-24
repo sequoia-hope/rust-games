@@ -27,6 +27,8 @@ use crate::object::{HandleMap, NodeId, SceneGraph};
 use crate::terrain::Tile;
 use crate::three_geom::math::{Matrix4, Vector3};
 use crate::world::{World, WorldBuild};
+use std::sync::Arc;
+
 use mp_track::Track;
 
 /// A stretch of the route and how far around it the section reaches.
@@ -58,6 +60,92 @@ pub struct Section {
     /// its (k - 1)th branch (`Track::road`; stage 4d). A partitioned
     /// section owns what is nearer its road than any other.
     pub road: usize,
+    /// A section of a level streamed by place (`Level::stream_cell`,
+    /// stage 6d): a square of the ground, which owns what stands in it,
+    /// and the metres of every road inside it. `s0`, `s1` and `road` mean
+    /// nothing then.
+    pub place: Option<Arc<Place>>,
+}
+
+/// A square of ground a section streamed by place owns (stage 6d).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Place {
+    /// The square, `[x0, x1)` by `[z0, z1)`.
+    pub x0: f64,
+    pub z0: f64,
+    pub x1: f64,
+    pub z1: f64,
+    /// Each road's metres inside the square, as runs `[s0, s1)`: road k's
+    /// at index k.
+    pub runs: Vec<Vec<[f64; 2]>>,
+}
+
+impl Place {
+    /// The square at `[x0, x1) x [z0, z1)` and the runs of every road of
+    /// `track`'s network inside it: a metre (`s - 0.5` to `s + 0.5`) is
+    /// in when its middle is.
+    pub fn new(track: &Track, x0: f64, z0: f64, x1: f64, z1: f64) -> Place {
+        let mut runs = Vec::new();
+        for t in track.roads() {
+            let mut out: Vec<[f64; 2]> = Vec::new();
+            let inside = t.bounds.max_x >= x0
+                && t.bounds.min_x < x1
+                && t.bounds.max_z >= z0
+                && t.bounds.min_z < z1;
+            if inside {
+                let end = if t.is_loop {
+                    t.length
+                } else {
+                    t.road_end().min(t.length + t.runout)
+                };
+                let mut s = 0.5;
+                let mut open: Option<f64> = None;
+                while s < end {
+                    let f = t.frame(s);
+                    let a = s - 0.5;
+                    let here = f.x >= x0 && f.x < x1 && f.z >= z0 && f.z < z1;
+                    match (here, open) {
+                        (true, None) => open = Some(a),
+                        (false, Some(o)) => {
+                            out.push([o, a]);
+                            open = None;
+                        }
+                        _ => {}
+                    }
+                    s += 1.0;
+                }
+                if let Some(o) = open {
+                    out.push([o, s - 0.5]);
+                }
+            }
+            runs.push(out);
+        }
+        Place {
+            x0,
+            z0,
+            x1,
+            z1,
+            runs,
+        }
+    }
+
+    pub fn contains(&self, x: f64, z: f64) -> bool {
+        x >= self.x0 && x < self.x1 && z >= self.z0 && z < self.z1
+    }
+
+    /// Whether metre `s` of road `road` (its middle at `s + 0.5`) is in.
+    fn holds(&self, road: usize, s: f64) -> bool {
+        self.runs
+            .get(road)
+            .is_some_and(|rs| rs.iter().any(|r| s >= r[0] && s < r[1]))
+    }
+
+    /// The squared distance from (x, z) to the square.
+    fn dist2(&self, x: f64, z: f64) -> f64 {
+        let dx = (self.x0 - x).max(0.0).max(x - self.x1);
+        let dz = (self.z0 - z).max(0.0).max(z - self.z1);
+        dx * dx + dz * dz
+    }
 }
 
 impl Default for Section {
@@ -71,6 +159,7 @@ impl Default for Section {
             partition: false,
             base: false,
             road: 0,
+            place: None,
         }
     }
 }
@@ -88,8 +177,23 @@ impl Section {
         track.road(self.road.min(track.branches.len()))
     }
 
-    /// The stretch as points (x, z) every [`STEP`] m.
+    /// The stretch as points (x, z) every [`STEP`] m; a place's square
+    /// as its corners and a grid every 100 m.
     pub fn points(&self, track: &Track) -> Vec<[f64; 2]> {
+        if let Some(p) = &self.place {
+            let nx = ((p.x1 - p.x0) / 100.0).ceil().max(1.0) as usize;
+            let nz = ((p.z1 - p.z0) / 100.0).ceil().max(1.0) as usize;
+            let mut out = Vec::new();
+            for j in 0..=nz {
+                for i in 0..=nx {
+                    out.push([
+                        p.x0 + (p.x1 - p.x0) * i as f64 / nx as f64,
+                        p.z0 + (p.z1 - p.z0) * j as f64 / nz as f64,
+                    ]);
+                }
+            }
+            return out;
+        }
         let t = self.track(track);
         let n = ((self.s1 - self.s0) / STEP).ceil().max(1.0) as usize;
         (0..=n)
@@ -146,7 +250,51 @@ impl Section {
     /// Whether the point (x, z) belongs to the stretch: its nearest place
     /// in the network is on the section's road, on the stretch.
     pub fn owns(&self, track: &Track, x: f64, z: f64) -> bool {
+        if let Some(p) = &self.place {
+            return p.contains(x, z);
+        }
         Self::s_of(track, x, z).is_some_and(|(r, s)| r == self.road && self.holds(track, s))
+    }
+
+    /// Whether this section builds road `road` at all.
+    pub fn has_road(&self, road: usize) -> bool {
+        match &self.place {
+            Some(p) => p.runs.get(road).is_some_and(|r| !r.is_empty()),
+            None => road == self.road,
+        }
+    }
+
+    /// Whether metre `s` of road `road` (`t`, its track) is this
+    /// section's: on its stretch (a partitioned section's, exactly; else
+    /// within `margin`), or in its place's square.
+    pub fn holds_road(&self, road: usize, t: &Track, s: f64, margin: f64) -> bool {
+        match &self.place {
+            Some(p) => p.holds(road, s),
+            None if road != self.road => false,
+            None if self.partition => self.holds_on(t, s),
+            None => self.holds_within(t, s, margin),
+        }
+    }
+
+    /// [`Section::clip`] for road `road` of the network: a place's runs of
+    /// that road cut to `[a, b]`.
+    pub fn clip_road(&self, road: usize, t: &Track, a: f64, b: f64) -> Vec<[f64; 2]> {
+        match &self.place {
+            Some(p) => p
+                .runs
+                .get(road)
+                .map(|rs| {
+                    rs.iter()
+                        .filter_map(|r| {
+                            let (lo, hi) = (a.max(r[0]), b.min(r[1]));
+                            (hi > lo).then_some([lo, hi])
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            None if road != self.road => Vec::new(),
+            None => self.clip(t, a, b),
+        }
     }
 
     /// The parts of the range `[a, b]` of the road that lie on the
@@ -183,6 +331,22 @@ impl Section {
     /// Whether a scenery module that owns these zones (indices into
     /// `track.zones`) reaches the section.
     pub fn wants_zones(&self, track: &Track, pts: &[[f64; 2]], zones: &[usize]) -> bool {
+        // A place: any road of the network in one of the zones within
+        // reach of the square.
+        if let Some(p) = &self.place {
+            let r2 = self.scenery_radius * self.scenery_radius;
+            return track.roads().any(|t| {
+                let mut s = 0.0;
+                while s <= t.length {
+                    let f = t.frame(s);
+                    if zones.contains(&(f.zone as usize)) && p.dist2(f.x, f.z) <= r2 {
+                        return true;
+                    }
+                    s += 25.0;
+                }
+                false
+            });
+        }
         zones.iter().any(|&z| {
             let Some(tz) = track.zones.get(z) else {
                 return false;
@@ -229,8 +393,11 @@ pub fn bounds(w: &World) -> Option<[f64; 4]> {
     let (Some(sec), Some(track)) = (&w.section, &w.track) else {
         return None;
     };
-    let pts = sec.points(track);
     let r = sec.terrain_radius;
+    if let Some(p) = &sec.place {
+        return Some([p.x0 - r, p.z0 - r, p.x1 + r, p.z1 + r]);
+    }
+    let pts = sec.points(track);
     let mut b = [
         f64::INFINITY,
         f64::INFINITY,

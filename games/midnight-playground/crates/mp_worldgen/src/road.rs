@@ -395,8 +395,7 @@ impl RoadCtx<'_> {
     /// The parts of `[a, b]` this build makes.
     fn pieces(&self, a: f64, b: f64) -> Vec<[f64; 2]> {
         match &self.clip {
-            Some(sec) if sec.road != self.road => Vec::new(),
-            Some(sec) => sec.clip(self.track, a, b),
+            Some(sec) => sec.clip_road(self.road, self.track, a, b),
             None => vec![[a, b]],
         }
     }
@@ -449,9 +448,7 @@ impl RoadCtx<'_> {
     /// Whether the metre ending at `s` is this build's.
     fn wants(&self, s: f64) -> bool {
         match &self.clip {
-            Some(sec) if sec.road != self.road => false,
-            Some(sec) if sec.partition => sec.holds_on(self.track, s - 0.5),
-            Some(sec) => sec.holds_within(self.track, s - 0.5, sec.scenery_radius),
+            Some(sec) => sec.holds_road(self.road, self.track, s - 0.5, sec.scenery_radius),
             None => true,
         }
     }

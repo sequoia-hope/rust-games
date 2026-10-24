@@ -81,6 +81,7 @@ fn level() -> Level {
         cover: None,
         open: true,
         branches,
+        stream_cell: None,
         sea_y: None,
         zones: vec![Zone {
             key: "coast",

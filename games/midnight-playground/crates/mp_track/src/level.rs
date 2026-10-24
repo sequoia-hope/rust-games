@@ -375,6 +375,11 @@ pub struct Level {
     /// Roads leaving this one at junctions (an open level's road network,
     /// docs/vision/peninsula.md, stage 3).
     pub branches: Vec<Branch>,
+    /// Stream the level by place, in squares this many metres on a side,
+    /// rather than by stretches of each road (docs/vision/peninsula.md,
+    /// stage 6d): a city's crossing streets are near each other wherever
+    /// they run. `None` streams by road.
+    pub stream_cell: Option<f64>,
     pub sea_y: Option<f64>,
     pub zones: Vec<Zone>,
     pub sky: Vec<SkyKey>,
