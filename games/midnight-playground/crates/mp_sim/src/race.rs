@@ -1240,6 +1240,10 @@ pub fn step(
             0.0,
             dist,
             trail_s,
+            {
+                let v = &st.players[lead].v;
+                (v.road, v.x, v.z)
+            },
             &mut st.rng.traffic,
         );
     }

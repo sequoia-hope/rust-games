@@ -9,8 +9,8 @@
 //! The far-model switch (`farLod`) is presentation and lives in the client.
 
 use mp_levels::world::OppositeCarriageway;
-use mp_track::{Frame, Level, ROAD_TYPES, Track, TrafficRule};
-use pk_math::{Rng, clamp, js, rpick, rrange, stop_speed};
+use mp_track::{Frame, JunctionKind, Level, ROAD_TYPES, Track, TrafficRule};
+use pk_math::{Rng, clamp, js, kernel, rpick, rrange, stop_speed};
 
 use crate::body::{AgentView, Body};
 use crate::dims::dims;
@@ -229,9 +229,15 @@ impl Traffic {
 
     /// Put a car somewhere ahead of the player that suits the zone.
     pub fn spawn(&mut self, t: &Track, s_raw: f64, rng: &mut dyn Rng) -> bool {
+        self.spawn_on(t, 0, s_raw, rng)
+    }
+
+    /// [`Traffic::spawn`] on road `road` of the network (stage 6g).
+    pub fn spawn_on(&mut self, net: &Track, road: usize, s_raw: f64, rng: &mut dyn Rng) -> bool {
+        let t = net.road(road);
         let s = t.wrap(s_raw);
         let f = t.frame(s);
-        if !t.is_loop && (s < t.start_s + 250.0 || s > t.finish_s + 100.0) {
+        if road == 0 && !t.is_loop && (s < t.start_s + 250.0 || s > t.finish_s + 100.0) {
             return false;
         }
         let Some(rule) = self.rules.get(f.zone as usize).cloned() else {
@@ -265,12 +271,17 @@ impl Traffic {
         }
         let (lat, lane) = self.lane_for(t, dir, &f, s, rng);
         for o in &self.cars {
-            if o.active && t.ds(o.k.s, s).abs() < 25.0 && (o.k.lat - lat).abs() < 3.0 {
+            if o.active
+                && o.k.road == road
+                && t.ds(o.k.s, s).abs() < 25.0
+                && (o.k.lat - lat).abs() < 3.0
+            {
                 return false;
             }
         }
         activate(&mut self.cars[ci], s, lat, dir);
         let car = &mut self.cars[ci];
+        car.k.road = road;
         car.lane = Some(lane);
         let [a, b] = rule.speed;
         car.cruise = if kind == "tractor" {
@@ -284,6 +295,90 @@ impl Traffic {
             car.cruise += (3 - lane) as f64 * 1.6; // left lanes faster
         }
         car.k.speed = car.cruise;
+        car.k.write_pos(net);
+        true
+    }
+
+    /// Off the level's road (stage 6g): a car on one of the roads near
+    /// the player, between [`NET_NEAR`] and [`NET_FAR`] from them, ahead
+    /// or behind along its road.
+    fn spawn_near(&mut self, t: &Track, px: f64, pz: f64, rng: &mut dyn Rng) -> bool {
+        let roads = t.net.roads_near(px, pz, NET_FAR);
+        if roads.is_empty() {
+            return false;
+        }
+        let r = roads[((rng.next_f64() * roads.len() as f64) as usize).min(roads.len() - 1)];
+        let rt = t.road(r);
+        let Some(s0) = rt.distance_to_road(px, pz, NET_FAR).s else {
+            return false;
+        };
+        let d =
+            rrange(rng, NET_NEAR, NET_FAR - 100.0) * if rng.next_f64() < 0.5 { -1.0 } else { 1.0 };
+        let s = s0 + d;
+        if !rt.is_loop && (s < 5.0 || s > rt.length - 5.0) {
+            return false;
+        }
+        let f = rt.frame(rt.wrap(s));
+        let away = kernel::hypot(f.x - px, f.z - pz);
+        if !(NET_NEAR - 30.0..=NET_FAR).contains(&away) {
+            return false;
+        }
+        self.spawn_on(t, r, s, rng)
+    }
+
+    /// A car at the end of a road of the network carries on onto the road
+    /// it meets there, the way it was heading, in one of that road's lanes;
+    /// at an end that meets nothing it goes. Returns whether it is still
+    /// on the road.
+    fn carry_on(&mut self, t: &Track, ci: usize, rng: &mut dyn Rng) -> bool {
+        let (road, s, dir) = {
+            let k = &self.cars[ci].k;
+            (k.road, k.s, k.dir)
+        };
+        let rt = t.road(road);
+        if road == 0 || rt.is_loop {
+            return true;
+        }
+        let kind = if dir > 0 && s >= rt.length - 1.5 {
+            JunctionKind::End
+        } else if dir < 0 && s <= 1.5 {
+            JunctionKind::Start
+        } else {
+            return true;
+        };
+        let Some(j) = t
+            .junctions
+            .iter()
+            .find(|j| j.road == road && j.kind == kind)
+            .copied()
+        else {
+            self.despawn(ci);
+            return false;
+        };
+        let f = rt.frame(s.clamp(0.0, rt.length));
+        let (hx, hz) = (f.fx * dir as f64, f.fz * dir as f64);
+        let ot = t.road(j.other);
+        let of = ot.frame(j.other_s);
+        let nd = if of.fx * hx + of.fz * hz >= 0.0 {
+            1
+        } else {
+            -1
+        };
+        // Onto the very end of the other road, heading off it (two roads
+        // meeting end to end, the wrong way): nowhere to go.
+        let ns = ot.wrap(j.other_s + 2.0 * nd as f64);
+        if !ot.is_loop && ((nd > 0 && ns >= ot.length - 1.5) || (nd < 0 && ns <= 1.5)) {
+            self.despawn(ci);
+            return false;
+        }
+        let (lat, lane) = self.lane_for(ot, nd, &of, j.other_s, rng);
+        let car = &mut self.cars[ci];
+        car.k.road = j.other;
+        car.k.s = ns;
+        car.k.dir = nd;
+        car.k.lat = lat;
+        car.lane_lat = lat;
+        car.lane = Some(lane);
         car.k.write_pos(t);
         true
     }
@@ -325,6 +420,7 @@ impl Traffic {
         }
         activate(&mut self.cars[ci], s, lat, -1);
         let car = &mut self.cars[ci];
+        car.k.road = 0;
         car.k.surface = Surface::Opposite;
         car.cruise = rrange(rng, 22.0, 31.0);
         car.k.speed = car.cruise;
@@ -351,12 +447,26 @@ impl Traffic {
         _night: f64,
         player_dist: f64,
         trail_s: f64,
+        player: (usize, f64, f64),
         rng: &mut dyn Rng,
     ) {
+        // Off the level's road (an open level's network, stage 6g) the
+        // traffic is round the player wherever they are.
+        let off = player.0 != 0 && !t.branches.is_empty();
+        let (px, pz) = (player.1, player.2);
         let mut n = 0;
         for i in 0..self.cars.len() {
             let c = &self.cars[i];
             if !c.active {
+                continue;
+            }
+            if off || c.k.road != 0 {
+                let d = kernel::hypot(c.k.v.x - px, c.k.v.z - pz);
+                if d > NET_FAR + 250.0 || c.crashed > 25.0 {
+                    self.despawn(i);
+                } else if !c.opposite {
+                    n += 1;
+                }
                 continue;
             }
             let ds = t.ds(player_s, c.k.s);
@@ -377,12 +487,21 @@ impl Traffic {
                 n += 1;
             }
         }
+        if off {
+            let mut tries = 0;
+            while n < self.max_active && tries < 4 {
+                tries += 1;
+                if self.spawn_near(t, px, pz, rng) {
+                    n += 1;
+                }
+            }
+        }
         // Keep the road ahead populated.
-        if self.next_spawn_s < player_dist + 350.0 {
+        if !off && self.next_spawn_s < player_dist + 350.0 {
             self.next_spawn_s = player_dist + 350.0 + rng.next_f64() * 200.0;
         }
         let mut tries = 0;
-        while n < self.max_active && self.next_spawn_s < player_dist + 1100.0 && {
+        while !off && n < self.max_active && self.next_spawn_s < player_dist + 1100.0 && {
             tries += 1;
             tries - 1 < 6
         } {
@@ -392,7 +511,7 @@ impl Traffic {
             }
             self.next_spawn_s += rrange(rng, gap[0], gap[1]);
         }
-        if !self.opp_pool.is_empty() {
+        if !off && !self.opp_pool.is_empty() {
             if self.next_opp_s < player_dist + 500.0 {
                 self.next_opp_s = player_dist + 500.0 + rng.next_f64() * 200.0;
             }
@@ -409,6 +528,7 @@ impl Traffic {
                 continue;
             }
             self.cars[ci].k.frame(t);
+            let rt = t.road(self.cars[ci].k.road);
             if self.cars[ci].crashed > 0.0 {
                 let c = &mut self.cars[ci];
                 c.crashed += dt;
@@ -424,7 +544,10 @@ impl Traffic {
                         Agent::Traffic(j) => self.cars[*j].view(),
                         Agent::Other(v) => *v,
                     };
-                    let ds = t.ds(c.k.s, o.s) * c.k.dir as f64;
+                    if o.road != c.k.road {
+                        continue;
+                    }
+                    let ds = rt.ds(c.k.s, o.s) * c.k.dir as f64;
                     if ds > 0.0 && ds < 35.0 && (o.lat - c.k.lat).abs() < 2.4 {
                         let ov = if o.dir == c.k.dir { o.speed_along } else { 0.0 };
                         v_t = js::min(v_t, ov + (ds - 10.0) * 0.4);
@@ -432,7 +555,7 @@ impl Traffic {
                 }
                 // The road runs out past the finish: pull up short of its end,
                 // ahead of where the racers park.
-                if !t.is_loop && c.k.dir > 0 {
+                if c.k.road == 0 && !t.is_loop && c.k.dir > 0 {
                     v_t = js::min(v_t, stop_speed(t.road_end() - 200.0 - c.k.s, 2.5));
                 }
                 v_t = js::max(0.0, v_t);
@@ -442,7 +565,7 @@ impl Traffic {
                 // narrows under the car (the open world's loop: four lanes
                 // through Half Moon Bay, two over the hill) the lane is
                 // pulled onto the tarmac that is there (D1212).
-                let lim = f64::from(t.hw[t.idx(c.k.s)]) - c.k.half_w() - 0.2;
+                let lim = f64::from(rt.hw[rt.idx(c.k.s)]) - c.k.half_w() - 0.2;
                 let lane = clamp(c.lane_lat, -lim, lim);
                 let la = clamp((lane - c.k.lat) * 1.5 - c.k.lat_vel * 2.0, -3.0, 3.0);
                 c.k.lat_vel += la * dt;
@@ -453,9 +576,17 @@ impl Traffic {
             let c = &mut self.cars[ci];
             c.k.v.brake_light = if c.k.speed < c.cruise - 2.0 { 1.0 } else { 0.0 };
             c.k.advance(t, dt);
+            if c.k.road != 0 {
+                self.carry_on(t, ci, rng);
+            }
         }
     }
 }
+
+/// Off the level's road, how near the player traffic may appear (out of
+/// sight round them) and how far it reaches (stage 6g).
+pub const NET_NEAR: f64 = 260.0;
+pub const NET_FAR: f64 = 900.0;
 
 pub fn activate(car: &mut TrafficCar, s: f64, lat: f64, dir: i32) {
     car.active = true;
