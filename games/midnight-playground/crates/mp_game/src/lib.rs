@@ -407,8 +407,9 @@ pub fn fly_system(
     }
     // `Math.min(frameDt, 1 / 20)` (main.js tick). The camera holds still
     // while the warm-up compiles behind the loading screen, as the JS game
-    // starts flying only once it is loaded.
-    let dt = if status.ready {
+    // starts flying only once it is loaded, and while the menu's other
+    // sections are prepared (`preview::holding`).
+    let dt = if status.ready && !preview::holding() {
         f64::from(time.delta_secs()).min(1.0 / 20.0)
     } else {
         0.0
