@@ -332,12 +332,14 @@ pub struct Terrain {
     /// restricts `build_fields` and `resolve_flattens` to the region the
     /// section's tiles can sample while keeping full-level grid coordinates.
     pub clip_bounds: Option<[f64; 4]>,
-    far: FarField,
-    near_tiles: Vec<NearTile>,
+    // The fields are shared by the terrain's clones (every streamed
+    // section clones the planned terrain) and copied only if changed.
+    far: Arc<FarField>,
+    near_tiles: Arc<Vec<NearTile>>,
     /// "tx,tz" → index in `near_tiles` (only looked up, never iterated).
-    near_index: BTreeMap<(i64, i64), usize>,
+    near_index: Arc<BTreeMap<(i64, i64), usize>>,
     /// The same as a dense grid over the tiles' range, for `height_at`.
-    near_grid: NearGrid,
+    near_grid: Arc<NearGrid>,
     open: Option<Vec<Open>>,
     cw: Option<CanyonWidths>,
 }
@@ -446,10 +448,10 @@ impl Terrain {
             open_level: level.open,
             ground_color: None,
             clip_bounds: None,
-            far: FarField::default(),
-            near_tiles: Vec::new(),
-            near_index: BTreeMap::new(),
-            near_grid: NearGrid::default(),
+            far: Arc::default(),
+            near_tiles: Arc::default(),
+            near_index: Arc::default(),
+            near_grid: Arc::default(),
             open: None,
             cw: None,
         })
@@ -840,7 +842,7 @@ impl Terrain {
                 fd[k] = f64::from(fd[k]).sqrt() as f32;
             }
         }
-        self.far = FarField {
+        self.far = Arc::new(FarField {
             fw,
             fh,
             fd,
@@ -850,7 +852,7 @@ impl Terrain {
             flat,
             fopen: None,
             fzone,
-        };
+        });
         if self.forms.contains(&Form::Mountain) {
             self.open_field(t);
         }
@@ -859,8 +861,8 @@ impl Terrain {
         }
 
         // Near field: sparse 256 m tiles of 4 m nodes.
-        self.near_tiles.clear();
-        self.near_index.clear();
+        self.near_tiles = Arc::default();
+        self.near_index = Arc::default();
         // Circuits: the flat run-off reaches the barriers on each side.
         let corridor = self.lf.iter().all(|f| f.corridor);
         for road in t.roads() {
@@ -945,7 +947,7 @@ impl Terrain {
                     continue;
                 }
                 let ti = self.near_tile_for(nx, nz);
-                let tile = &mut self.near_tiles[ti];
+                let tile = &mut Arc::make_mut(&mut self.near_tiles)[ti];
                 let li = ((nz - tile.oz) * (NT + 1) + (nx - tile.ox)) as usize;
                 let k = 1.0 - kernel::pow(smoothstep(rs, rs + band, d), k_pow);
                 // Run-off: the track's own surface out to the barriers. Where the
@@ -1000,7 +1002,7 @@ impl Terrain {
             return k;
         }
         let n = ((NT + 1) * (NT + 1)) as usize;
-        self.near_tiles.push(NearTile {
+        Arc::make_mut(&mut self.near_tiles).push(NearTile {
             tx,
             tz,
             ox: tx * NT,
@@ -1012,7 +1014,7 @@ impl Terrain {
             s: vec![0.0; n],
         });
         let k = self.near_tiles.len() - 1;
-        self.near_index.insert((tx, tz), k);
+        Arc::make_mut(&mut self.near_index).insert((tx, tz), k);
         k
     }
 
@@ -1032,7 +1034,7 @@ impl Terrain {
                 g.cells[((t.tz - tz0) * g.w + (t.tx - tx0)) as usize] = k as u32 + 1;
             }
         }
-        self.near_grid = g;
+        self.near_grid = Arc::new(g);
     }
 
     /// The near tiles in the order they were made.
@@ -1153,7 +1155,7 @@ impl Terrain {
                 self.open_bias(s, side),
             ) as f32;
         }
-        self.far.fopen = Some(fopen);
+        Arc::make_mut(&mut self.far).fopen = Some(fopen);
     }
 
     pub fn form_mountain(&self, x: f64, z: f64, f: &FarSample, detail: f64) -> f64 {
