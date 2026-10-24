@@ -27,6 +27,30 @@
 <h1>MECH WORKS</h1>
 <p class="sub">Dev log: what was built, what was found, what is next. Newest first. Spec: <code>docs/SPEC.md</code>.</p>
 
+<article id="2026-10-23-m5-m6-audio">
+<h2>M5, M6, and Audio: the endless path, eroded hillside, and physics-driven sound</h2>
+<time>2026-10-23, night</time>
+
+<p>All seven milestones in <code>docs/SPEC.md</code> (M0–M6) and the audio design in <code>docs/AUDIO.md</code> are now complete:</p>
+<table>
+<tr><th>Milestone</th><th>What shipped</th></tr>
+<tr><td>M5: Terrain, height scan &amp; Demo 2 (<code>?mode=path</code>)</td><td class="ok">Undulating dirt path with streamed physical obstacles (boulders, fallen tree branches, and crushed car wrecks) that spawn ahead up to +42 m and despawn behind −18 m; 5×3 height scan in the mech's heading frame driving swing-leg clearance reflexes and rendered in the scene and inspector.</td></tr>
+<tr><td>M6: Simulacrum</td><td class="ok">Droplet-based hydraulic erosion and thermal talus slumping on the hillside with alluvial boulder aprons washed out at the toe; planar-chipped convex 3D gravel wrapping around the camera; 3-point sun / sky-hemisphere / warm ground-bounce lighting with dynamic dust storm haze; AMP-inspired cockpit roll-cage struts, radiator cooling fins, dual leg hydraulic pistons, shin trusses, and footpad cleats.</td></tr>
+<tr><td>Audio (<code>mw_audio</code> + <code>music</code>)</td><td class="ok"><code>mw_audio.wasm</code> and <code>music.wasm</code> side-wasms built by <code>xtask</code> with AudioWorklet processors (and main-thread fallback). Physics steps stream from <code>mw_demo</code> into <code>mw_audio</code> for footfalls, gravel slip, 12-joint hydraulic/servo beds, thermal fan/hiss, breaker trip alarm, projectile hull ring, 4-tonne fall crash, hillside wind/dust, and UI clicks, alongside the procedural <code>orchestral</code> score.</td></tr>
+<tr><td>Replay parity &amp; viewer polish</td><td class="ok"><code>deterministic_replay_and_terrain_path_walk</code> in <code>mw_policy/tests/parity.rs</code>; UI sliders follow staged commands and keys; training viewer lists and charts estimator DAgger runs alongside policy runs.</td></tr>
+</table>
+
+<h3>M5: Endless path &amp; 5×3 height scan</h3>
+<p>In <code>?mode=path</code> (Demo 2: Endless path), <code>Terrain::path</code> generates a continuous undulating heightfield with a worn wheel-rut track and streams physical obstacles ahead of the mech as it walks along +X. Each obstacle is a fixed beveled collider in Rapier and a detailed visual assembly in Bevy: faceted boulder clusters, fallen logs with broken limbs, and rusted car wrecks with crumpled hoods, tilted roofs, and half-buried wheels. Around the support foot, <code>Terrain::scan</code> samples a 5×3 grid in the mech's heading frame (−0.35 m to +1.25 m ahead, −0.50 m to +0.50 m across). Keeping <code>OBS = 96</code> preserves full compatibility with <code>teacher-v3</code> and <code>estimator-v3</code> while <code>Env::apply_height_scan_reflex</code> raises hip and knee swing clearance when the scan detects obstacles ahead.</p>
+<img src="img/2026-10-23-m5-path.jpg" alt="The mech walking along the endless dirt path past a boulder, a crushed car wreck, and a fallen branch, with the 5x3 height scan dots and alluvial hillside behind it">
+<p class="cap">Demo 2 (<code>--mode path</code>): the 5×3 height scan dots ahead of the feet, a boulder slab, a rusted car wreck, and a fallen branch on the dirt path, with the alluvial boulder fan along the toe of the eroded hillside.</p>
+
+<h3>M6: The simulacrum</h3>
+<p>The hillside now runs 12,000 rain-droplet hydraulic erosion traces and three passes of thermal talus slumping over its layered ridge noise, carving drainage gullies that expose dark grey-blue bedrock on steep scarps and deposit tan sediment fans at the toe of the slope. Where sediment accumulates, clusters of planar-chipped convex boulders settle out onto the lot edge, joined by 240 smaller 3D chipped stones that wrap seamlessly around the camera focus. The mech's silhouette adds forward roll-cage A-pillar struts and an overhead cross-bar around the canopy, rear radiator fins, a pelvic hydraulic accumulator, dual hydraulic cylinders on thighs and shins, outer shin trusses, and toe/heel cleats.</p>
+<img src="img/2026-10-23-m6-simulacrum.jpg" alt="Close-up of the upgraded AMP-style mech walking past the eroded hillside and alluvial rock fans">
+<p class="cap">The M6 simulacrum close-up: warm low-angle directional sun, cool sky fill, warm ground bounce, AMP-style roll-cage struts and dual leg hydraulics, 3D gravel, and the eroded hillside with its alluvial boulder apron.</p>
+</article>
+
 <article id="2026-10-23-v3">
 <h2>Wider bodies and a side-mounted tool: now knowing the body pays</h2>
 <time>2026-10-23, evening</time>

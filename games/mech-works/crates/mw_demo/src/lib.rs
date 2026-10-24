@@ -49,6 +49,8 @@ pub enum Mode {
     Viewer,
     /// Demo 1: projectiles hit the mech.
     Impact,
+    /// Demo 2: endless dirt path with boulders, branches, and car wrecks (M5).
+    Path,
     /// Demo 3: damage an actuator, watch the limp.
     Damage,
     /// Demo 4: swap a part, watch it calibrate.
@@ -59,6 +61,7 @@ impl Mode {
     pub fn parse(s: &str) -> Self {
         match s {
             "impact" => Self::Impact,
+            "path" | "endless" => Self::Path,
             "damage" => Self::Damage,
             "calibration" => Self::Calibration,
             _ => Self::Viewer,
@@ -71,6 +74,8 @@ impl Mode {
 pub struct Status {
     pub frames: u64,
     pub telemetry: String,
+    /// Batched per-step audio frames since the last display frame, as JSON.
+    pub audio: String,
 }
 
 pub fn app(mode: Mode) -> App {
@@ -134,7 +139,9 @@ fn page_commands(
             Some("range") | Some("fire") => range.apply(&v),
             Some("camera") => orbit.apply(&v),
             Some("mode") => {
-                *mode = Mode::parse(v.get("mode").and_then(|m| m.as_str()).unwrap_or(""))
+                *mode = Mode::parse(v.get("mode").and_then(|m| m.as_str()).unwrap_or(""));
+                // Also pass to lanes so it switches between flat ground and the endless path.
+                rest.push(line);
             }
             _ => rest.push(line),
         }

@@ -146,59 +146,98 @@ fn parts(link: usize, shape: &LinkShape) -> Vec<Part> {
                 ),
                 plate([0.08, 0.5 * l, 0.26], Dark, Vec3::new(0.25, -0.42 * l, 0.0))
                     .rot(Quat::from_rotation_z(0.06)),
-                // The knee actuator's piston up the back of the thigh.
+                // The knee actuator's dual hydraulic pistons up the back of the thigh.
                 part(
-                    Cylinder::new(0.065, 0.55 * l),
+                    Cylinder::new(0.055, 0.58 * l),
                     Chrome,
-                    Vec3::new(-0.24, -0.5 * l, 0.0),
+                    Vec3::new(-0.24, -0.52 * l, -0.09),
                 ),
                 part(
-                    Cylinder::new(0.09, 0.3 * l),
-                    Dark,
-                    Vec3::new(-0.24, -0.25 * l, 0.0),
+                    Cylinder::new(0.055, 0.58 * l),
+                    Chrome,
+                    Vec3::new(-0.24, -0.52 * l, 0.09),
                 ),
-                drum_z(0.2, 0.38, Joint, Vec3::new(0.0, -l, 0.0)),
+                part(
+                    Cylinder::new(0.08, 0.32 * l),
+                    Dark,
+                    Vec3::new(-0.24, -0.25 * l, -0.09),
+                ),
+                part(
+                    Cylinder::new(0.08, 0.32 * l),
+                    Dark,
+                    Vec3::new(-0.24, -0.25 * l, 0.09),
+                ),
+                // Outboard hydraulic manifold block & clevis ear at the knee.
+                plate(
+                    [0.18, 0.14, 0.05],
+                    Chrome,
+                    Vec3::new(-0.08, -0.18 * l, side * 0.25),
+                ),
+                drum_z(0.21, 0.40, Joint, Vec3::new(0.0, -l, 0.0)),
+                drum_z(0.14, 0.44, Chrome, Vec3::new(0.0, -l, 0.0)),
             ]
         }
         3 => {
             let l = length(shape);
             vec![
                 // Knee cap and shin guard in front, the frame behind.
-                plate([0.24, 0.3, 0.3], Accent, Vec3::new(0.16, -0.05, 0.0))
+                plate([0.24, 0.3, 0.32], Accent, Vec3::new(0.16, -0.05, 0.0))
                     .rot(Quat::from_rotation_z(-0.3)),
                 plate(
-                    [0.12, 0.7 * l, 0.28],
+                    [0.12, 0.72 * l, 0.29],
                     Accent,
                     Vec3::new(0.15, -0.5 * l, 0.0),
                 )
                 .rot(Quat::from_rotation_z(-0.04)),
                 plate([0.26, 0.85 * l, 0.26], Hull, Vec3::new(0.0, -0.5 * l, 0.0)),
+                // Side structural truss bars along the shin.
+                plate(
+                    [0.08, 0.65 * l, 0.32],
+                    Joint,
+                    Vec3::new(-0.04, -0.48 * l, 0.0),
+                ),
+                // Dual ankle-actuator hydraulic pistons behind the shin.
                 part(
-                    Cylinder::new(0.055, 0.5 * l),
+                    Cylinder::new(0.048, 0.52 * l),
                     Chrome,
-                    Vec3::new(-0.17, -0.55 * l, 0.0),
+                    Vec3::new(-0.17, -0.56 * l, -0.07),
                 ),
                 part(
-                    Cylinder::new(0.08, 0.25 * l),
+                    Cylinder::new(0.048, 0.52 * l),
+                    Chrome,
+                    Vec3::new(-0.17, -0.56 * l, 0.07),
+                ),
+                part(
+                    Cylinder::new(0.072, 0.26 * l),
                     Dark,
-                    Vec3::new(-0.17, -0.3 * l, 0.0),
+                    Vec3::new(-0.17, -0.3 * l, -0.07),
+                ),
+                part(
+                    Cylinder::new(0.072, 0.26 * l),
+                    Dark,
+                    Vec3::new(-0.17, -0.3 * l, 0.07),
                 ),
             ]
         }
-        // Ankle: a pitch drum.
-        4 => vec![drum_z(0.15, 0.34, Joint, Vec3::ZERO)],
+        // Ankle: a pitch drum with chrome clevis caps.
+        4 => vec![
+            drum_z(0.15, 0.34, Joint, Vec3::ZERO),
+            drum_z(0.10, 0.38, Chrome, Vec3::ZERO),
+        ],
         _ => {
             let LinkShape::Cuboid { half, offset } = *shape else {
                 return vec![];
             };
             let o = Vec3::from(offset);
             vec![
-                // The sole as collided, then a toe cap and heel over it.
+                // The sole as collided, then an articulated toe cap, heel spur, and cleats.
                 plate([2.0 * half[0], 2.0 * half[1], 2.0 * half[2]], Dark, o),
                 plate([0.42, 0.12, 0.38], Hull, o + Vec3::new(0.14, 0.1, 0.0))
                     .rot(Quat::from_rotation_z(-0.12)),
                 plate([0.2, 0.16, 0.34], Accent, o + Vec3::new(-0.24, 0.1, 0.0)),
                 plate([0.1, 0.1, 0.42], Joint, o + Vec3::new(0.36, 0.0, 0.0)),
+                plate([0.08, 0.09, 0.42], Joint, o + Vec3::new(-0.34, 0.0, 0.0)),
+                drum_z(0.06, 0.36, Chrome, o + Vec3::new(-0.08, 0.14, 0.0)),
             ]
         }
     }
@@ -250,14 +289,33 @@ fn torso() -> Vec<Part> {
             .rot(Quat::from_rotation_z(-0.45)),
         plate([0.05, 0.08, 0.66], Glow, Vec3::new(0.73, c + 0.82, 0.0))
             .rot(Quat::from_rotation_z(-0.45)),
-        // The reactor pack and its stacks.
+        // The reactor pack, radiator cooling fins, and its stacks.
         plate([0.45, 0.75, 1.0], Dark, Vec3::new(-0.78, c + 0.1, 0.0)),
         plate([0.1, 0.5, 0.8], Joint, Vec3::new(-1.03, c + 0.1, 0.0)),
-        // The skirt over the hips.
+        // The skirt over the hips and pelvic hydraulic accumulator.
         plate([1.0, 0.22, 1.2], Dark, Vec3::new(0.0, -0.02, 0.0)),
         plate([0.18, 0.3, 1.0], Joint, Vec3::new(0.5, 0.0, 0.0)).rot(Quat::from_rotation_z(0.25)),
+        drum_z(0.14, 0.72, Chrome, Vec3::new(-0.18, -0.06, 0.0)),
+        // Overhead cockpit roll-cage cross-bar.
+        drum_z(0.032, 0.86, Chrome, Vec3::new(0.46, c + 1.03, 0.0)),
     ];
+    for k in -2..=2 {
+        v.push(plate(
+            [0.06, 0.035, 0.72],
+            Chrome,
+            Vec3::new(-1.09, c + 0.1 + k as f32 * 0.09, 0.0),
+        ));
+    }
     for z in [-1.0f32, 1.0] {
+        // AMP-style forward canopy roll-cage A-pillar struts.
+        v.push(
+            part(
+                Cylinder::new(0.03, 0.62),
+                Chrome,
+                Vec3::new(0.58, c + 0.72, z * 0.41),
+            )
+            .rot(Quat::from_rotation_z(-0.48)),
+        );
         // Shoulder pods with a stripe, a stack, a lamp.
         v.push(plate(
             [0.95, 0.5, 0.28],

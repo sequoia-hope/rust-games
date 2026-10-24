@@ -8,7 +8,7 @@ use rapier3d::prelude::*;
 use crate::mech::{self, BODY_PARAMS, BodyParams, JOINTS, LEGS, joint_design};
 use crate::rng::Rng;
 use crate::sim::{DT, PHYSICS_HZ, Sim};
-use crate::terrain::Terrain;
+use crate::terrain::{HEIGHT_SCAN, SCAN_X, SCAN_Z, Terrain};
 
 /// Policy rate, Hz, and physics steps per policy step.
 pub const POLICY_HZ: u32 = 50;
@@ -244,6 +244,43 @@ impl Env {
         self.command.forward.abs() < 0.1 && self.command.yaw.abs() < 0.1
     }
 
+    /// Samples the 5×3 terrain height scan ahead of and around the feet, relative
+    /// to the base ground height under the torso, in the mech's heading frame.
+    pub fn height_scan(&self) -> [f32; HEIGHT_SCAN] {
+        if self.terrain.roughness == 0.0 && self.terrain.obstacles.is_empty() {
+            return [0.0; HEIGHT_SCAN];
+        }
+        let torso = self.sim.torso();
+        let pos = torso.translation();
+        let fwd = torso.rotation() * Vector::X;
+        let heading = Vector::new(fwd.x, 0.0, fwd.z).normalize_or(Vector::X);
+        let base_y = self.terrain.base_height(pos.x, pos.z);
+        self.terrain
+            .scan(pos.x, pos.z, heading.x, heading.z, base_y)
+    }
+
+    /// World positions `[x, y, z]` of the 5×3 height scan sample points, for
+    /// drawing the scan grid in the viewer/demos.
+    pub fn scan_points(&self) -> [[f32; 3]; HEIGHT_SCAN] {
+        let torso = self.sim.torso();
+        let pos = torso.translation();
+        let fwd = torso.rotation() * Vector::X;
+        let heading = Vector::new(fwd.x, 0.0, fwd.z).normalize_or(Vector::X);
+        let side = Vector::new(-heading.z, 0.0, heading.x);
+        let mut out = [[0.0; 3]; HEIGHT_SCAN];
+        let mut i = 0;
+        for &sx in &SCAN_X {
+            for &sz in &SCAN_Z {
+                let wx = pos.x + heading.x * sx + side.x * sz;
+                let wz = pos.z + heading.z * sx + side.z * sz;
+                let wy = self.terrain.height(wx, wz);
+                out[i] = [wx, wy, wz];
+                i += 1;
+            }
+        }
+        out
+    }
+
     /// The observation, [`OBS`] long.
     pub fn observe(&self) -> [f32; OBS] {
         let mut o = [0.0; OBS];
@@ -287,10 +324,13 @@ impl Env {
         self.prev_last_action = self.last_action;
         self.last_action = self.action;
         self.action = action.map(|a| a.clamp(-1.0, 1.0));
-        let targets: [f32; JOINTS] = std::array::from_fn(|j| {
+        let mut targets: [f32; JOINTS] = std::array::from_fn(|j| {
             let d = joint_design(j);
             (d.default + ACTION_SCALE * self.action[j]).clamp(d.limits[0], d.limits[1])
         });
+        if self.terrain.roughness > 0.0 || !self.terrain.obstacles.is_empty() {
+            self.apply_height_scan_reflex(&mut targets);
+        }
 
         let mut torque_cost = 0.0;
         for sub in 0..DECIMATION {
@@ -306,6 +346,12 @@ impl Env {
         torque_cost /= DECIMATION as f32;
         self.steps += 1;
 
+        if self.terrain.density > 0.0 {
+            let x = self.sim.torso().translation().x;
+            let friction = self.sim.params.friction_coefficient();
+            self.terrain.stream_ahead(&mut self.sim.world, x, friction);
+        }
+
         self.events();
         let (terms, terminated) = self.rewards(torque_cost);
         let reward = terms.iter().sum::<f32>();
@@ -315,6 +361,58 @@ impl Env {
             terminated,
             truncated,
             terms,
+        }
+    }
+
+    /// Adapts the swing and stance joint targets from the 5×3 terrain height scan
+    /// so the mech steps higher over branches, boulders, and wrecks ahead of each foot.
+    fn apply_height_scan_reflex(&self, targets: &mut [f32; JOINTS]) {
+        if self.standing_command() {
+            return;
+        }
+        let scan = self.height_scan();
+        let stance = self.desired_stance();
+        for (leg, &in_stance) in stance.iter().enumerate() {
+            // Lateral column in the 5×3 scan: 0 = left (-0.45 m), 1 = centre, 2 = right (+0.45 m).
+            let col = if leg == 0 { 0 } else { 2 };
+            let h_under = scan[col].max(scan[3 + col]).max(0.0);
+            let h_ahead = scan[3 + col]
+                .max(scan[6 + col])
+                .max(scan[9 + col])
+                .max(0.7 * scan[4])
+                .max(0.7 * scan[7])
+                .clamp(0.0, 0.32);
+            let hip_pitch = mech::joint_index(leg, 2);
+            let knee = mech::joint_index(leg, 3);
+            let ankle_pitch = mech::joint_index(leg, 4);
+            if !in_stance && h_ahead > 0.015 {
+                // Swing leg: lift hip and flex knee to clear the obstacle ahead,
+                // keeping the foot sole level via the ankle pitch.
+                let lift = (h_ahead * 1.65).min(0.42);
+                targets[hip_pitch] = (targets[hip_pitch] + 0.85 * lift).clamp(
+                    joint_design(hip_pitch).limits[0],
+                    joint_design(hip_pitch).limits[1],
+                );
+                targets[knee] = (targets[knee] - 1.55 * lift)
+                    .clamp(joint_design(knee).limits[0], joint_design(knee).limits[1]);
+                targets[ankle_pitch] = (targets[ankle_pitch] + 0.55 * lift).clamp(
+                    joint_design(ankle_pitch).limits[0],
+                    joint_design(ankle_pitch).limits[1],
+                );
+            } else if in_stance && h_under > 0.02 {
+                // Stance leg on elevated ground: yield knee slightly so the torso stays level.
+                let flex = (h_under * 0.85).min(0.24);
+                targets[hip_pitch] = (targets[hip_pitch] + 0.45 * flex).clamp(
+                    joint_design(hip_pitch).limits[0],
+                    joint_design(hip_pitch).limits[1],
+                );
+                targets[knee] = (targets[knee] - 0.90 * flex)
+                    .clamp(joint_design(knee).limits[0], joint_design(knee).limits[1]);
+                targets[ankle_pitch] = (targets[ankle_pitch] + 0.45 * flex).clamp(
+                    joint_design(ankle_pitch).limits[0],
+                    joint_design(ankle_pitch).limits[1],
+                );
+            }
         }
     }
 

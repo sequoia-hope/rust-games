@@ -174,7 +174,9 @@ def main():
     for q in teacher.parameters():
         q.requires_grad_(False)
     level = st["level"] if a.level is None else a.level
-    from train import curriculum
+    from train import curriculum, register_run
+
+    register_run(root, a.run)
 
     est = Estimator(P, teacher.encoder[-2].out_features, B).to(dev)
     opt = torch.optim.Adam(est.parameters(), lr=a.lr)
@@ -191,6 +193,7 @@ def main():
 
     metrics_f = open(out / "metrics.jsonl", "a")
     index = []
+    last_fall_rate = 0.0
     steps, t_start = 0, time.time()
     acc = {"z": 0.0, "zvar": 0.0, "p": 0.0, "groups": np.zeros(len(GROUPS)), "n": 0, "falls": 0, "ends": 0, "s_falls": 0, "s_ends": 0, "track": 0.0}
     test_hist = None
@@ -266,6 +269,7 @@ def main():
                 "fps": a.log_every * n / (time.time() - t_log) if it > a.log_every else None,
             }
             t_log = time.time()
+            last_fall_rate = m["fall_rate"]
             metrics_f.write(json.dumps(m) + "\n")
             metrics_f.flush()
             sfr = m["student_fall_rate"]
@@ -283,7 +287,7 @@ def main():
             export(est, teacher.norm.cpu(), out / name, meta={"teacher": a.teacher, "steps": steps}, test_hist=test_hist)
             teacher.norm.to(dev)
             est.to(dev).train()
-            index.append({"file": name, "steps": steps})
+            index.append({"file": name, "steps": steps, "fall_rate": round(last_fall_rate, 3)})
             (out / "index.json").write_text(json.dumps({"run": a.run, "teacher": a.teacher, "estimators": index}, indent=1))
             torch.save({"model": est.state_dict(), "opt": opt.state_dict(), "steps": steps}, out / "model.pt")
 
