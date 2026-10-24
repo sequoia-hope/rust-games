@@ -170,24 +170,33 @@ pub mod dims {
 /// policy sees this vector (or the estimator's guess at it).
 #[derive(Clone, Debug, PartialEq)]
 pub struct BodyParams {
-    /// Torso mass, ±30%.
+    /// Torso mass, ±50%.
     pub torso_mass: f32,
-    /// The torso's centre of mass offset, ±0.2 m forward, ±0.2 m up, ±0.15 m right.
+    /// The torso's centre of mass offset, ±0.35 m forward, ±0.3 m up, ±0.25 m right.
     pub com: [f32; 3],
-    /// Each leg's thigh and shin length, ±10%.
+    /// Each leg's thigh and shin length, ±15%.
     pub leg_scale: [f32; LEGS],
     /// Each actuator's health: 1 is sound, -1 is 20% of its torque.
     pub health: [f32; JOINTS],
     /// Each driver's strength: 1 never faults, -1 faults at 0.6× its limit.
     pub driver: [f32; JOINTS],
-    /// Ground friction, 0.4 to 1.2 (randomized only).
+    /// Ground friction, 0.3 to 1.2 (randomized only).
     pub friction: f32,
     /// Control latency, 0 to 20 ms (randomized only).
     pub latency: f32,
+    /// A tool bolted to the hull: its mass, -1 none to 1 [`TOOL_MAX_KG`];
+    /// where it is across the mech, -1 at the left side (1 m out) to 1 at the
+    /// right; and along it, -1 0.4 m behind the hull's centre to 1 0.6 m
+    /// ahead. A heavy tool on one side is the body the policy most has to
+    /// know about: it pulls the centre of mass over a foot.
+    pub tool: [f32; 3],
 }
 
+/// The heaviest tool, kg.
+pub const TOOL_MAX_KG: f32 = 900.0;
+
 /// Length of [`BodyParams::to_vec`].
-pub const BODY_PARAMS: usize = 1 + 3 + LEGS + JOINTS + JOINTS + 2;
+pub const BODY_PARAMS: usize = 1 + 3 + LEGS + JOINTS + JOINTS + 2 + 3;
 
 impl Default for BodyParams {
     fn default() -> Self {
@@ -199,6 +208,7 @@ impl Default for BodyParams {
             driver: [1.0; JOINTS],
             friction: 0.0,
             latency: -1.0,
+            tool: [-1.0, 0.0, 0.0],
         }
     }
 }
@@ -218,6 +228,7 @@ impl BodyParams {
         self.driver.iter().for_each(|&x| put(x));
         put(self.friction);
         put(self.latency);
+        self.tool.iter().for_each(|&x| put(x));
         v
     }
 
@@ -238,6 +249,7 @@ impl BodyParams {
             driver,
             friction: next(),
             latency: next(),
+            tool: [next(), next(), next()],
         }
     }
 
@@ -249,15 +261,15 @@ impl BodyParams {
     }
 
     pub fn torso_mass_kg(&self) -> f32 {
-        dims::TORSO_MASS * (1.0 + 0.3 * self.torso_mass)
+        dims::TORSO_MASS * (1.0 + 0.5 * self.torso_mass)
     }
 
     pub fn com_offset_m(&self) -> [f32; 3] {
-        [0.2 * self.com[0], 0.2 * self.com[1], 0.15 * self.com[2]]
+        [0.35 * self.com[0], 0.3 * self.com[1], 0.25 * self.com[2]]
     }
 
     pub fn leg_scale_factor(&self, leg: usize) -> f32 {
-        1.0 + 0.1 * self.leg_scale[leg]
+        1.0 + 0.15 * self.leg_scale[leg]
     }
 
     /// Health as the fraction of torque left, 0.2 to 1.
@@ -275,7 +287,21 @@ impl BodyParams {
     }
 
     pub fn friction_coefficient(&self) -> f32 {
-        0.8 + 0.4 * self.friction
+        0.75 + 0.45 * self.friction
+    }
+
+    /// The tool's mass, kg (0 without one).
+    pub fn tool_kg(&self) -> f32 {
+        0.5 * (self.tool[0] + 1.0) * TOOL_MAX_KG
+    }
+
+    /// Where the tool's centre is in the torso's frame, m.
+    pub fn tool_position_m(&self) -> [f32; 3] {
+        [
+            0.1 + 0.5 * self.tool[2],
+            dims::TORSO_CENTRE_Y + 0.25,
+            1.0 * self.tool[1],
+        ]
     }
 
     /// Control latency in seconds.

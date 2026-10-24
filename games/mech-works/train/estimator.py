@@ -39,7 +39,7 @@ EMBED = 32
 CONVS = ((32, 8, 4), (32, 5, 1), (32, 5, 1))
 
 # The body parameter groups, for the logs (BodyParams::to_vec order).
-GROUPS = {"torso_mass": (0, 1), "com": (1, 4), "leg_scale": (4, 6), "health": (6, 18), "driver": (18, 30), "friction": (30, 31), "latency": (31, 32)}
+GROUPS = {"torso_mass": (0, 1), "com": (1, 4), "leg_scale": (4, 6), "health": (6, 18), "driver": (18, 30), "friction": (30, 31), "latency": (31, 32), "tool": (32, 35)}
 
 
 class Estimator(nn.Module):
@@ -238,7 +238,7 @@ def main():
             acc["falls"] += int(term.sum())
             acc["s_ends"] += int((done & stu).sum())
             acc["s_falls"] += int((term & stu).sum())
-            acc["track"] += float(terms[:, 0].mean()) / (1.5 / mw_sim_py.POLICY_HZ)
+            acc["track"] += float(terms[:, 0].mean()) / (2.0 / mw_sim_py.POLICY_HZ)
         steps += n
         it += 1
         if a.mix_every and it % a.mix_every == 0:

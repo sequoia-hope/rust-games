@@ -45,7 +45,7 @@ def parse():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--curriculum", action="store_true", help="widen randomization as the walk improves")
     p.add_argument("--max-level", type=float, default=1.0)
-    p.add_argument("--level", type=float, default=0.0, help="starting curriculum level")
+    p.add_argument("--level", type=float, default=None, help="starting curriculum level (default 0, or the --init run's)")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--init", help="start from this run's weights and curriculum level (a fine-tune)")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -57,6 +57,30 @@ def curriculum(level):
     the body, then pushes, then damage."""
     ramp = lambda a, b: float(np.clip((level - a) / (b - a), 0.0, 1.0))
     return dict(speed=0.3 + 0.7 * ramp(0.0, 0.3), body=ramp(0.1, 0.6), pushes=ramp(0.3, 0.8), damage=ramp(0.5, 1.0))
+
+
+@torch.no_grad()
+def load_grown(model, state):
+    """Loads `state` into `model` where the body vector has grown since:
+    a weight whose input is wider gets the old columns and zeros for the new
+    inputs (the new parameters start out ignored), and the normalization
+    keeps its old entries. Returns what grew."""
+    grown = []
+    own = model.state_dict()
+    for k, v in state.items():
+        w = own[k]
+        if w.shape == v.shape:
+            w.copy_(v)
+        elif w.dim() == 2 and w.shape[0] == v.shape[0] and w.shape[1] > v.shape[1]:
+            w.zero_()
+            w[:, : v.shape[1]] = v
+            grown.append(k)
+        elif w.dim() == 1 and w.shape[0] > v.shape[0] and k.startswith("norm."):
+            w[: v.shape[0]] = v
+            grown.append(k)
+        else:
+            raise ValueError(f"init: {k} is {tuple(v.shape)}, the model's {tuple(w.shape)}")
+    return grown
 
 
 def register_run(root, run):
@@ -77,7 +101,7 @@ def main():
 
     env = mw_sim_py.VecEnv(a.envs, seed=a.seed)
     terms_names = list(mw_sim_py.VecEnv.reward_terms)
-    level = a.level
+    level = a.level or 0.0
     env.set_curriculum(**curriculum(level))
     model = Teacher(mw_sim_py.PROPRIO, mw_sim_py.BODY_PARAMS, mw_sim_py.JOINTS).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
@@ -93,8 +117,10 @@ def main():
         env.set_curriculum(**curriculum(level))
     elif a.init:
         st = torch.load(HERE.parent / "checkpoints" / a.init / "model.pt", map_location=dev)
-        model.load_state_dict(st["model"])
-        level = max(level, st["level"])
+        grown = load_grown(model, st["model"])
+        if grown:
+            print("init: inputs added (zero weights) to " + ", ".join(grown), flush=True)
+        level = st["level"] if a.level is None else a.level
         env.set_curriculum(**curriculum(level))
     (out / "config.json").write_text(json.dumps(vars(a), indent=1))
     register_run(out.parent, a.run)
@@ -216,8 +242,8 @@ def main():
         mean_len = float(np.mean(finished_len)) if finished_len else float("nan")
         fall_rate = falls / max(ends, 1)
         terms_mean = {k: float(v) / (n * T) for k, v in zip(terms_names, term_sums)}
-        # The lin tracking term's best is 1.5 * POLICY_DT per step.
-        track = terms_mean["track_lin"] / (1.5 / mw_sim_py.POLICY_HZ)
+        # The lin tracking term's best is 2.0 * POLICY_DT per step.
+        track = terms_mean["track_lin"] / (2.0 / mw_sim_py.POLICY_HZ)
         window_falls, window_ends = (window_falls + [falls])[-10:], (window_ends + [ends])[-10:]
         window_rate = sum(window_falls) / max(sum(window_ends), 1)
         if a.curriculum and update % 10 == 0 and sum(window_ends) >= 100 and window_rate < 0.15 and track > 0.7 and level < a.max_level:

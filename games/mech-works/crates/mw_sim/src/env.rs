@@ -197,6 +197,11 @@ impl Env {
             latency: -1.0 + 2.0 * c.body * r.f32(),
             ..BodyParams::default()
         };
+        // A tool on the hull more often than not, anywhere on it, up to the
+        // full mass at the full curriculum.
+        if r.f32() < 0.6 * c.body {
+            p.tool = [-1.0 + 2.0 * c.body * r.f32(), r.signed(), r.signed()];
+        }
         // Damage: each actuator has a chance of being worn, by a random amount.
         for j in 0..JOINTS {
             if r.f32() < 0.25 * c.damage {
@@ -423,7 +428,7 @@ impl Env {
 
         let dt = POLICY_DT;
         let terms = [
-            1.5 * (-lin_err / 0.25).exp(),
+            2.0 * (-lin_err / 0.25).exp(),
             0.6 * (-(cmd.yaw - yaw_rate).powi(2) / 0.25).exp(),
             -(v_world.y * v_world.y),
             -0.05 * (w.x * w.x + w.z * w.z),
@@ -432,7 +437,7 @@ impl Env {
             -0.5 * torque_cost,
             -0.15 * action_rate,
             -0.05 * action_jerk,
-            -4e-5 * joint_acc,
+            -3e-5 * joint_acc,
             0.3 * gait,
             -0.2 * slip,
             -2.0 * thermal,
@@ -475,6 +480,28 @@ mod tests {
             assert!(!r.terminated, "fell at step {}", env.steps);
         }
         assert!(env.sim.torso().translation().y > 1.8);
+    }
+
+    #[test]
+    fn a_side_tool_adds_its_mass_and_pulls_the_centre_over() {
+        let bare = Env::new(3);
+        let mut env = Env::new(3);
+        let p = BodyParams {
+            tool: [1.0, 1.0, 0.0],
+            ..BodyParams::default()
+        };
+        env.reset_with(p);
+        let added = env.sim.total_mass() - bare.sim.total_mass();
+        assert!((added - mech::TOOL_MAX_KG).abs() < 1.0, "added {added} kg");
+        // The whole mech's centre of mass moves right (+Z), toward the tool.
+        let com = |e: &Env| e.sim.torso().center_of_mass().z;
+        assert!(
+            com(&env) > com(&bare) + 0.2,
+            "{} vs {}",
+            com(&env),
+            com(&bare)
+        );
+        assert!(env.sim.tool_shape().is_some() && bare.sim.tool_shape().is_none());
     }
 
     #[test]

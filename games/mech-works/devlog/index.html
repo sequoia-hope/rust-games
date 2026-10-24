@@ -27,6 +27,43 @@
 <h1>MECH WORKS</h1>
 <p class="sub">Dev log: what was built, what was found, what is next. Newest first. Spec: <code>docs/SPEC.md</code>.</p>
 
+<article id="2026-10-23-v3">
+<h2>Wider bodies and a side-mounted tool: now knowing the body pays</h2>
+<time>2026-10-23, evening</time>
+
+<p>With <code>teacher-v1</code> and <code>v2</code>, telling the policy the wrong body cost almost nothing, so the estimator had little to recover. The body ranges are now wider, and the mech can carry a tool on its hull:</p>
+<table>
+<tr><th>Parameter</th><th>Was</th><th>Now</th></tr>
+<tr><td>torso mass</td><td>±30%</td><td>±50%</td></tr>
+<tr><td>centre of mass (forward, up, right)</td><td>±0.2, 0.2, 0.15 m</td><td>±0.35, 0.3, 0.25 m</td></tr>
+<tr><td>thigh and shin length</td><td>±10%</td><td>±15%</td></tr>
+<tr><td>ground friction</td><td>0.4 to 1.2</td><td>0.3 to 1.2</td></tr>
+<tr><td>side tool (new)</td><td>none</td><td>up to 900 kg, anywhere from 1 m out on the left to 1 m out on the right, fitted on 60% of episodes at full curriculum</td></tr>
+</table>
+<p>The tool is three more body parameters (mass, across, along), 35 in all. It is a collider with mass on the torso, so it pulls the centre of mass sideways and adds inertia. It is drawn as a pod with a barrel and a brace.</p>
+<img src="img/2026-10-23-tool-parts.jpg" alt="The mech with a gun pod mounted on its right shoulder">
+
+<h3>teacher-v3</h3>
+<p>A first run from scratch with the smoothness penalties collapsed: it learned that falling early cost less than walking jerkily. <code>teacher-v3</code> instead fine-tunes <code>teacher-v2</code>. The three new inputs start as zero weights, so it begins as v2 exactly, and speed tracking was weighted up (1.5 → 2.0). Its 120M steps reached curriculum level 0.75. Sixty-four 20 s episodes per set, asked 1 m/s, bodies drawn from the <em>new</em> ranges:</p>
+<table>
+<tr><th>teacher-v3 + estimator-v3</th><th>told</th><th>estimated</th><th>told nominal</th></tr>
+<tr><td>nominal body</td><td>0 fell, 0.88 m/s</td><td>0 fell, 0.85 m/s</td><td>0 fell, 0.88 m/s</td></tr>
+<tr><td>random bodies</td><td>6 fell, 0.64 m/s</td><td>7 fell, 0.58 m/s</td><td>8 fell, <span class="bad">0.31 m/s</span></td></tr>
+<tr><td>bodies + damage</td><td>14 fell, 0.60 m/s</td><td>11 fell, 0.55 m/s</td><td class="bad">19 fell, 0.33 m/s</td></tr>
+<tr><td>bodies + pushes + damage</td><td>27 fell, 0.59 m/s</td><td>25 fell, 0.54 m/s</td><td class="bad">31 fell, 0.34 m/s</td></tr>
+</table>
+<p>Told the nominal body when it is not, v3 walks at half speed and falls more often. Walking on the estimator's guess, it gets nearly all of that back. The joints stay as smooth as v2's (17–24 rad/s² RMS acceleration), and on the nominal body it is faster than v2 was (0.88 against 0.62 m/s). On harder bodies it falls less than v2 did on easier ones: 27 against 34 in the hardest set. The estimator's guess of the body parameters has an RMS error of 0.23 on random bodies (on the −1 to 1 scale), and 0.52 when damage is added: actuator health is the hard part.</p>
+<img src="img/2026-10-23-v3-tool-walk.jpg" alt="The mech standing after a 900 kg tool was fitted to its right side, in autonomous calibration">
+<p class="cap">The calibration demo in autonomous mode, 10 s after the "tool right" swap (900 kg). The policy is never told about the tool and walks on the estimate. The demos now ship <code>teacher-v3</code> and its estimator; v1 and v2 read 32 body parameters and are gone from <code>assets/policies/</code>.</p>
+
+<h3>Next</h3>
+<ul>
+<li>Native vs WASM replay parity test.</li>
+<li>M5: a terrain height scan and the endless path.</li>
+<li>The panel's sliders do not follow staged commands; the viewer does not list estimator runs.</li>
+</ul>
+</article>
+
 <article id="2026-10-23-browser">
 <h2>It walks in the browser: the viewer and three demos, live</h2>
 <time>2026-10-23, later</time>
