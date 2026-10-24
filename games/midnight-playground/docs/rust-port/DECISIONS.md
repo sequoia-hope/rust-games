@@ -11839,9 +11839,11 @@ Stage 6g, and what driving the bay side in the browser showed.
   the road under them). Cars follow only cars on their own road.
 - **Off the loop** (the lead player on another road, or a car on one)
   traffic is round the player: `spawn_near` picks a road within
-  `NET_FAR` (900 m), a place along it 260 to 800 m either way from the
-  player's nearest, and spawns there if it is 230 to 900 m off; a car
-  goes once 1150 m away. At a road's end a car carries on onto the road
+  `NET_FAR` (650 m), the player's own half the time (spread over every
+  road near, only one to three of 23 cars were within the minimap's
+  400 m), a place along it 220 to 550 m either way from the player's
+  nearest, and spawns there if it is 190 to 650 m off; a car goes once
+  800 m away. At a road's end a car carries on onto the road
   the junction names, the way it was heading, in one of its lanes
   (`carry_on`), or goes where nothing meets the end or it would land
   heading off the other road's own end (two roads end to end, the wrong

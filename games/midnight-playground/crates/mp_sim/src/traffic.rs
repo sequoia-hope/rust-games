@@ -302,12 +302,17 @@ impl Traffic {
     /// Off the level's road (stage 6g): a car on one of the roads near
     /// the player, between [`NET_NEAR`] and [`NET_FAR`] from them, ahead
     /// or behind along its road.
-    fn spawn_near(&mut self, t: &Track, px: f64, pz: f64, rng: &mut dyn Rng) -> bool {
+    fn spawn_near(&mut self, t: &Track, mine: usize, px: f64, pz: f64, rng: &mut dyn Rng) -> bool {
         let roads = t.net.roads_near(px, pz, NET_FAR);
         if roads.is_empty() {
             return false;
         }
-        let r = roads[((rng.next_f64() * roads.len() as f64) as usize).min(roads.len() - 1)];
+        // Half of them on the player's own road, where they are seen.
+        let r = if rng.next_f64() < 0.5 && roads.contains(&mine) {
+            mine
+        } else {
+            roads[((rng.next_f64() * roads.len() as f64) as usize).min(roads.len() - 1)]
+        };
         let rt = t.road(r);
         let Some(s0) = rt.distance_to_road(px, pz, NET_FAR).s else {
             return false;
@@ -462,7 +467,7 @@ impl Traffic {
             }
             if off || c.k.road != 0 {
                 let d = kernel::hypot(c.k.v.x - px, c.k.v.z - pz);
-                if d > NET_FAR + 250.0 || c.crashed > 25.0 {
+                if d > NET_FAR + 150.0 || c.crashed > 25.0 {
                     self.despawn(i);
                 } else if !c.opposite {
                     n += 1;
@@ -491,7 +496,7 @@ impl Traffic {
             let mut tries = 0;
             while n < self.max_active && tries < 4 {
                 tries += 1;
-                if self.spawn_near(t, px, pz, rng) {
+                if self.spawn_near(t, player.0, px, pz, rng) {
                     n += 1;
                 }
             }
@@ -585,8 +590,8 @@ impl Traffic {
 
 /// Off the level's road, how near the player traffic may appear (out of
 /// sight round them) and how far it reaches (stage 6g).
-pub const NET_NEAR: f64 = 260.0;
-pub const NET_FAR: f64 = 900.0;
+pub const NET_NEAR: f64 = 220.0;
+pub const NET_FAR: f64 = 650.0;
 
 pub fn activate(car: &mut TrafficCar, s: f64, lat: f64, dir: i32) {
     car.active = true;
