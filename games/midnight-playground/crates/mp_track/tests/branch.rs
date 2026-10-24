@@ -72,6 +72,8 @@ fn level() -> Level {
         }],
         stream_cell: None,
         buildings: None,
+        starts: Vec::new(),
+        start: None,
         sea_y: None,
         zones: vec![Zone {
             key: "coast",

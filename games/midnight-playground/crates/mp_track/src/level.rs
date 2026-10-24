@@ -320,6 +320,19 @@ pub enum EventKind {
     Delivery,
 }
 
+/// A place a cruise of an open level can start (docs/vision/peninsula.md,
+/// stage 6f): on road `road` (a branch's id; empty for the level's own
+/// road), `s` metres along it (from its far end when negative).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StartSpot {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// What the card says under the name.
+    pub place: &'static str,
+    pub road: &'static str,
+    pub s: f64,
+}
+
 /// An event at a place on an open level: a marked start on the level's
 /// road where a cruising car that stops and holds gas and brake begins it
 /// (docs/vision/peninsula.md, stage 5).
@@ -387,6 +400,10 @@ pub struct Level {
     /// collides cars with and world generation draws (stage 6e); the
     /// Track places them once its network is built.
     pub buildings: Option<BuildingsFn>,
+    /// Where a cruise of an open level may start (stage 6f), and the one
+    /// chosen (a start's `id`; `None` is the level's own start).
+    pub starts: Vec<StartSpot>,
+    pub start: Option<&'static str>,
     pub sea_y: Option<f64>,
     pub zones: Vec<Zone>,
     pub sky: Vec<SkyKey>,

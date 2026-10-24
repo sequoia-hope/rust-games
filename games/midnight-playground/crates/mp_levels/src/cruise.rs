@@ -98,6 +98,8 @@ pub fn level() -> Level {
         branches: Vec::new(),
         stream_cell: None,
         buildings: None,
+        starts: Vec::new(),
+        start: None,
         sea_y: None,
         zones: vec![zone(
             "city",

@@ -262,6 +262,14 @@ impl CarPhysics {
         }
     }
 
+    /// [`CarPhysics::reset`] on road `road` of the network (stage 6f).
+    pub fn reset_on(&mut self, v: &mut Vehicle, track: &Track, road: usize, s: f64, lat: f64) {
+        self.reset(v, track, s, lat);
+        if road != 0 {
+            v.place_on(track, road, s, lat, 0.0);
+        }
+    }
+
     pub fn reset(&mut self, v: &mut Vehicle, track: &Track, s: f64, lat: f64) {
         v.place(track, s, lat, 0.0);
         self.gear = 1;

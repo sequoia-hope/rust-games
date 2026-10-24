@@ -169,6 +169,33 @@ impl Vehicle {
         kernel::sin(self.yaw)
     }
 
+    /// [`Vehicle::place`] on road `road` of the network, `s` metres along
+    /// it (stage 6f): its place on the level's road is the nearest
+    /// point of it to the start.
+    pub fn place_on(&mut self, track: &Track, road: usize, s: f64, lat: f64, yaw_offset: f64) {
+        if road == 0 {
+            return self.place(track, s, lat, yaw_offset);
+        }
+        let rt = track.road(road);
+        let p = rt.point_at(s, lat);
+        let f = rt.frame(s);
+        self.x = p.x;
+        self.y = p.y;
+        self.z = p.z;
+        let q = track.project(p.x, p.z, track.start_s);
+        self.s = q.s;
+        self.lat = q.lat;
+        self.road = road;
+        self.road_s = s;
+        self.road_lat = lat;
+        self.yaw = kernel::atan2(f.fz, f.fx) + yaw_offset;
+        self.vx = 0.0;
+        self.vz = 0.0;
+        self.vy = 0.0;
+        self.yaw_rate = 0.0;
+        self.speed = 0.0;
+    }
+
     pub fn place(&mut self, track: &Track, s: f64, lat: f64, yaw_offset: f64) {
         let p = track.point_at(s, lat);
         let f = track.frame(s);

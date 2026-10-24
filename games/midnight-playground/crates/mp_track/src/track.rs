@@ -412,6 +412,22 @@ impl Track {
         (best.0, best.1)
     }
 
+    /// The start a cruise was given (`Level::start` among
+    /// `Level::starts`, stage 6f): the road and the metres along it.
+    /// `None` when none was chosen or it names nothing.
+    pub fn chosen_start(&self) -> Option<(usize, f64)> {
+        let id = self.level.start?;
+        let sp = self.level.starts.iter().find(|s| s.id == id)?;
+        let r = if sp.road.is_empty() {
+            0
+        } else {
+            1 + self.branches.iter().position(|b| b.id == sp.road)?
+        };
+        let t = self.road(r);
+        let s = if sp.s < 0.0 { t.length + sp.s } else { sp.s };
+        Some((r, s.clamp(0.0, t.length)))
+    }
+
     pub fn tag(&self, name: &str) -> Vec<&Tag> {
         self.tags.iter().filter(|t| t.tag == name).collect()
     }

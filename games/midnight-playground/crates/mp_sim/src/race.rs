@@ -345,7 +345,16 @@ impl SimState {
         } else {
             level_rivals(level, &mut rng)
         };
-        grid(t, &mut phys, &mut v, &mut rivals, t.start_s);
+        // A cruise given a start begins there, on whichever road
+        // (stage 6f).
+        match t.chosen_start().filter(|_| cruise) {
+            Some((r, s)) if r != 0 => {
+                phys.reset_on(&mut v, t, r, s, -2.4);
+                v.prog = Some(v.s);
+            }
+            Some((_, s)) => grid(t, &mut phys, &mut v, &mut rivals, s + 5.0),
+            None => grid(t, &mut phys, &mut v, &mut rivals, t.start_s),
+        }
         let prog_s = std::iter::once(v.s)
             .chain(rivals.iter().map(|a| a.k.s))
             .collect();
@@ -995,6 +1004,20 @@ fn reset_player(
     player: usize,
     events: &mut Vec<SimEvent>,
 ) {
+    // Off the level's road (an open level's network), back on the road
+    // the car was on.
+    if p.v.road != 0 && p.v.road <= t.branches.len() {
+        crash(race, &mut p.rules, player, events);
+        let rt = t.road(p.v.road);
+        let s = (p.v.road_s - 5.0).clamp(0.0, rt.length);
+        let f = rt.frame(s);
+        let lat = clamp(p.v.road_lat, -f.hw * 0.5, f.hw * 0.5);
+        let road = p.v.road;
+        p.phys.reset_on(&mut p.v, t, road, s, lat);
+        p.rules.reset_cooldown = 2.0;
+        events.push(SimEvent::Reset { player });
+        return;
+    }
     let s = if t.is_loop {
         t.wrap(p.v.s - 5.0)
     } else {

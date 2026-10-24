@@ -119,6 +119,8 @@ fn level(route: Route) -> Level {
         branches: Vec::new(),
         stream_cell: None,
         buildings: None,
+        starts: Vec::new(),
+        start: None,
         sea_y: None,
         zones: Vec::new(),
         sky: Vec::new(),
