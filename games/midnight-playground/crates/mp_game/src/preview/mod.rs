@@ -138,6 +138,17 @@ pub fn section_warming() -> bool {
     SECTION_WARM.load(Ordering::Relaxed)
 }
 
+/// Some section is still to be built, spawned or warmed up.
+static PREPARING: AtomicBool = AtomicBool::new(false);
+
+/// The menu's picture holds still (D1237): while the sections are being
+/// prepared behind it, the attract camera, the sky and the scenery stand at
+/// the shown view's first frame, and fly once every section is up and its
+/// pipelines compiled. The work's long frames then stutter nothing.
+pub fn holding() -> bool {
+    active() && (PREPARING.load(Ordering::Relaxed) || section_warming())
+}
+
 /// A section that is up: what showing it puts in place.
 struct Up {
     root: Entity,
@@ -741,11 +752,13 @@ fn drive(
             gathered: false,
         }));
     }
+    let all_up = pv
+        .secs
+        .iter()
+        .all(|s| matches!(s.stage, Stage::Up(_) | Stage::Failed));
+    PREPARING.store(!all_up, Ordering::Relaxed);
     if pv.all_ms.is_none()
-        && pv
-            .secs
-            .iter()
-            .all(|s| matches!(s.stage, Stage::Up(_) | Stage::Failed))
+        && all_up
         && let Some(t0) = pv.t0
     {
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
