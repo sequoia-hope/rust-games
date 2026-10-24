@@ -1,6 +1,6 @@
 # The Peninsula slice: building the open world
 
-Status: **started 2026-10-13** (vision ROADMAP M18, brought forward: the
+Status: **started 2026-10-13**; stage 6, the bay side, started 2026-10-24 (vision ROADMAP M18, brought forward: the
 owner asked to start building out the open world). The existing levels
 stay as they are and need not connect to the world; abstract levels (the
 owner's holodeck idea) are welcome later as destinations of their own.
@@ -273,6 +273,116 @@ fenced along the road and across; Skyline's fog by zone, drifting.
   models are rebuilt when the rivals come and go. The minimap shows the
   starts within 2 km and a delivery's drop, kept on its rim when off it
   (D1220).
+
+### Stage 6. The bay side: the city from Redwood City to San Francisco (started 2026-10-24)
+
+The owner (2026-10-24): "build out the inland area, Redwood City up to
+SF, to give more variety to where we can start the open world mode.
+Coastside is a bit too sleepy to start there." The atlas's Bayside and
+City regions (atlas.md 3.3, WORLD 3: "over the hill the city is the
+peninsula") become drivable, joined to the loop over the hill, and the
+cruise can start in them.
+
+**What stands in the way** (a survey of the code, 2026-10-24). The open
+world is a star: road 0 (the loop) and branches that leave it and may
+come back to it, never to each other. Nearly everything measures along
+road 0: race progress, traffic, rivals, police, events, zones (the card,
+the route bar, the radio, the fog), the far field's s, side and zone
+(the land's shape and colour), the minimap. Finding the road under a
+point is O(roads) (`Track::project_road` off the shoulder,
+`Section::s_of` with a 900 m reach on every call). Sections are
+(road, metres) and the ring round the camera runs along one road. The
+far field stamps a 3 km disc every 12 m of road, and the near field's
+tiles exist wherever a road passes and are held for the whole level.
+The open world has no walls and nothing in the simulation stands up
+off the ground, so a car would drive through a city's buildings. None
+of that is wrong for the loop; all of it breaks with a hundred
+kilometres of crossing streets.
+
+**The parts**, each landed on its own and each keeping the loop as it
+plays today:
+
+- **6a. Frame stutter tests** (D1238). Before the world grows, a way to
+  see when a frame is late and why, so each part that follows is
+  measured: a browser suite that drives the open world on the GPU and
+  holds frame times to budgets (desktop, phone emulation, both
+  backends), and native tests that count the work a frame does
+  (entities spawned, mesh and texture bytes uploaded, pipelines first
+  used after the warm-up) and hold it to budgets in CI, where no GPU
+  times anything.
+- **6b. The bay side's data** (D1239). Routes for the plan (below),
+  their corridor files, the ground and land cover under the bay side's
+  box, and a **city grid**: the real buildings (Overture Maps, about
+  half a million footprints, 80 % with a height) reduced to cells of
+  how much of the ground is built on and how tall it stands (the median
+  and the ninetieth percentile). Buildings are **not** shrunk with the
+  map: the roads are half size, the cars and the buildings are full
+  size, so the city is the real one's density and skyline drawn with
+  fewer, full-size buildings.
+- **6c. A road network** (D1240). Roads that meet any road, at their
+  ends or crossing in the middle: junctions found from the geometry (a
+  road that ends on another, two that cross), each naming both roads and
+  the metres along each. Where two roads meet, the lesser fits its
+  surface to the greater's (freeway, then the numbered highways, then
+  streets), as a branch fits its parent today. One spatial index over
+  every road's samples, tagged with the road, answers "which roads are
+  near here" in constant time for the simulation, the terrain and the
+  sections. A dead end is barred only where the real road goes on and
+  the world's does not. All crossings are at grade for now: the arcade
+  game has intersections where the real freeways have interchanges.
+- **6d. Streaming by place** (D1241). On a network the sections are
+  cells of the ground (1 km squares), not stretches of one road; the
+  ring is the cells round the camera. The far field's distance becomes
+  a distance transform (cost by area, not by road length), the near
+  field's tiles are built with their section and dropped with it, and
+  the terrain's lookups go through the index. The loop keeps its
+  sections along the road: a level is one or the other.
+- **6e. The city kit** (D1242). Blocks are the land between the roads
+  where the cover is urban; the city grid says how full and how tall.
+  Lots along each block's frontage, buildings from the City and Streets
+  kits' parts (facades, the atlas of windows, lamps, signals), towers
+  where the grid stands tall (downtown San Francisco, San Mateo,
+  Redwood City), houses and low shops where it does not. **The
+  buildings are the simulation's**: the lots are placed by the level
+  (`mp_levels`), deterministic from the grid, the roads and the seed, as
+  the events are; the simulation collides cars with their footprints
+  (the walls' response: push out, scrub, the impact sound), and world
+  generation draws what the level placed.
+- **6f. Starts** (D1243). The cruise can start at a place: a start is a
+  road and metres along it, the grid and the camera and the first
+  sections there. The card offers them: the crest above San Gregorio
+  (today's), Redwood City, San Mateo, South San Francisco, the Mission,
+  Lombard Street.
+- **6g. Traffic on the network.** Traffic, rivals and police live on
+  road 0 today. Traffic cars that drive any road and turn at junctions
+  come after the city stands; until then the city's streets are empty
+  and its races wait.
+
+**The first network** (6b; a draft the planner can change). At the
+plan's scale of 0.5, Redwood City is about 9 km east and 1 km north of
+Half Moon Bay's intersection, downtown San Francisco 1 km east and
+18 km north. The roads, from the atlas (tertiary and up):
+
+- **Over the hill:** Highway 92 from Skyline down past Crystal Springs
+  to 280 and on to 101 at San Mateo; Highway 84 from Skylonda down
+  Woodside Road to 280 and on to 101 at Redwood City. These join the
+  bay side to the loop.
+- **The spines:** 101 from Redwood City to San Francisco; 280 from
+  Woodside Road to San Francisco; El Camino Real (82) from Redwood City
+  to Daly City, then Mission Street.
+- **Across:** six streets between 101 and 280 or El Camino (Ralston,
+  Hillsdale, Third Avenue, Broadway, Millbrae Avenue, San Bruno Avenue).
+- **San Francisco:** Highway 1 (19th Avenue, Park Presidio) from 280 to
+  Lombard; Lombard to Van Ness; Van Ness and Market, Geary, the
+  Embarcadero.
+
+About 230 km of real road, 115 km in the game, three times the loop. The
+residential streets stay out: the city is the arterials and the blocks
+between them, drawn full.
+
+- **Gate:** start a cruise in Redwood City, drive up El Camino through
+  the towns to San Francisco and back over 92 to the coast, without a
+  loading screen and without a frame the stutter suite flags.
 
 ## 3. Decisions
 
