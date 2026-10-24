@@ -101,6 +101,10 @@ pub struct Traffic {
     pub max_active: usize,
     pub next_spawn_s: f64,
     pub next_opp_s: f64,
+    /// Off the level's road: seconds until the next look for places to
+    /// put cars (stage 6g; a look is a search of the network round the
+    /// player, eight a second is plenty).
+    pub next_look: f64,
 }
 
 impl Traffic {
@@ -186,6 +190,7 @@ impl Traffic {
             max_active: count,
             next_spawn_s: 0.0,
             next_opp_s: 0.0,
+            next_look: 0.0,
         }
     }
 
@@ -302,21 +307,30 @@ impl Traffic {
     /// Off the level's road (stage 6g): a car on one of the roads near
     /// the player, between [`NET_NEAR`] and [`NET_FAR`] from them, ahead
     /// or behind along its road.
-    fn spawn_near(&mut self, t: &Track, mine: usize, px: f64, pz: f64, rng: &mut dyn Rng) -> bool {
-        let roads = t.net.roads_near(px, pz, NET_FAR);
-        if roads.is_empty() {
+    /// `near`: each road within reach and its sample nearest the player
+    /// (found once a tick).
+    fn spawn_near(
+        &mut self,
+        t: &Track,
+        mine: usize,
+        near: &[(usize, usize, f64)],
+        px: f64,
+        pz: f64,
+        rng: &mut dyn Rng,
+    ) -> bool {
+        if near.is_empty() {
             return false;
         }
         // Half of them on the player's own road, where they are seen.
-        let r = if rng.next_f64() < 0.5 && roads.contains(&mine) {
-            mine
+        let pick = if rng.next_f64() < 0.5 {
+            near.iter().find(|e| e.0 == mine)
         } else {
-            roads[((rng.next_f64() * roads.len() as f64) as usize).min(roads.len() - 1)]
+            None
         };
+        let &(r, k, _) = pick
+            .unwrap_or(&near[((rng.next_f64() * near.len() as f64) as usize).min(near.len() - 1)]);
         let rt = t.road(r);
-        let Some(s0) = rt.distance_to_road(px, pz, NET_FAR).s else {
-            return false;
-        };
+        let s0 = k as f64;
         let d =
             rrange(rng, NET_NEAR, NET_FAR - 100.0) * if rng.next_f64() < 0.5 { -1.0 } else { 1.0 };
         let s = s0 + d;
@@ -492,11 +506,14 @@ impl Traffic {
                 n += 1;
             }
         }
-        if off {
+        self.next_look -= dt;
+        if off && n < self.max_active && self.next_look <= 0.0 {
+            self.next_look = 0.125;
+            let near = t.net.nearest_samples(t, px, pz, NET_FAR, NET_FAR);
             let mut tries = 0;
             while n < self.max_active && tries < 4 {
                 tries += 1;
-                if self.spawn_near(t, player.0, px, pz, rng) {
+                if self.spawn_near(t, player.0, &near, px, pz, rng) {
                     n += 1;
                 }
             }
