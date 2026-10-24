@@ -202,7 +202,9 @@ pub fn find_crossings(t: &mut Track) -> Vec<Junction> {
                 let at = t.road(a);
                 let d = at.distance_to_road(x, z, 24.0);
                 let Some(sa) = d.s else { continue };
-                if !at.is_loop && !(0.0..=at.length).contains(&sa) {
+                // Near the other road's own ends a meeting is that end's
+                // junction, not a crossing.
+                if !at.is_loop && !(40.0..=at.length - 40.0).contains(&sa) {
                     last.remove(&a);
                     continue;
                 }

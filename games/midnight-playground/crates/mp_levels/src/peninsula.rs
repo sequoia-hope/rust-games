@@ -13,12 +13,167 @@
 
 use std::sync::{Arc, OnceLock};
 
-use crate::ground::{CoverGrid, HeightGrid};
+use crate::city::{self, Density};
+use crate::ground::{CityGrid, CoverGrid, HeightGrid};
 use crate::south_coast::{CREST_WITHIN, Corridor};
 use crate::zone;
 use mp_track::{
     Branch, EventKind, EventSpot, Level, LoopPath, LoopRoad, LoopSpec, LoopTag, Mode, Route,
+    StartSpot,
 };
+
+pub fn bay_ground() -> Arc<HeightGrid> {
+    static GRID: OnceLock<Arc<HeightGrid>> = OnceLock::new();
+    GRID.get_or_init(|| {
+        Arc::new(HeightGrid::parse(BAY_GROUND).expect("the committed ground parses"))
+    })
+    .clone()
+}
+
+pub fn bay_cover() -> Arc<CoverGrid> {
+    static GRID: OnceLock<Arc<CoverGrid>> = OnceLock::new();
+    GRID.get_or_init(|| Arc::new(CoverGrid::parse(BAY_COVER).expect("the committed cover parses")))
+        .clone()
+}
+
+pub fn bay_city() -> Arc<CityGrid> {
+    static GRID: OnceLock<Arc<CityGrid>> = OnceLock::new();
+    GRID.get_or_init(|| Arc::new(CityGrid::parse(BAY_CITY).expect("the committed city parses")))
+        .clone()
+}
+
+/// Whether (x, z) is inside a grid of `w` by `h` cells `step` apart from
+/// the cell centre (x0, z0).
+fn within(x0: f64, z0: f64, step: f64, w: usize, h: usize, x: f64, z: f64) -> bool {
+    x >= x0 && z >= z0 && x <= x0 + (w - 1) as f64 * step && z <= z0 + (h - 1) as f64 * step
+}
+
+/// The ground under the whole world: the loop's finer grid where it
+/// reaches, the bay side's elsewhere.
+pub fn world_ground() -> mp_track::GroundFn {
+    let (g, b) = (ground(), bay_ground());
+    Arc::new(move |x, z| {
+        if within(g.x0, g.z0, g.step, g.w, g.h, x, z) {
+            g.height(x, z)
+        } else {
+            b.height(x, z)
+        }
+    })
+}
+
+pub fn world_cover() -> mp_track::CoverFn {
+    let (g, b) = (cover(), bay_cover());
+    Arc::new(move |x, z| {
+        if within(g.x0, g.z0, g.step, g.w, g.h, x, z) {
+            g.class(x, z)
+        } else {
+            b.class(x, z)
+        }
+    })
+}
+
+/// How built up the bay side is round (x, z): the city grid's cells
+/// within a cell either way (about 100 m), their coverage averaged, the
+/// median of the built ones averaged, the tallest ninetieth percentile.
+pub fn bay_density(x: f64, z: f64) -> Density {
+    let c = bay_city();
+    let (mut cov, mut p50, mut p90, mut n, mut built) = (0.0, 0.0, 0.0f64, 0.0, 0.0);
+    for j in -1..=1 {
+        for i in -1..=1 {
+            let (px, pz) = (x + i as f64 * c.step, z + j as f64 * c.step);
+            let Some(v) = c.coverage(px, pz) else {
+                continue;
+            };
+            n += 1.0;
+            cov += v;
+            if v > 0.0 {
+                built += 1.0;
+                p50 += c.height_p50(px, pz).unwrap_or(0.0);
+                p90 = p90.max(c.height_p90(px, pz).unwrap_or(0.0));
+            }
+        }
+    }
+    if n == 0.0 {
+        return Density::default();
+    }
+    Density {
+        coverage: cov / n,
+        p50: if built > 0.0 { p50 / built } else { 0.0 },
+        p90,
+    }
+}
+
+/// Metres along a corridor to its sample nearest (x, z).
+fn s_near(text: &str, x: f64, z: f64) -> f64 {
+    let c = Corridor::parse(text).expect("the committed corridor parses");
+    let mut best = (f64::INFINITY, 0);
+    for k in 0..c.x.len() {
+        let d = (c.x[k] - x) * (c.x[k] - x) + (c.z[k] - z) * (c.z[k] - z);
+        if d < best.0 {
+            best = (d, k);
+        }
+    }
+    best.1 as f64 * c.step
+}
+
+fn bay_text(id: &str) -> &'static str {
+    BAYSIDE
+        .iter()
+        .find(|b| b.0 == id)
+        .map(|b| b.4)
+        .expect("a bay side road")
+}
+
+/// Where a cruise can start (stage 6f): the crest as ever, and the bay
+/// side's towns, on El Camino where it runs through them (the real
+/// places at the plan's scale of a half), and Lombard Street.
+pub fn starts(crest: f64) -> Vec<StartSpot> {
+    let ecr = bay_text("el-camino");
+    vec![
+        StartSpot {
+            id: "crest",
+            name: "San Gregorio",
+            place: "THE CREST ABOVE THE SEA",
+            road: "",
+            s: crest + 60.0,
+        },
+        StartSpot {
+            id: "redwood-city",
+            name: "Redwood City",
+            place: "EL CAMINO REAL",
+            road: "el-camino",
+            s: s_near(ecr, 8890.0, -1016.0),
+        },
+        StartSpot {
+            id: "san-mateo",
+            name: "San Mateo",
+            place: "EL CAMINO REAL",
+            road: "el-camino",
+            s: s_near(ecr, 4785.0, -5271.0),
+        },
+        StartSpot {
+            id: "south-city",
+            name: "South San Francisco",
+            place: "EL CAMINO REAL",
+            road: "el-camino",
+            s: s_near(ecr, 736.0, -10295.0),
+        },
+        StartSpot {
+            id: "mission",
+            name: "The Mission",
+            place: "MISSION STREET",
+            road: "el-camino",
+            s: -1600.0,
+        },
+        StartSpot {
+            id: "lombard",
+            name: "Lombard Street",
+            place: "SAN FRANCISCO",
+            road: "sf-lombard",
+            s: -500.0,
+        },
+    ]
+}
 
 /// The loop's corridors in lap order: each ends where the next begins.
 pub const CORRIDORS: [(&str, &str); 4] = [
@@ -52,6 +207,48 @@ pub const GROUND: &[u8] =
     include_bytes!("../../../assets/atlas/peninsula/corridors/peninsula.ground.bin");
 pub const COVER: &[u8] =
     include_bytes!("../../../assets/atlas/peninsula/corridors/peninsula.cover.bin");
+macro_rules! bay {
+    ($(($id:literal, $name:literal, $road:literal, $zone:literal)),* $(,)?) => {
+        [$(($id, $name, $road, $zone, include_str!(concat!("../../../assets/atlas/peninsula/corridors/", $id, ".txt")))),*]
+    };
+}
+
+/// The bay side's roads (docs/vision/peninsula.md, stage 6): id, name,
+/// road type, zone and corridor, in the order they are built, greatest
+/// first, so each starts on a road listed before it (the loop, 84 east,
+/// the freeways, 92 east, which ends on 101, El Camino, the streets
+/// across, then San Francisco's, the Embarcadero before Market, which
+/// starts by it).
+pub const BAYSIDE: [(&str, &str, &str, u8, &str); 17] = bay![
+    ("hwy-84-east", "Woodside Road", "valley", 4),
+    ("i-280", "Interstate 280", "freeway", 4),
+    ("us-101", "Highway 101", "freeway", 4),
+    ("hwy-92-east", "Highway 92", "boulevard", 4),
+    ("el-camino", "El Camino Real", "boulevard", 4),
+    ("ralston", "Ralston Avenue", "street", 4),
+    ("hillsdale", "Hillsdale Boulevard", "street", 4),
+    ("third-ave", "Third Avenue", "street", 4),
+    ("broadway", "Broadway", "street", 4),
+    ("millbrae", "Millbrae Avenue", "street", 4),
+    ("san-bruno", "San Bruno Avenue", "street", 4),
+    ("sf-19th-ave", "19th Avenue", "boulevard", 5),
+    ("sf-lombard", "Lombard Street", "boulevard", 5),
+    ("sf-van-ness", "Van Ness Avenue", "street", 5),
+    ("sf-embarcadero", "The Embarcadero", "boulevard", 5),
+    ("sf-market", "Market Street", "street", 5),
+    ("sf-geary", "Geary Boulevard", "street", 5),
+];
+/// The roads before the bay side's: the loop and its two branches, which
+/// keep the coast's own kits and get no city buildings.
+pub const FIRST_BAYSIDE: usize = 3;
+/// The ground, cover and city grid under the bay side's box (stage 6b).
+pub const BAY_GROUND: &[u8] =
+    include_bytes!("../../../assets/atlas/peninsula/corridors/bayside.ground.bin");
+pub const BAY_COVER: &[u8] =
+    include_bytes!("../../../assets/atlas/peninsula/corridors/bayside.cover.bin");
+pub const BAY_CITY: &[u8] =
+    include_bytes!("../../../assets/atlas/peninsula/corridors/bayside.city.bin");
+
 /// Two samples closer than this at a join are one point.
 const JOIN: f64 = 2.5;
 /// The corridors meet at corners (Highway 1 turns onto 92 at the big
@@ -369,46 +566,61 @@ pub fn level() -> Level {
             zones: Some(vec![0., town, s92, s35]),
         }),
         elevation: None,
-        ground: Some({
-            let g = ground();
-            Arc::new(move |x, z| g.height(x, z))
-        }),
+        ground: Some(world_ground()),
         loose_ground: None,
-        cover: Some({
-            let c = cover();
-            Arc::new(move |x, z| c.class(x, z))
-        }),
+        cover: Some(world_cover()),
         open: true,
-        branches: vec![
-            Branch {
-                id: "tunitas",
-                name: "Tunitas Creek Road",
-                path: {
-                    let c =
-                        Arc::new(Corridor::parse(TUNITAS).expect("the committed corridor parses"));
-                    Arc::new(move || Ok(crate::south_coast::path(&c)))
+        branches: {
+            let mut b = vec![
+                Branch {
+                    id: "tunitas",
+                    name: "Tunitas Creek Road",
+                    path: {
+                        let c = Arc::new(
+                            Corridor::parse(TUNITAS).expect("the committed corridor parses"),
+                        );
+                        Arc::new(move || Ok(crate::south_coast::path(&c)))
+                    },
+                    road: "mountain",
+                    zone: 3,
+                    elevation_smooth: None,
                 },
-                road: "mountain",
-                zone: 3,
-                elevation_smooth: None,
-            },
-            Branch {
-                id: "stage",
-                name: "Stage Road",
-                path: {
-                    let c = Arc::new(
-                        Corridor::parse(STAGE_ROAD).expect("the committed corridor parses"),
-                    );
-                    Arc::new(move || Ok(crate::south_coast::path(&c)))
+                Branch {
+                    id: "stage",
+                    name: "Stage Road",
+                    path: {
+                        let c = Arc::new(
+                            Corridor::parse(STAGE_ROAD).expect("the committed corridor parses"),
+                        );
+                        Arc::new(move || Ok(crate::south_coast::path(&c)))
+                    },
+                    road: "valley",
+                    zone: 0,
+                    elevation_smooth: None,
                 },
-                road: "valley",
-                zone: 0,
-                elevation_smooth: None,
-            },
-        ],
-        stream_cell: None,
-        buildings: None,
-        starts: Vec::new(),
+            ];
+            // The bay side (stage 6).
+            for &(id, name, road, zone, text) in &BAYSIDE {
+                let c = Arc::new(Corridor::parse(text).expect("the committed corridor parses"));
+                b.push(Branch {
+                    id,
+                    name,
+                    path: Arc::new(move || Ok(crate::south_coast::path(&c))),
+                    road,
+                    zone,
+                    elevation_smooth: None,
+                });
+            }
+            b
+        },
+        // A city's streets cross and run side by side: streamed by the
+        // kilometre square (stage 6d).
+        stream_cell: Some(1000.0),
+        buildings: Some(Arc::new(|t: &mp_track::Track| {
+            let ground = world_ground();
+            city::place(t, &bay_density, &ground, 0x00b4_51de, FIRST_BAYSIDE)
+        })),
+        starts: starts(crest),
         start: None,
         sea_y: Some(0.),
         zones: vec![
@@ -452,6 +664,26 @@ pub fn level() -> Level {
             )
             .blend(300.)
             .fog(0.0013, 0.4),
+            // The bay side and the city (stage 6): the Town kit's
+            // buildings, clear nights.
+            zone(
+                "bay",
+                "THE BAY SIDE",
+                "El Camino through the towns",
+                "valley",
+                "Town",
+                "#c8a050",
+            )
+            .blend(300.),
+            zone(
+                "city",
+                "SAN FRANCISCO",
+                "The city by night",
+                "city",
+                "Town",
+                "#e05a8a",
+            )
+            .blend(300.),
         ],
         // Night the whole way round: the moon on the sea from the coast,
         // the fog on the ridge.
@@ -505,6 +737,23 @@ pub fn level() -> Level {
                 0.7,
                 [11, 15]
             ),
+            traffic!(
+                [60, 140],
+                [
+                    ("sedan", 0.4),
+                    ("hatch", 0.3),
+                    ("van", 0.2),
+                    ("pickup", 0.1)
+                ],
+                0.5,
+                [11, 16]
+            ),
+            traffic!(
+                [50, 120],
+                [("sedan", 0.4), ("hatch", 0.4), ("van", 0.2)],
+                0.5,
+                [9, 14]
+            ),
         ],
         // No police yet: Hot Pursuit is not offered on a circuit (the
         // pursuit measures a point-to-point race), and the loop is one lap.
@@ -556,11 +805,12 @@ mod tests {
         let lv = level();
         assert!(lv.is_loop());
         assert_eq!(lv.laps, Some(1));
-        assert_eq!(lv.zones.len(), 4);
+        // The loop's four, and the bay side's two (stage 6).
+        assert_eq!(lv.zones.len(), 6);
         let t = mp_track::Track::new(&lv).unwrap();
         assert!(t.is_loop);
         assert!(t.length > 34_000.0 && t.length < 36_000.0, "{}", t.length);
-        assert_eq!(t.zones.len(), 4);
+        assert_eq!(t.zones.len(), 6);
         // Skyline is the highest stretch of the lap.
         let top = (0..t.n)
             .max_by(|&a, &b| t.py[a].total_cmp(&t.py[b]))
@@ -580,7 +830,7 @@ mod tests {
     fn the_branches_leave_the_loop_and_tunitas_meets_skyline() {
         let lv = level();
         let t = mp_track::Track::new(&lv).unwrap();
-        assert_eq!(t.branches.len(), 2);
+        assert_eq!(t.branches.len(), 2 + BAYSIDE.len());
         let tun = &t.branches[0];
         assert_eq!(tun.id, "tunitas");
         assert!(tun.track.open_end, "Tunitas ends on Skyline");
@@ -599,6 +849,7 @@ mod tests {
         let js: Vec<_> = t
             .junctions
             .iter()
+            .filter(|j| j.road < FIRST_BAYSIDE)
             .map(|j| (j.road, j.other, j.kind))
             .collect();
         use mp_track::JunctionKind::{End, Start};

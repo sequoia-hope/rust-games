@@ -28,7 +28,7 @@ fn a_square_draws_the_buildings_standing_in_it() {
                 p90: 30.0,
             }
         };
-        city::place(t, &d, &ground, 3)
+        city::place(t, &d, &ground, 3, 0)
     }));
     let setup = LevelSetup {
         terrain: TerrainSetup {

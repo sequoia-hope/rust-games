@@ -414,6 +414,31 @@ impl RoadCtx<'_> {
             .collect()
     }
 
+    /// Whether the road's edge at `s` on `side` (where a chevron or a post
+    /// would stand, past the wall) lies on the tarmac of a lesser road that
+    /// meets it near there: the mouth of a road leaving on the outside of a
+    /// bend (stage 6).
+    fn on_lesser(&self, s: f64, side: f64) -> bool {
+        let Some(net) = self.network else {
+            return false;
+        };
+        let t = self.track;
+        let f = t.frame(s);
+        let lat = side * ((if side < 0.0 { f.wall_l } else { f.wall_r }) + 0.9);
+        let (x, z) = (f.x + f.rx * lat, f.z + f.rz * lat);
+        net.junctions
+            .iter()
+            .filter(|j| j.other == self.road && t.ds(j.other_s, s).abs() < 80.0)
+            .any(|j| {
+                let bt = net.road(j.road);
+                let d = bt.distance_to_road(x, z, 40.0);
+                d.s.is_some_and(|bs| {
+                    let bf = bt.frame(bs.clamp(0.0, bt.length));
+                    d.d < bf.hw + bf.margin + 1.0
+                })
+            })
+    }
+
     /// Whether the road's metre at `s` lies on a greater road it meets,
     /// out to that road's margin and a metre more (D1218).
     fn on_greater(&self, s: f64) -> bool {
@@ -637,16 +662,26 @@ impl Road {
         };
         // And where a street crosses it, both sides (stage 6c).
         if let Some(net) = c.network {
+            // How much wider a road's mouth is along this one for the angle
+            // it meets at (the road's direction a little in from its end).
+            let slant = |bt: &Track, at: f64, other_s: f64| {
+                let f = bt.frame(at);
+                let g = t.frame(other_s);
+                let cos = f.fx * g.fx + f.fz * g.fz;
+                1.0 / (1.0 - cos * cos).max(0.09).sqrt()
+            };
             for j in net.junctions.iter().filter(|j| j.other == c.road) {
                 let bt = net.road(j.road);
                 match j.kind {
                     JunctionKind::Start => {
-                        let w = f64::from(bt.hw[0]) + f64::from(bt.margin[0]) + 3.0;
+                        let k = slant(bt, (bt.length * 0.5).min(25.0), j.other_s);
+                        let w = (f64::from(bt.hw[0]) + f64::from(bt.margin[0])) * k + 3.0;
                         clear(j.other_s, w, net.branches[j.road - 1].side);
                     }
                     JunctionKind::End => {
                         let last = bt.n - 1;
-                        let w = f64::from(bt.hw[last]) + f64::from(bt.margin[last]) + 3.0;
+                        let k = slant(bt, (bt.length - 25.0).max(bt.length * 0.5), j.other_s);
+                        let w = (f64::from(bt.hw[last]) + f64::from(bt.margin[last])) * k + 3.0;
                         // The side the branch comes in from.
                         let f = bt.frame((bt.length - 30.0).max(0.0));
                         let side = js::sign(t.project(f.x, f.z, j.other_s).lat);
@@ -1283,7 +1318,12 @@ impl Road {
                 "circuitWide",
             ]
             .contains(&key);
-            if !skip && k.abs() > 0.03 && s - last > 11.0 && !c.on_greater(s) {
+            if !skip
+                && k.abs() > 0.03
+                && s - last > 11.0
+                && !c.on_greater(s)
+                && !c.on_lesser(s, if k > 0.0 { -1.0 } else { 1.0 })
+            {
                 items.push(Item {
                     s,
                     side: if k > 0.0 { -1.0 } else { 1.0 },

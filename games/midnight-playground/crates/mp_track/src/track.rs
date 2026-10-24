@@ -170,6 +170,9 @@ pub const OPEN_DROP: f64 = 0.3;
 /// where it lies over the parent's shoulder (so the two meshes do not
 /// fight).
 pub const BRANCH_FIT: f64 = 120.0;
+/// How far short of another road a road's end may stop and still be
+/// carried on to it.
+pub const END_REACH: f64 = 80.0;
 pub const BRANCH_LIFT: f64 = 0.02;
 
 /// A road leaving another road of the network at a junction
@@ -315,6 +318,48 @@ impl Track {
             }
             t.road_mut(bt.parent).fence_gaps.push(gap);
             t.branches.push(bt);
+        }
+        // An end that lies on a road built after it (92 east ends on 101,
+        // which starts further on) is open too, fitted to that road.
+        for k in 1..=t.branches.len() {
+            if t.branches[k - 1].end.is_some() {
+                continue;
+            }
+            let bt = &t.branches[k - 1].track;
+            let last = bt.n - 1;
+            let (x, z) = (f64::from(bt.px[last]), f64::from(bt.pz[last]));
+            let mut best: Option<(usize, RoadDistance)> = None;
+            for (r, rt) in t.roads().enumerate() {
+                if r == k {
+                    continue;
+                }
+                let d = rt.distance_to_road(x, z, 400.0);
+                if d.s.is_some() && best.as_ref().is_none_or(|b| d.d < b.1.d) {
+                    best = Some((r, d));
+                }
+            }
+            let Some((er, far)) = best else { continue };
+            let s_e = far.s.expect("a road within reach");
+            let ef = t.road(er).frame(s_e);
+            if far.d > ef.hw + ef.margin {
+                continue;
+            }
+            let py = end_heights(bt, t.road(er), s_e);
+            let length = bt.length;
+            let b = &mut t.branches[k - 1];
+            b.track.py = py;
+            b.track.open_end = true;
+            b.track.grade = grade_of(&b.track.py, false);
+            build_racing_line(&mut b.track);
+            b.end = Some(s_e);
+            b.end_road = Some(er);
+            t.junctions.push(Junction {
+                road: k,
+                s: length,
+                other: er,
+                other_s: s_e,
+                kind: JunctionKind::End,
+            });
         }
         t.net = NetIndex::build(&t);
         if !t.branches.is_empty() {
@@ -719,8 +764,13 @@ impl Track {
         let mut prev = 1.0;
         for z in 0..zn {
             let t = if z + 1 < zn {
-                let s1 = self.zone_start[z + 1] as f64;
-                smoothstep(s1 - width, s1 + width, s)
+                // A zone the road never enters starts nowhere.
+                if self.zone_start[z + 1] >= self.n {
+                    0.0
+                } else {
+                    let s1 = self.zone_start[z + 1] as f64;
+                    smoothstep(s1 - width, s1 + width, s)
+                }
             } else {
                 0.0
             };
@@ -999,6 +1049,35 @@ fn nearest_road(net: &Track, x: f64, z: f64, radius: f64) -> Option<(usize, Road
     best
 }
 
+/// A road's heights with its far end fitted to road `parent`'s surface at
+/// `s_e` (where it lies over the parent's pavement, lifted a little) and
+/// its own heights returning over [`BRANCH_FIT`] before it.
+fn end_heights(t: &Track, parent: &Track, s_e: f64) -> Vec<f32> {
+    let mut py = t.py.clone();
+    let last = t.n - 1;
+    let ef = parent.frame(s_e);
+    let clear_e = ef.hw + ef.margin + 1.0;
+    let mut hint = s_e;
+    let mut delta = 0.0;
+    for k in (0..t.n).rev() {
+        let s = (last - k) as f64;
+        let x = f64::from(t.px[k]);
+        let z = f64::from(t.pz[k]);
+        if s <= clear_e {
+            let q = parent.project(x, z, hint);
+            hint = q.s;
+            let lift = BRANCH_LIFT * (1.0 - smoothstep(clear_e - 1.0, clear_e + 15.0, s));
+            let fitted = parent.surface_y(q.s, q.lat) + lift;
+            delta = fitted - f64::from(py[k]);
+            py[k] = fitted as f32;
+        } else {
+            let w = 1.0 - smoothstep(clear_e, clear_e + BRANCH_FIT, s);
+            py[k] = (f64::from(py[k]) + delta * w) as f32;
+        }
+    }
+    py
+}
+
 /// A branch's Track: its path trimmed to where it leaves the parent's
 /// pavement and started on the parent's centreline, its heights the
 /// parent's surface while it lies over the parent and its own again
@@ -1020,6 +1099,23 @@ fn build_branch(net: &Track, level: &Level, b: &Branch) -> Result<BranchTrack, S
     };
     let parent = net.road(parent_k);
     let s_j = near.s.expect("a road within reach");
+    // A path that stops short of the road its end meets (a corridor ends
+    // where the real road meets the other's ramps) is carried on to that
+    // road's centreline.
+    let mut p = p;
+    let last = p.x.len() - 1;
+    if let Some((er, far)) = nearest_road(net, p.x[last], p.z[last], 400.0)
+        && let Some(s_e) = far.s
+    {
+        let ef = net.road(er).frame(s_e);
+        if far.d > ef.hw + ef.margin && far.d < END_REACH {
+            p.x.push(ef.x);
+            p.z.push(ef.z);
+            if let Some(y) = p.y.as_mut() {
+                y.push(ef.y);
+            }
+        }
+    }
     let jf = parent.frame(s_j);
     let edge = jf.hw + jf.margin;
     let mut k0 = 0;
@@ -1102,27 +1198,7 @@ fn build_branch(net: &Track, level: &Level, b: &Branch) -> Result<BranchTrack, S
             far.d <= ef.hw + ef.margin
         }
     {
-        let parent = net.road(er);
-        let ef = parent.frame(s_e);
-        let clear_e = ef.hw + ef.margin + 1.0;
-        let mut hint = s_e;
-        let mut delta = 0.0;
-        for k in (0..t.n).rev() {
-            let s = (last - k) as f64;
-            let x = f64::from(t.px[k]);
-            let z = f64::from(t.pz[k]);
-            if s <= clear_e {
-                let q = parent.project(x, z, hint);
-                hint = q.s;
-                let lift = BRANCH_LIFT * (1.0 - smoothstep(clear_e - 1.0, clear_e + 15.0, s));
-                let fitted = parent.surface_y(q.s, q.lat) + lift;
-                delta = fitted - f64::from(t.py[k]);
-                t.py[k] = fitted as f32;
-            } else {
-                let w = 1.0 - smoothstep(clear_e, clear_e + BRANCH_FIT, s);
-                t.py[k] = (f64::from(t.py[k]) + delta * w) as f32;
-            }
-        }
+        t.py = end_heights(&t, net.road(er), s_e);
         t.open_end = true;
         end = Some(s_e);
         end_road = Some(er);
@@ -1180,7 +1256,7 @@ pub fn zone_fog(zones: &[TrackZone], is_loop: bool, length: f64, s: f64, base: f
         d = d + (zd - d) * w;
         drift = drift + (zr - drift) * w;
     };
-    for z in zones {
+    for z in zones.iter().filter(|z| z.s1 > z.s0) {
         apply(z.s0, z);
     }
     if is_loop {
@@ -1321,6 +1397,21 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
     // Zones.
     let zn = level.zones.len();
     let mut zone_start = vec![0usize; zn];
+    // A zone the road never enters (an open level's zones of other roads:
+    // the bay side's on the loop, stage 6) starts at its end and is empty,
+    // so the zones before it still end where they did. Such zones come
+    // last in a level's list.
+    let mut present = vec![false; zn];
+    for &z in &zone {
+        if let Some(p) = present.get_mut(z as usize) {
+            *p = true;
+        }
+    }
+    for (z, p) in present.iter().enumerate().skip(1) {
+        if !p {
+            zone_start[z] = n;
+        }
+    }
     for k in 1..n {
         if zone[k] != zone[k - 1] {
             zone_start[zone[k] as usize] = k;
@@ -1333,9 +1424,9 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
         .map(|(idx, z)| TrackZone {
             zone: z.clone(),
             id: idx,
-            s0: zone_start[idx] as f64,
+            s0: (zone_start[idx] as f64).min(length),
             s1: if idx < zn - 1 {
-                zone_start[idx + 1] as f64
+                (zone_start[idx + 1] as f64).min(length)
             } else {
                 length
             },

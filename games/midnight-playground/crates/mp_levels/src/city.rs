@@ -58,6 +58,9 @@ struct Placer<'a> {
     ground: &'a GroundFn,
     out: Vec<Footprint>,
     cells: BTreeMap<(i64, i64), Vec<u32>>,
+    /// The first road that gets buildings: the ones before it are left
+    /// as their own kits draw them.
+    first: usize,
 }
 
 const CELL: f64 = 64.0;
@@ -343,6 +346,9 @@ impl Placer<'_> {
                 let Some(&(r, k, _)) = near.first() else {
                     continue;
                 };
+                if r < self.first {
+                    continue;
+                }
                 let rt = t.road(r);
                 let f = rt.frame(k as f64);
                 let h = height(&dn, &mut rng);
@@ -381,17 +387,24 @@ pub fn boxes_overlap(a: &Footprint, b: &Footprint, pad: f64) -> bool {
     true
 }
 
-/// The buildings of the network: frontage along every street, then the
-/// infill.
-pub fn place(t: &Track, density: &DensityFn, ground: &GroundFn, seed: u32) -> Vec<Footprint> {
+/// The buildings of the network: frontage along every street from road
+/// `first` on, then the infill nearest those streets.
+pub fn place(
+    t: &Track,
+    density: &DensityFn,
+    ground: &GroundFn,
+    seed: u32,
+    first: usize,
+) -> Vec<Footprint> {
     let mut p = Placer {
         t,
         density,
         ground,
         out: Vec::new(),
         cells: BTreeMap::new(),
+        first,
     };
-    for r in 0..t.roads().count() {
+    for r in first..t.roads().count() {
         p.frontage(r, seed);
     }
     p.infill(seed ^ 0x5bd1_e995);

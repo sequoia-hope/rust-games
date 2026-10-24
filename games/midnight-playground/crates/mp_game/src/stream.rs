@@ -892,7 +892,10 @@ mod tests {
     /// The ring round a section wraps on the loop.
     #[test]
     fn the_ring_wraps_round_the_loop() {
-        let p = plan(mp_levels::level_by_id("peninsula")).unwrap();
+        // Streamed by road (the peninsula streams by place since stage 6d).
+        let mut l = mp_levels::level_by_id("peninsula");
+        l.stream_cell = None;
+        let p = plan(l).unwrap();
         let (_, n) = p.road_sections()[0];
         assert!(n >= 34);
         assert_eq!(ring(&p, 0, 1, 2)[..4], [n - 1, 0, 1, 2]);

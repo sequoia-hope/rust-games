@@ -255,12 +255,15 @@ mod tests {
             square(400.0, 0.0, 5.0, 0.0),
         ]);
         assert_eq!(b.near(100.0, 100.0, 1.0), vec![0]);
-        // Along the diagonal the corner is 14.1 m out; at 13 m a small car
-        // standing across the diagonal touches it.
-        let d = 13.0 / 2f64.sqrt();
+        // Turned 45 degrees, its own x axis is the diagonal and its face is
+        // 10 m out along it: a car a metre either way centred 10.5 m out
+        // overlaps it, and one 11.5 m out is clear.
+        let d = 10.5 / 2f64.sqrt();
         let (c, sn) = (pk_math::kernel::cos(q), pk_math::kernel::sin(q));
         let p = b.push_out(100.0 + d, 100.0 + d, c, sn, 1.0, 1.0);
-        assert!(p.is_some());
+        assert!((p.unwrap().depth - 0.5).abs() < 1e-9, "{p:?}");
+        let d = 11.5 / 2f64.sqrt();
+        assert!(b.push_out(100.0 + d, 100.0 + d, c, sn, 1.0, 1.0).is_none());
         assert!(
             b.push_out(100.0 + 12.0, 100.0 - 12.0, 1.0, 0.0, 1.0, 1.0)
                 .is_none()

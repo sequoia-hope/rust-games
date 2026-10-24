@@ -2,7 +2,8 @@
 //! the plan once, then sections built over it, each sized and timed, as
 //! the client's worker builds them: `cargo run --release -p mp_worldgen
 //! --example stream_cost -- peninsula [N]` from the repo root builds the
-//! base and N sections (default 6) spread over the level.
+//! base and N sections (default 6) spread over the level; `AT=x,z;x,z`
+//! builds the sections under those points instead.
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -70,8 +71,25 @@ fn main() {
     );
     let total = p.sections();
     let mut secs = vec![p.base_section()];
-    for k in 0..n.min(total) {
-        secs.push(p.section(k * total / n.min(total).max(1)));
+    match std::env::var("AT") {
+        Ok(at) => {
+            for pt in at.split(';') {
+                let v: Vec<f64> = pt
+                    .split(',')
+                    .filter_map(|c| c.trim().parse().ok())
+                    .collect();
+                if let [x, z] = v[..]
+                    && let Some(k) = p.section_under(x, z)
+                {
+                    secs.push(p.section(k));
+                }
+            }
+        }
+        Err(_) => {
+            for k in 0..n.min(total) {
+                secs.push(p.section(k * total / n.min(total).max(1)));
+            }
+        }
     }
     for sec in secs {
         let before = NOW.load(Ordering::Relaxed);
@@ -84,12 +102,13 @@ fn main() {
         let built = t.elapsed().as_secs_f64();
         let (wb, cut) = mp_worldgen::section::finish(b);
         let scene = wb.scene.nodes.len();
+        let at = match &sec.place {
+            Some(pl) => format!("square ({:.0}, {:.0})", pl.x0, pl.z0),
+            None => format!("road {} {:.0}..{:.0}", sec.road, sec.s0, sec.s1),
+        };
         println!(
-            "  {:>9}: road {} {:>6.0}..{:<6.0} build {:.2} s, peak {:.0} MB over the plan, {} nodes, kept {} cut {}",
+            "  {:>9}: {at:<24} build {:.2} s, peak {:.0} MB over the plan, {} nodes, kept {} cut {}",
             if sec.base { "base" } else { "section" },
-            sec.road,
-            sec.s0,
-            sec.s1,
             built,
             mb(PEAK.load(Ordering::Relaxed) - before),
             scene,

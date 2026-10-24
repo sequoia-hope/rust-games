@@ -23,9 +23,9 @@ const LANDFORMS: [&str; 11] = [
     "mountain", "valley", "city", "coast", "beach", "harbor", "streets", "canyon", "desert",
     "playa", "raceway",
 ];
-const SCENERY: [&str; 10] = [
+const SCENERY: [&str; 11] = [
     "Mountain", "Valley", "City", "Coast", "Beach", "Harbor", "Streets", "Desert", "Raceway",
-    "Land",
+    "Land", "Town",
 ];
 const CARS: [&str; 5] = ["sports", "muscle", "super", "electric", "rally"];
 

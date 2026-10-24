@@ -117,7 +117,7 @@ fn place(seed: u32) -> (Track, Vec<mp_track::Footprint>) {
         p90: if z < 450.0 { 90.0 } else { 9.0 },
     };
     let ground: mp_track::GroundFn = Arc::new(|_, _| 10.0);
-    let b = city::place(&t, &dense, &ground, seed);
+    let b = city::place(&t, &dense, &ground, seed, 0);
     (t, b)
 }
 
@@ -193,6 +193,7 @@ fn the_buildings_stand_clear_of_the_roads_and_each_other() {
             },
             &ground,
             1,
+            0,
         )
     }));
     let t = Track::new(&l).unwrap();
