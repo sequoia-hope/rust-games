@@ -123,6 +123,11 @@ pub struct SkyState {
     /// The route's zones, for the fog a zone sets of its own (the open
     /// world's ridge, stage 4d; `Track::fog_at`).
     pub zones: Vec<mp_track::TrackZone>,
+    /// Each branch's own zones and length (an open level's network): off
+    /// the level's road the fog is the road's under the car (stage 6).
+    pub branch_zones: Vec<(Vec<mp_track::TrackZone>, f64)>,
+    /// The road the car is on and its place there, set each frame.
+    pub on_road: Option<(usize, f64)>,
 }
 
 impl SkyState {
@@ -138,12 +143,19 @@ impl SkyState {
             night: 0.0,
             override_p: None,
             zones: Vec::new(),
+            branch_zones: Vec::new(),
+            on_road: None,
         }
     }
 
     /// With the track's zones, for their fog.
     pub fn with_zones(mut self, track: &mp_track::Track) -> SkyState {
         self.zones = track.zones.clone();
+        self.branch_zones = track
+            .branches
+            .iter()
+            .map(|b| (b.track.zones.clone(), b.track.length))
+            .collect();
         self
     }
 
@@ -191,7 +203,13 @@ impl SkyState {
         let p = self.progress(s);
         let mut k = self.sample(p);
         // A zone's own fog where the car is, drifting (stage 4d).
-        let (fd, drift) = mp_track::zone_fog(&self.zones, self.is_loop, self.length, s, k.fog_d);
+        let (fd, drift) = match self.on_road {
+            Some((r, rs)) if r > 0 && r <= self.branch_zones.len() => {
+                let (zones, len) = &self.branch_zones[r - 1];
+                mp_track::zone_fog(zones, false, *len, rs, k.fog_d)
+            }
+            _ => mp_track::zone_fog(&self.zones, self.is_loop, self.length, s, k.fog_d),
+        };
         k.fog_d = fd * mp_track::fog_drift(self.time, drift);
         self.night = k.night;
         let sun_scale = clamp(k.sun_i / 2.5, 0.25, 1.2) * (1.0 - k.night * 0.8);

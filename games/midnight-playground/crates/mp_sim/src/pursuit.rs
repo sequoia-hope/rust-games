@@ -250,6 +250,8 @@ impl RacerBody {
             id,
             police: false,
             kinematic_only: false,
+            // A pursuit runs on the level's road.
+            road: 0,
             s: self.s,
             lat: self.lat,
             dir: 1,

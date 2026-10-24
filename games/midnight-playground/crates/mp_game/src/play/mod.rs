@@ -931,6 +931,9 @@ fn draw(
         .single()
         .map_or(1.0, |w| f64::from(w.scale_factor()));
     let world_dt = if opts.o.freeze { 0.0 } else { dt };
+    if let Some(sky) = sky_res.sky.as_mut() {
+        sky.on_road = Some((car.road, car.road_s));
+    }
     crate::update_sky(
         &mut sky_res,
         &opts,

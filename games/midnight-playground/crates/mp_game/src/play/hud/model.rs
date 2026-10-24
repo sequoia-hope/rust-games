@@ -158,6 +158,10 @@ pub struct HudIn {
     pub power: f64,
     /// The player's s (`lapS`).
     pub s: f64,
+    /// The road of the network the player is on and the place on it (an
+    /// open level's: the zone is that road's, stage 6).
+    pub road: usize,
+    pub road_s: f64,
     pub started: bool,
     /// Each racer's s (`lapS`), the player first.
     pub racers: Vec<f64>,
@@ -434,7 +438,12 @@ impl Hud {
         self.speedlines =
             clamp((st.speed - 45.0) / 35.0, 0.0, 1.0) * if st.nitro_active { 1.0 } else { 0.6 };
 
-        let z = track.zone[track.idx(st.s)] as usize;
+        let z = if st.road == 0 || st.road > track.branches.len() {
+            track.zone[track.idx(st.s)] as usize
+        } else {
+            let r = track.road(st.road);
+            r.zone[r.idx(st.road_s)] as usize
+        };
         if Some(z) != self.last_zone {
             self.last_zone = Some(z);
             let zone = &track.zones[z].zone;

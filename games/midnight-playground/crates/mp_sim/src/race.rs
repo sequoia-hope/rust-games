@@ -135,6 +135,10 @@ pub struct PlayerRules {
     pub pass_lat: Option<f64>,
     pub park: Option<Park>,
     pub last_s: Option<f64>,
+    /// Where the car was last tick, off the level's road (an open level's
+    /// network): its distance there is what it covers, not its place on
+    /// the level's road (stage 6).
+    pub last_xz: Option<(f64, f64)>,
     /// Unwrapped position (loops).
     pub odo: Option<f64>,
     /// Per traffic car: the last along-track gap to the player (`passed`).
@@ -184,6 +188,7 @@ impl PlayerRules {
             pass_lat: None,
             park: None,
             last_s: None,
+            last_xz: None,
             odo: None,
             passed: vec![None; n_cars],
             near_miss_hit: vec![false; n_cars],
@@ -454,6 +459,7 @@ impl SimState {
                     pass_lat: None,
                     park: None,
                     last_s: None,
+                    last_xz: None,
                     odo: None,
                     passed: vec![None; n_cars],
                     near_miss_hit: vec![false; n_cars],
@@ -1202,10 +1208,17 @@ pub fn step(
     let odos: Vec<f64> = (0..np)
         .map(|i| {
             let s = st.players[i].v.s;
+            let (road, x, z) = (st.players[i].v.road, st.players[i].v.x, st.players[i].v.z);
             let r = &mut st.players[i].rules;
             let d_s = t.ds(r.last_s.unwrap_or(s), s);
             r.last_s = Some(s);
-            r.dist += d_s.abs();
+            if road == 0 && r.last_xz.is_none() {
+                r.dist += d_s.abs();
+            } else {
+                let (lx, lz) = r.last_xz.unwrap_or((x, z));
+                r.dist += kernel::hypot(x - lx, z - lz);
+            }
+            r.last_xz = (road != 0).then_some((x, z));
             let odo = r.odo.unwrap_or(s) + d_s; // unwrapped position (loops)
             r.odo = Some(odo);
             odo

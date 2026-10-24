@@ -1850,6 +1850,8 @@ fn hud_in(race: &super::flow::Race) -> HudIn {
         electric: p.phys.electric,
         power: p.phys.power_out,
         s,
+        road: p.v.road,
+        road_s: p.v.road_s,
         started: st.race.state != RaceStateKind::Countdown,
         racers,
         laps: laps.then(|| LapsIn {
