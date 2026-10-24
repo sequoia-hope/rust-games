@@ -100,6 +100,28 @@ try {
 
   const status = await page.$eval('#status', (e) => e.textContent);
   check(!/refused|failed|stopped with an error/i.test(status), `status: ${status}`);
+
+  // Open the RP2350 Hardware Groovebox page in iPhone landscape viewport via the button in Music Lab.
+  await page.setViewport({ width: 844, height: 390, isMobile: true, hasTouch: true, isLandscape: true });
+  await Promise.all([
+    page.waitForNavigation({ timeout: 30000 }),
+    page.click('#openHardware'),
+  ]);
+  await page.waitForFunction(() => window.groovebox?.song?.layers?.length > 0, { timeout: 30000 });
+  await page.click('#playBtn');
+  const hwPlaying = await page.waitForFunction(() => window.groovebox.pos?.playing, { timeout: 30000 }).then(() => true, () => false);
+  await page.click('#bassRow button[data-bass="acid"]');
+  await page.click('#chordStyleBtn');
+  await sleep(300);
+  const hwState = await page.evaluate(() => ({
+    genre: window.groovebox.genre,
+    bass: window.groovebox.dna.bass,
+    chords: window.groovebox.dna.chords,
+    hasPatterns: window.groovebox.song.layers.some((l) => l.patterns?.length > 0),
+  }));
+  check(hwPlaying && hwState.bass === 'acid' && hwState.chords === 'stabs' && hwState.hasPatterns, `hardware groovebox (iPhone landscape): plays and morphs Genre DNA (${hwState.genre}, bass=${hwState.bass}, chords=${hwState.chords})`);
+  await page.click('#playBtn'); // stop
+
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 } finally {
   await browser.close();

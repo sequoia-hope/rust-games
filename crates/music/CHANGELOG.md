@@ -6,6 +6,28 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Genre DNA: settings that morph a playing song, and the lab's groovebox (2026-10-24)
+
+- **Breaking (small): `generator::Settings` has more fields.** Beside `bpm`
+  and `key`: `swing`, `mode`, `bass` (`BassStyle`), `chords`
+  (`ChordStyle`), `ext`, `arp`, `lead_density`, `perc_density`,
+  `tom_fills`, `gated` and `pump`, each `None` to draw it as before. A
+  struct literal that names only `bpm` and `key` no longer compiles;
+  migrate with `..Settings::default()`. `Settings::from_val` reads them
+  all from JSON. With every new field `None`, a song is generated as
+  before.
+- **Additions:** `BassStyle::key`/`from_key` and `ChordStyle::key`/
+  `from_key` (the JSON names); `generator::mode_index`/`mode_from_index`;
+  `parts::pool_ext` (`pool` with the extension override); the lab
+  player's `morph_song` (swaps in a regenerated song keeping the playback
+  position, matching voices, effect tails and mutes) and `set_loop`. The
+  song JSON now carries each layer's patterns with their notes, and each
+  clip's `patIdx`. `music_song` (wasm) also takes a JSON object (`genre`,
+  `seed` and the settings) in place of the genre name.
+- **Music Lab:** `hardware.html`, an RP2350 hardware groovebox mock-up for
+  a phone held sideways (Genre DNA knobs, a 16×8 LED pattern matrix),
+  opened from the lab's 🎛️ Groovebox button; `check.mjs` drives it.
+
 ### Orchestral mode for Mech Works and listening-pass balance (2026-10-23)
 
 - **Orchestral generator profile (`"orchestral"`):** added for Mech Works

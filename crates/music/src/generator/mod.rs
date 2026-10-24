@@ -18,14 +18,15 @@ pub mod profile;
 pub mod surprise;
 pub mod theory;
 
+use crate::json::Val;
 use crate::score::{
     Automation, Clip, Curve, Fx, Gated, Layer, Mark, Pattern, Role, Section, Song, Sound,
 };
 use crate::track::Ch;
 use parts::Dice;
-use profile::{PROFILES, Profile};
+use profile::{BassStyle, ChordStyle, PROFILES, Profile};
 use surprise::Ppm;
-use theory::{Chord, NOTE_NAMES};
+use theory::{AEOLIAN, Chord, DORIAN, IONIAN, MIXOLYDIAN, Mode, NOTE_NAMES, PHRYGIAN};
 
 /// The new generator's genres: `(key, name)`, in the lab's order.
 pub fn genres() -> Vec<(&'static str, &'static str)> {
@@ -39,6 +40,74 @@ pub struct Settings {
     pub bpm: Option<f64>,
     /// The tonic's pitch class, 0 = C (else drawn).
     pub key: Option<i32>,
+    /// Linn/MPC swing percentage, 50..=66 (else drawn from profile).
+    pub swing: Option<f64>,
+    /// Scale mode index: 0 = Phrygian, 1 = Aeolian, 2 = Dorian, 3 = Mixolydian, 4 = Ionian (else drawn).
+    pub mode: Option<u8>,
+    /// Bassline motion style override.
+    pub bass: Option<BassStyle>,
+    /// Chord articulation override (`Sustain` pads vs `Stabs`).
+    pub chords: Option<ChordStyle>,
+    /// Harmonic extension lushness, 0..=1 (0 = triads, 0.5 = 7ths, 1 = lush 7th/9th/11th voicings).
+    pub ext: Option<f64>,
+    /// Arpeggio hook layer override (`true` = force arp on, `false` = off).
+    pub arp: Option<bool>,
+    /// Lead density in notes per bar, 0..=6 (`0` = no lead, higher = busier lead hook).
+    pub lead_density: Option<f64>,
+    /// Percussion / ghost-hat density multiplier, 0..=1.
+    pub perc_density: Option<f64>,
+    /// Phrase turnaround fill style (`true` = 80s Simmons tom/snare cascade, `false` = house kick dropout).
+    pub tom_fills: Option<bool>,
+    /// 80s gated reverb send on snare/clap (0..=1; also scales kick gated verb).
+    pub gated: Option<f64>,
+    /// Kick-keyed sidechain ducking depth on bass/pads/arp (0..=0.85).
+    pub pump: Option<f64>,
+}
+
+impl Settings {
+    pub fn from_val(d: &Val) -> Settings {
+        let s = |k: &str| d.get(k).and_then(Val::as_str);
+        let n = |k: &str| d.get(k).and_then(Val::as_f64);
+        let b = |k: &str| match d.get(k) {
+            Some(Val::Bool(v)) => Some(*v),
+            _ => None,
+        };
+        Settings {
+            bpm: n("bpm").filter(|&v| v > 0.0),
+            key: n("key").map(|k| k as i32).filter(|&k| k >= 0),
+            swing: n("swing").filter(|&v| v >= 50.0),
+            mode: n("mode").map(|m| m as u8).filter(|&m| m <= 4),
+            bass: s("bass").and_then(BassStyle::from_key),
+            chords: s("chords").and_then(ChordStyle::from_key),
+            ext: n("ext").filter(|&v| v >= 0.0),
+            arp: b("arp"),
+            lead_density: n("leadDensity").filter(|&v| v >= 0.0),
+            perc_density: n("percDensity").filter(|&v| v >= 0.0),
+            tom_fills: b("tomFills"),
+            gated: n("gated").filter(|&v| v >= 0.0),
+            pump: n("pump").filter(|&v| v >= 0.0),
+        }
+    }
+}
+
+pub fn mode_index(m: &Mode) -> u8 {
+    match m.name {
+        "Phrygian" => 0,
+        "Aeolian" => 1,
+        "Dorian" => 2,
+        "Mixolydian" => 3,
+        _ => 4,
+    }
+}
+
+pub fn mode_from_index(idx: u8) -> Mode {
+    match idx {
+        0 => PHRYGIAN,
+        1 => AEOLIAN,
+        2 => DORIAN,
+        3 => MIXOLYDIAN,
+        _ => IONIAN,
+    }
 }
 
 /// One cell of an arrangement table (RULES.md's codes).
@@ -137,7 +206,10 @@ fn tempo(p: &Profile, dice: &Dice, settings: &Settings) -> (f64, f64) {
             b.clamp(lo, hi).round()
         }
     };
-    let swing = dt.range(p.swing.0, p.swing.1).round();
+    let raw_swing = dt.range(p.swing.0, p.swing.1).round();
+    let swing = settings
+        .swing
+        .map_or(raw_swing, |s| s.clamp(50.0, 66.0).round());
     (bpm, swing)
 }
 
@@ -159,14 +231,62 @@ fn sections(p: &Profile) -> Vec<Section> {
         .collect()
 }
 
-fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
+fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
+    let mut p = *p_orig;
+    if let Some(b) = settings.bass {
+        if b != p.bass {
+            match b {
+                BassStyle::Acid303 => p.bass_sounds = &["acid"],
+                BassStyle::DubstepWobble => p.bass_sounds = &["wobble", "reese"],
+                BassStyle::Orchestral => p.bass_sounds = &["contrabass"],
+                _ if p_orig.bass == BassStyle::Acid303 || p_orig.bass == BassStyle::Orchestral => {
+                    p.bass_sounds = &["moogBass", "sawBass", "roundBass", "pluckBass"];
+                }
+                _ => {}
+            }
+        }
+        p.bass = b;
+    }
+    if let Some(c) = settings.chords {
+        if c != p.chords {
+            match c {
+                ChordStyle::Stabs => p.pad_sounds = &["stab", "dubChord", "ep", "modernPluck"],
+                ChordStyle::Sustain => {
+                    p.pad_sounds = &["warmPad", "superPad", "superPadWide", "darkPad"]
+                }
+            }
+        }
+        p.chords = c;
+    }
+    if let Some(arp) = settings.arp {
+        p.arp = arp;
+    }
+    if let Some(ld) = settings.lead_density {
+        if ld <= 0.05 {
+            p.lead = (p.lead.0, p.lead.1, 0.0);
+        } else {
+            p.lead = (ld.clamp(0.5, 6.0), p.lead.1, 1.0);
+        }
+    }
+    if let Some(tf) = settings.tom_fills {
+        p.tom_fills = tf;
+    }
+    if let Some(g) = settings.gated {
+        let g = g.clamp(0.0, 1.0);
+        p.gated = (g, (g * 0.15).min(0.2));
+    }
+    if let Some(pump) = settings.pump {
+        p.pump = pump.clamp(0.0, 0.85);
+    }
+    let p = &p;
     let dice = Dice::new(seed).fork(p.key);
     let (bpm, swing) = tempo(p, &dice, settings);
     let (lo, hi, typ) = p.tempo;
 
     // Mode and key.
     let mut dk = dice.fork("key");
-    let mode = p.modes[dk.weighted(&p.modes.iter().map(|m| m.1).collect::<Vec<_>>())].0;
+    let drawn_mode = p.modes[dk.weighted(&p.modes.iter().map(|m| m.1).collect::<Vec<_>>())].0;
+    let mode = settings.mode.map_or(drawn_mode, mode_from_index);
     let pc = settings.key.unwrap_or_else(|| dk.int(0, 12)).rem_euclid(12);
     let (blo, _) = p.bass_range;
     let bass_tonic = blo + (pc - blo).rem_euclid(12);
@@ -176,7 +296,7 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
     // Progressions: the verse's, then the chorus's (the chord model's STM
     // has heard the verse by then).
     let mut dh = dice.fork("harmony");
-    let pool = parts::pool(p, &mode, &mut dh);
+    let pool = parts::pool_ext(p, &mode, settings.ext, &mut dh);
     let mut chord_stm = Ppm::new(3, 36);
     let a = parts::choose_progression(&pool, &chord_stm, &mut dh);
     let seq_a: Vec<u32> = pool[a]
@@ -350,7 +470,18 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         kit: kit.to_owned(),
         tweak: base_tweak.clone(),
     };
-    for (rk, cells) in p.template {
+    let mut template_rows: Vec<(&str, &str)> = p.template.to_vec();
+    if settings.arp == Some(false) {
+        template_rows.retain(|(k, _)| *k != "A");
+    } else if settings.arp == Some(true) && !template_rows.iter().any(|(k, _)| *k == "A") {
+        let arp_cells = template_rows
+            .iter()
+            .find(|(k, _)| *k == "Pd")
+            .or_else(|| template_rows.iter().find(|(k, _)| *k == "B"))
+            .map_or("x x x x x x x", |(_, c)| *c);
+        template_rows.push(("A", arp_cells));
+    }
+    for (rk, cells) in &template_rows {
         let Some((role, min_energy, pumped)) = role_of(rk) else {
             continue;
         };
@@ -446,16 +577,39 @@ fn plan(p: &Profile, seed: u32, settings: &Settings) -> Song {
         let mut core_fill: Option<(usize, usize, usize, usize)> = None;
         match *rk {
             "K" | "H" | "C" | "P" => {
+                if let Some(pd) = settings.perc_density
+                    && pd <= 0.05
+                    && *rk == "P"
+                {
+                    continue;
+                }
                 let lanes: Vec<_> = p
                     .drums
                     .iter()
-                    .filter(|l| l.role == *rk && dd.chance(l.p))
+                    .filter(|l| {
+                        l.role == *rk
+                            && match settings.perc_density {
+                                Some(pd) if matches!(*rk, "H" | "P") => {
+                                    dd.chance((l.p * (0.25 + 1.5 * pd)).clamp(0.0, 1.0))
+                                }
+                                Some(pd) if l.p < 1.0 => {
+                                    dd.chance((l.p * (0.4 + 1.2 * pd)).clamp(0.0, 1.0))
+                                }
+                                _ => dd.chance(l.p),
+                            }
+                    })
                     .copied()
                     .collect();
                 if lanes.is_empty() {
                     continue;
                 }
-                let core = parts::drum_loop(rk, &lanes, &mut dd);
+                let mut core = parts::drum_loop(rk, &lanes, &mut dd);
+                if let Some(pd) = settings.perc_density
+                    && pd < 0.30
+                    && *rk == "H"
+                {
+                    core = parts::sparse(&core);
+                }
                 let var = parts::drum_var(&core, &mut dd);
                 let sp = parts::sparse(&core);
                 let fl = parts::fill(&core, rk, p.tom_fills, &mut dd);

@@ -108,6 +108,7 @@ pub struct SongPlayer {
     gr_n: u64,
     events: Vec<EngineEvent>,
     section: Option<usize>,
+    loop_bars: Option<(u32, u32)>,
 }
 
 impl SongPlayer {
@@ -147,6 +148,7 @@ impl SongPlayer {
             gr_n: 0,
             events: Vec::new(),
             section: None,
+            loop_bars: None,
         };
         p.set_mix(Mix::default());
         p
@@ -245,6 +247,139 @@ impl SongPlayer {
         self.song = Some(song);
         self.playing = false;
         self.seek(0);
+    }
+
+    /// Updates the song in-place while preserving playback position, active
+    /// synth voices (when the instrument kind matches), reverb/delay tails,
+    /// and layer mutes.
+    pub fn morph_song(&mut self, song: Song) {
+        if self.song.is_none() {
+            self.set_song(song);
+            return;
+        }
+        let was_playing = self.playing;
+        let bar_pos = self.bar_now();
+        let old_names: Vec<String> = self
+            .song
+            .as_ref()
+            .map(|s| s.layers.iter().map(|l| l.name.clone()).collect())
+            .unwrap_or_default();
+        let mut old_layers: Vec<(String, LayerState)> = old_names
+            .into_iter()
+            .zip(std::mem::take(&mut self.layers))
+            .collect();
+        let sr = self.sr;
+        self.layers = song
+            .layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| {
+                let existing = old_layers
+                    .iter()
+                    .position(|(n, _)| *n == l.name)
+                    .map(|idx| old_layers.remove(idx).1);
+                let muted = existing.as_ref().is_some_and(|st| st.muted);
+                let gate = existing.as_ref().map_or_else(
+                    || {
+                        if self.energy >= l.min_energy {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    },
+                    |st| st.gate,
+                );
+                let prev_gverb = existing.as_ref().and_then(|st| st.gverb.clone());
+                let voice = match (&l.sound, existing.map(|st| st.voice)) {
+                    (Sound::Synth(lab), Some(Voice::Synth(mut inst)))
+                        if inst.lab().kind == lab.kind =>
+                    {
+                        inst.set_patch((**lab).clone());
+                        Voice::Synth(inst)
+                    }
+                    (
+                        Sound::Drums { kit, tweak },
+                        Some(Voice::Drums {
+                            drums, kit: okit, ..
+                        }),
+                    ) if *kit == okit => Voice::Drums {
+                        drums,
+                        kit: kit.clone(),
+                        tweak: tweak.clone(),
+                        cache: Vec::new(),
+                    },
+                    (Sound::Synth(lab), _) => Voice::Synth(Box::new(make_instrument(
+                        (**lab).clone(),
+                        to_u32(self.seed as f64 * 31.0 + i as f64),
+                        sr,
+                    ))),
+                    (Sound::Drums { kit, tweak }, _) => Voice::Drums {
+                        drums: Drums::new(to_u32(self.seed as f64 + 3.0 + i as f64 * 7.0), sr),
+                        kit: kit.clone(),
+                        tweak: tweak.clone(),
+                        cache: Vec::new(),
+                    },
+                };
+                let filt = |p: &str| {
+                    l.autos
+                        .iter()
+                        .any(|a| a.param == p)
+                        .then(|| ([Svf::new(); 2], -1.0))
+                };
+                LayerState {
+                    voice,
+                    ch: Channel::new(&l.ch, sr),
+                    hp: filt("hp"),
+                    lp: filt("lp"),
+                    level: 1.0,
+                    gate,
+                    muted,
+                    gverb: l.gated.map(|g| {
+                        prev_gverb.unwrap_or_else(|| {
+                            GatedVerb::new(
+                                to_u32(self.seed as f64 + 17.0 + i as f64),
+                                g.rt60,
+                                g.hold,
+                                sr,
+                            )
+                        })
+                    }),
+                }
+            })
+            .collect();
+        self.evs = lay_out(&song, sr);
+        let step = song.step_secs() * sr;
+        self.total = (song.bars as f64 * 16.0 * step).round() as u64;
+        self.fx_at = song
+            .fx
+            .iter()
+            .map(|f| {
+                let bar = match f {
+                    Fx::Riser { bar, .. } | Fx::Downlifter { bar, .. } => *bar,
+                };
+                ((bar * 16.0 * step).round() as u64, f.clone())
+            })
+            .collect();
+        self.fx_at.sort_by_key(|(t, _)| *t);
+        self.delay.time = (song.delay_beats * 60.0 / song.bpm).min(2.0);
+        self.delay.fb = song.delay_fb;
+        self.set_mix(Mix {
+            tape: song.tape,
+            glue: song.glue,
+            reverb: song.reverb,
+            ..self.mix
+        });
+        self.song = Some(song);
+        self.t = (bar_pos * 16.0 * step)
+            .round()
+            .clamp(0.0, self.total.saturating_sub(1) as f64) as u64;
+        self.next = self.evs.partition_point(|e| e.t < self.t);
+        self.fx_next = self.fx_at.partition_point(|(t, _)| *t < self.t);
+        self.playing = was_playing;
+    }
+
+    pub fn set_loop(&mut self, bars: Option<(u32, u32)>) {
+        self.loop_bars = bars.filter(|(a, b)| b > a);
     }
 
     fn seek(&mut self, bar: u32) {
@@ -527,7 +662,13 @@ impl SongPlayer {
                         self.fx_next += 1;
                     }
                     self.t += 1;
-                    if self.t >= self.total {
+                    if let Some((b0, b1)) = self.loop_bars {
+                        let step = self.song.as_ref().map_or(0.1, |s| s.step_secs());
+                        let end_t = ((b1 as f64) * 16.0 * step * sr).round() as u64;
+                        if self.t >= end_t.min(self.total) {
+                            self.seek(b0);
+                        }
+                    } else if self.t >= self.total {
                         // The song wraps (the lab loops it; a radio moves on
                         // when it hears the end).
                         self.events.push(EngineEvent::End);

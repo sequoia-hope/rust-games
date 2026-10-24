@@ -77,6 +77,35 @@ pub enum BassStyle {
     DubstepWobble,
 }
 
+impl BassStyle {
+    pub const fn key(self) -> &'static str {
+        match self {
+            BassStyle::Eighths => "eighths",
+            BassStyle::HouseCells => "house",
+            BassStyle::Rolling => "rolling",
+            BassStyle::Orchestral => "orchestral",
+            BassStyle::Acid303 => "acid",
+            BassStyle::Offbeat16 => "trance",
+            BassStyle::DnbRoller => "dnb",
+            BassStyle::DubstepWobble => "wobble",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Option<BassStyle> {
+        Some(match s {
+            "eighths" => BassStyle::Eighths,
+            "house" => BassStyle::HouseCells,
+            "rolling" => BassStyle::Rolling,
+            "orchestral" => BassStyle::Orchestral,
+            "acid" => BassStyle::Acid303,
+            "trance" => BassStyle::Offbeat16,
+            "dnb" => BassStyle::DnbRoller,
+            "wobble" => BassStyle::DubstepWobble,
+            _ => return None,
+        })
+    }
+}
+
 /// How the chords are played.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChordStyle {
@@ -84,6 +113,23 @@ pub enum ChordStyle {
     Sustain,
     /// Short stabs on off-16ths ([sound-design#27][sound-design#28]).
     Stabs,
+}
+
+impl ChordStyle {
+    pub const fn key(self) -> &'static str {
+        match self {
+            ChordStyle::Sustain => "sustain",
+            ChordStyle::Stabs => "stabs",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Option<ChordStyle> {
+        Some(match s {
+            "sustain" => ChordStyle::Sustain,
+            "stabs" => ChordStyle::Stabs,
+            _ => return None,
+        })
+    }
 }
 
 /// A block of the form: its name and length in bars, and the energy the
