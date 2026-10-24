@@ -590,6 +590,15 @@ mod tests {
         let q = t.project(x, z, end);
         assert!((f64::from(tun.track.py[n]) - t.surface_y(q.s, q.lat)).abs() < 0.05);
         assert_eq!(tun.track.road_end(), f64::INFINITY);
+        // The network (stage 6c): both leave Highway 1's loop, Tunitas
+        // ends on it, and nothing crosses.
+        let js: Vec<_> = t
+            .junctions
+            .iter()
+            .map(|j| (j.road, j.other, j.kind))
+            .collect();
+        use mp_track::JunctionKind::{End, Start};
+        assert_eq!(js, [(1, 0, Start), (1, 0, End), (2, 0, Start)]);
         let stage = &t.branches[1];
         assert_eq!(stage.id, "stage");
         assert!(!stage.track.open_end && stage.end.is_none());

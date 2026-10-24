@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 use pk_math::{DEG, clamp, js, kernel, smoothstep};
 
 use crate::level::{Branch, GroundFn, Level, LoopSpec, Route, Segment, Zone};
+use crate::network::{Junction, JunctionKind, NetIndex};
 use crate::road_types::{ROAD_TYPES, road_index};
 
 fn gaussian_smooth(src: &[f32], sigma: f64, wrap: bool) -> Vec<f32> {
@@ -171,22 +172,26 @@ pub const OPEN_DROP: f64 = 0.3;
 pub const BRANCH_FIT: f64 = 120.0;
 pub const BRANCH_LIFT: f64 = 0.02;
 
-/// A road leaving the level's road at a junction (docs/vision/peninsula.md,
-/// stage 3): its own Track, built as an open path, and where it leaves the
-/// parent.
+/// A road leaving another road of the network at a junction
+/// (docs/vision/peninsula.md, stage 3; any road listed before it since
+/// stage 6c): its own Track, built as an open path, and where it leaves
+/// the parent.
 #[derive(Clone)]
 pub struct BranchTrack {
     pub id: &'static str,
     pub name: &'static str,
     pub track: Track,
-    /// Where on the parent the branch leaves it (m), and to which side
-    /// (+1 right, -1 left).
+    /// The road the branch leaves ([`Track::road`]'s index: 0 the level's
+    /// road), where on it (m), and to which side (+1 right, -1 left).
+    pub parent: usize,
     pub s: f64,
     pub side: f64,
-    /// Where on the parent the branch's far end meets it again, when it
-    /// does (a road from one road of the network to another: Tunitas Creek
-    /// Road from Highway 1 to Skyline); its track is then `open_end`.
+    /// Where the branch's far end meets a road of the network, when it
+    /// does (a road from one road to another: Tunitas Creek Road from
+    /// Highway 1 to Skyline): metres along `end_road`; its track is then
+    /// `open_end`.
     pub end: Option<f64>,
+    pub end_road: Option<usize>,
     /// Metres along the branch to the parent's shoulder: before it the
     /// branch lies under the parent's road; and to the parent's paved
     /// edge, where the branch's own surface begins.
@@ -235,6 +240,13 @@ pub struct Track {
     /// A branch whose far end lies on another road of the network: no end
     /// of the road there (the car carries on onto the other road).
     pub open_end: bool,
+    /// Where the network's roads meet (stage 6c; road 0's Track holds
+    /// them, the branches' are empty): every branch's start and joined
+    /// far end, and the crossings.
+    pub junctions: Vec<Junction>,
+    /// Every road's samples in one index ([`NetIndex`]); road 0's Track
+    /// holds it, the branches' are empty.
+    pub net: NetIndex,
     pub elevated: Vec<u8>,
     /// Collision limits either side of the centreline (positive distances).
     pub wall_l: Vec<f32>,
@@ -276,14 +288,57 @@ impl Track {
             let bt = build_branch(&t, level, b)?;
             // The parent's fences open at the junction.
             let w = f64::from(bt.track.hw[0]) + f64::from(bt.track.margin[0]) + 3.0;
-            t.fence_gaps.push(FenceGap {
+            let gap = FenceGap {
                 s0: bt.s - w,
                 s1: bt.s + w,
                 side: bt.side,
+            };
+            let road = t.branches.len() + 1;
+            t.junctions.push(Junction {
+                road,
+                s: 0.0,
+                other: bt.parent,
+                other_s: bt.s,
+                kind: JunctionKind::Start,
             });
+            if let (Some(e), Some(r)) = (bt.end, bt.end_road) {
+                t.junctions.push(Junction {
+                    road,
+                    s: bt.track.length,
+                    other: r,
+                    other_s: e,
+                    kind: JunctionKind::End,
+                });
+            }
+            t.road_mut(bt.parent).fence_gaps.push(gap);
             t.branches.push(bt);
         }
+        t.net = NetIndex::build(&t);
+        if !t.branches.is_empty() {
+            let crossings = crate::network::find_crossings(&mut t);
+            if !crossings.is_empty() {
+                for j in &crossings {
+                    let r = t.road_mut(j.road);
+                    r.grade = grade_of(&r.py, false);
+                }
+                let mut fitted: Vec<usize> = crossings.iter().map(|j| j.road).collect();
+                fitted.dedup();
+                for r in fitted {
+                    build_racing_line(t.road_mut(r));
+                }
+                t.junctions.extend(crossings);
+            }
+        }
         Ok(t)
+    }
+
+    /// Road `k` of the network, to change (while the network is built).
+    pub(crate) fn road_mut(&mut self, k: usize) -> &mut Track {
+        if k == 0 {
+            self
+        } else {
+            &mut self.branches[k - 1].track
+        }
     }
 
     /// Road `k` of the network: 0 is this track, k its (k - 1)th branch.
@@ -327,10 +382,12 @@ impl Track {
         if best.2 <= 0.0 {
             return (road, p);
         }
-        for (k, t) in self.roads().enumerate() {
+        // Only the roads with a sample within reach can hold the car.
+        for k in self.net.roads_near(x, z, 96.0) {
             if k == road {
                 continue;
             }
+            let t = self.road(k);
             let d = t.distance_to_road(x, z, 96.0);
             let Some(s) = d.s else {
                 continue;
@@ -906,24 +963,40 @@ fn build_loop(
     })
 }
 
+/// The road of the network built so far nearest (x, z) within `radius`,
+/// and the distance to it: the lesser road index on a tie.
+fn nearest_road(net: &Track, x: f64, z: f64, radius: f64) -> Option<(usize, RoadDistance)> {
+    let mut best: Option<(usize, RoadDistance)> = None;
+    for (r, t) in net.roads().enumerate() {
+        let d = t.distance_to_road(x, z, radius);
+        if d.s.is_some() && best.as_ref().is_none_or(|b| d.d < b.1.d) {
+            best = Some((r, d));
+        }
+    }
+    best
+}
+
 /// A branch's Track: its path trimmed to where it leaves the parent's
 /// pavement and started on the parent's centreline, its heights the
 /// parent's surface while it lies over the parent and its own again
 /// `BRANCH_FIT` metres on, built as an open path in the branch's zone.
-fn build_branch(parent: &Track, level: &Level, b: &Branch) -> Result<BranchTrack, String> {
+/// The parent is the road of the network built so far nearest the path's
+/// start; the far end is open where it lies on any road's pavement.
+fn build_branch(net: &Track, level: &Level, b: &Branch) -> Result<BranchTrack, String> {
     let p = (b.path)()?;
     if p.x.len() < 2 {
         return Err(format!("branch {}: a path needs at least two points", b.id));
     }
     // Where the branch's start meets the parent, and the first of its
     // points clear of the parent's pavement.
-    let near = parent.distance_to_road(p.x[0], p.z[0], 400.0);
-    let Some(s_j) = near.s else {
+    let Some((parent_k, near)) = nearest_road(net, p.x[0], p.z[0], 400.0) else {
         return Err(format!(
-            "branch {}: its start is nowhere near the parent road",
+            "branch {}: its start is nowhere near the network",
             b.id
         ));
     };
+    let parent = net.road(parent_k);
+    let s_j = near.s.expect("a road within reach");
     let jf = parent.frame(s_j);
     let edge = jf.hw + jf.margin;
     let mut k0 = 0;
@@ -996,14 +1069,17 @@ fn build_branch(parent: &Track, level: &Level, b: &Branch) -> Result<BranchTrack
     // The far end on another road of the network (within its pavement):
     // the heights fitted to it the same way, and the end left open.
     let last = t.n - 1;
-    let far = parent.distance_to_road(f64::from(t.px[last]), f64::from(t.pz[last]), 400.0);
+    let far_road = nearest_road(net, f64::from(t.px[last]), f64::from(t.pz[last]), 400.0);
     let mut end = None;
-    if let Some(s_e) = far.s
+    let mut end_road = None;
+    if let Some((er, far)) = far_road
+        && let Some(s_e) = far.s
         && {
-            let ef = parent.frame(s_e);
+            let ef = net.road(er).frame(s_e);
             far.d <= ef.hw + ef.margin
         }
     {
+        let parent = net.road(er);
         let ef = parent.frame(s_e);
         let clear_e = ef.hw + ef.margin + 1.0;
         let mut hint = s_e;
@@ -1026,6 +1102,7 @@ fn build_branch(parent: &Track, level: &Level, b: &Branch) -> Result<BranchTrack
         }
         t.open_end = true;
         end = Some(s_e);
+        end_road = Some(er);
     }
     t.grade = grade_of(&t.py, false);
     build_racing_line(&mut t);
@@ -1047,9 +1124,11 @@ fn build_branch(parent: &Track, level: &Level, b: &Branch) -> Result<BranchTrack
         id: b.id,
         name: b.name,
         track: t,
+        parent: parent_k,
         s: s_j,
         side,
         end,
+        end_road,
         clear,
         under: jf.hw,
     })
@@ -1280,6 +1359,8 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
         },
         branches: Vec::new(),
         open_end: false,
+        junctions: Vec::new(),
+        net: NetIndex::default(),
         elevated: elev_raw,
         wall_l,
         wall_r,

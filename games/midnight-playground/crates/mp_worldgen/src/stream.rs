@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use mp_levels::SeasideData;
-use mp_track::{Level, Track};
+use mp_track::{JunctionKind, Level, Track};
 
 use crate::road::MarkGap;
 use crate::section::Section;
@@ -133,7 +133,11 @@ impl Planned {
 
     /// The section a place `s` on road `road` is in.
     pub fn section_of(&self, road: usize, s: f64) -> i64 {
-        let rs = self.road_sections();
+        self.section_in(&self.road_sections(), road, s)
+    }
+
+    /// [`Planned::section_of`] with the roads' sections given.
+    fn section_in(&self, rs: &[(i64, i64)], road: usize, s: f64) -> i64 {
         let (first, n) = rs[road.min(rs.len() - 1)];
         let t = self.track.road(road.min(rs.len() - 1));
         let s = if t.is_loop { t.wrap(s) } else { s.max(0.0) };
@@ -147,11 +151,12 @@ impl Planned {
 
     /// The sections kept up round `k`: `behind` and `ahead` along its road
     /// (wrapped on a loop, clamped at a branch's ends), and at a junction
-    /// the other road's two sections beside it, so the car turns off onto
-    /// a road that is already there: a branch's first two where the ring
-    /// covers its mouth on the parent, the parent's round the mouth (and
-    /// round the far end, where the branch meets the parent again) when
-    /// the ring is at the branch's end.
+    /// the other road's sections beside it, so the car turns off onto a
+    /// road that is already there: on the greater road, where the ring
+    /// covers the junction, the lesser road's two sections there (a
+    /// branch's first two at its mouth, its last two at its far end, the
+    /// one either side of a crossing); on the lesser road, near the
+    /// junction, the greater road's sections round it.
     pub fn ring(&self, k: i64, behind: i64, ahead: i64) -> Vec<i64> {
         let rs = self.road_sections();
         let (road, i) = self.road_of(k);
@@ -174,33 +179,34 @@ impl Planned {
             }
         };
         along(road, i, behind, ahead, &mut out);
-        for (bi, b) in self.track.branches.iter().enumerate() {
-            let br = bi + 1;
-            let (bf, bn) = rs[br];
-            let mouth = self.section_of(0, b.s);
-            let far = b.end.map(|e| self.section_of(0, e));
-            if road == 0 {
-                if out.contains(&mouth) {
-                    push(&mut out, bf);
-                    push(&mut out, bf + 1.min(bn - 1));
+        for j in &self.track.junctions {
+            let (lf, ln) = rs[j.road];
+            let at = self.section_in(&rs, j.other, j.other_s);
+            // The lesser road's sections at the junction, and how near its
+            // own the ring's must be.
+            let (mine, near): (Vec<i64>, Box<dyn Fn(i64) -> bool>) = match j.kind {
+                JunctionKind::Start => (vec![lf, lf + 1.min(ln - 1)], Box::new(|i| i <= 1)),
+                JunctionKind::End => (
+                    vec![lf + ln - 1, lf + (ln - 2).max(0)],
+                    Box::new(move |i| i >= ln - 2),
+                ),
+                JunctionKind::Cross => {
+                    let c = self.section_in(&rs, j.road, j.s) - lf;
+                    (
+                        vec![lf + c, lf + (c + 1).min(ln - 1), lf + (c - 1).max(0)],
+                        Box::new(move |i| (i - c).abs() <= 1),
+                    )
                 }
-                if let Some(fe) = far
-                    && out.contains(&fe)
-                {
-                    push(&mut out, bf + bn - 1);
-                    push(&mut out, bf + (bn - 2).max(0));
+            };
+            if road == j.other {
+                if out.contains(&at) {
+                    for m in mine {
+                        push(&mut out, m);
+                    }
                 }
-            } else if road == br {
-                if i <= 1 {
-                    let (_, m) = self.road_of(mouth);
-                    along(0, m, 1, 1, &mut out);
-                }
-                if let Some(fe) = far
-                    && i >= bn - 2
-                {
-                    let (_, m) = self.road_of(fe);
-                    along(0, m, 1, 1, &mut out);
-                }
+            } else if road == j.road && near(i) {
+                let (_, m) = self.road_of(at);
+                along(j.other, m, 1, 1, &mut out);
             }
         }
         out

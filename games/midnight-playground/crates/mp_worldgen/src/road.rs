@@ -14,7 +14,7 @@
 
 use mp_scene::{MaterialKind, three};
 use mp_track::road_types::{ROAD_TYPES, RoadType};
-use mp_track::{Frame, Track};
+use mp_track::{Frame, JunctionKind, Track};
 use pk_math::{clamp, js, kernel};
 use serde_json::Value;
 
@@ -311,9 +311,12 @@ pub struct RoadCtx<'a> {
     /// Which road of the network this is (0 the level's, k its (k - 1)th
     /// branch): a partitioned section builds only its own road's metres.
     pub road: usize,
-    /// A branch's parent road: where the branch runs onto the parent's
-    /// tarmac (its mouth, and an open far end) it stands nothing there.
-    pub parent: Option<&'a Track>,
+    /// The level's road, which holds the network's junctions (stage 6c):
+    /// a road clears its rails where a lesser road meets it, and stands
+    /// nothing on the tarmac of the greater roads it meets (a branch's
+    /// mouth and open far end, a street's crossings). `None` for a road
+    /// built on its own.
+    pub network: Option<&'a Track>,
 }
 
 /// `new Road(track, terrain)` and what `build()` leaves on it.
@@ -412,10 +415,27 @@ impl RoadCtx<'_> {
             .collect()
     }
 
-    /// Whether the branch's metre at `s` lies on its parent's road, out to
-    /// the parent's margin and a metre more (D1218).
-    fn on_parent(&self, s: f64) -> bool {
-        let Some(p) = self.parent else { return false };
+    /// Whether the road's metre at `s` lies on a greater road it meets,
+    /// out to that road's margin and a metre more (D1218).
+    fn on_greater(&self, s: f64) -> bool {
+        let Some(net) = self.network else {
+            return false;
+        };
+        let mut seen: Vec<usize> = Vec::new();
+        for j in net.junctions.iter().filter(|j| j.road == self.road) {
+            if seen.contains(&j.other) {
+                continue;
+            }
+            seen.push(j.other);
+            if self.on_road(net.road(j.other), s) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether the road's metre at `s` lies on road `p`'s tarmac.
+    fn on_road(&self, p: &Track, s: f64) -> bool {
         let f = self.track.frame(s);
         let d = p.distance_to_road(f.x, f.z, 60.0);
         let Some(ps) = d.s else { return false };
@@ -618,26 +638,43 @@ impl Road {
                 arr[i] = 0;
             }
         };
-        for b in &t.branches {
-            let w = f64::from(b.track.hw[0]) + f64::from(b.track.margin[0]) + 3.0;
-            clear(b.s, w, b.side);
-            if let Some(e) = b.end {
-                let bt = &b.track;
-                let last = bt.n - 1;
-                let w = f64::from(bt.hw[last]) + f64::from(bt.margin[last]) + 3.0;
-                // The side the branch comes in from.
-                let f = bt.frame((bt.length - 30.0).max(0.0));
-                let side = js::sign(t.project(f.x, f.z, e).lat);
-                clear(e, w, side);
+        // And where a street crosses it, both sides (stage 6c).
+        if let Some(net) = c.network {
+            for j in net.junctions.iter().filter(|j| j.other == c.road) {
+                let bt = net.road(j.road);
+                match j.kind {
+                    JunctionKind::Start => {
+                        let w = f64::from(bt.hw[0]) + f64::from(bt.margin[0]) + 3.0;
+                        clear(j.other_s, w, net.branches[j.road - 1].side);
+                    }
+                    JunctionKind::End => {
+                        let last = bt.n - 1;
+                        let w = f64::from(bt.hw[last]) + f64::from(bt.margin[last]) + 3.0;
+                        // The side the branch comes in from.
+                        let f = bt.frame((bt.length - 30.0).max(0.0));
+                        let side = js::sign(t.project(f.x, f.z, j.other_s).lat);
+                        clear(j.other_s, w, side);
+                    }
+                    JunctionKind::Cross => {
+                        // The crossing's width along this road grows as
+                        // the angle between them narrows.
+                        let f = bt.frame(j.s);
+                        let g = t.frame(j.other_s);
+                        let cos = f.fx * g.fx + f.fz * g.fz;
+                        let sin = (1.0 - cos * cos).max(0.09).sqrt();
+                        let w = (f.hw + f.margin) / sin + 3.0;
+                        clear(j.other_s, w, -1.0);
+                        clear(j.other_s, w, 1.0);
+                    }
+                }
             }
         }
-        // A branch stands nothing on its parent's tarmac.
-        if c.parent.is_some() {
-            for i in 0..n {
-                if c.on_parent(i as f64) {
-                    l[i] = 0;
-                    r[i] = 0;
-                }
+        // A road stands nothing on the tarmac of the greater roads it
+        // meets.
+        for i in 0..n {
+            if c.on_greater(i as f64) {
+                l[i] = 0;
+                r[i] = 0;
             }
         }
         self.side_l = l;
@@ -1249,7 +1286,7 @@ impl Road {
                 "circuitWide",
             ]
             .contains(&key);
-            if !skip && k.abs() > 0.03 && s - last > 11.0 && !c.on_parent(s) {
+            if !skip && k.abs() > 0.03 && s - last > 11.0 && !c.on_greater(s) {
                 items.push(Item {
                     s,
                     side: if k > 0.0 { -1.0 } else { 1.0 },

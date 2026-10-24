@@ -73,7 +73,7 @@ pub fn road_stage() -> StageFn {
             branch_from: None,
             clip: section.clone(),
             road: 0,
-            parent: None,
+            network: Some(track),
         });
         graph.add(*root, group);
         // The branches of the level's road (an open level's network): each
@@ -97,7 +97,7 @@ pub fn road_stage() -> StageFn {
                 branch_from: Some(b.under - 0.3),
                 clip: section.clone(),
                 road: j + 1,
-                parent: Some(track),
+                network: Some(track),
             });
             graph.add(*root, group);
             branches.push(br);

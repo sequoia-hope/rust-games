@@ -140,23 +140,7 @@ impl Section {
     /// The place of (x, z) in the level's network: the nearest road within
     /// [`NEAR_ROAD`] and the metres along it.
     pub fn s_of(track: &Track, x: f64, z: f64) -> Option<(usize, f64)> {
-        let mut best: Option<(usize, f64, f64)> = None;
-        for (r, t) in track.roads().enumerate() {
-            let d = t.distance_to_road(x, z, NEAR_ROAD);
-            let Some(s) = d.s else { continue };
-            // The distance to the place itself: beyond an open road's end
-            // the lateral distance from its last segment says nothing.
-            let f = t.frame(if t.is_loop {
-                t.wrap(s)
-            } else {
-                s.clamp(0.0, t.length)
-            });
-            let dd = pk_math::kernel::hypot(x - f.x, z - f.z);
-            if dd <= NEAR_ROAD && best.is_none_or(|b| dd < b.2) {
-                best = Some((r, s, dd));
-            }
-        }
-        best.map(|(r, s, _)| (r, s))
+        track.nearest_place(x, z, NEAR_ROAD)
     }
 
     /// Whether the point (x, z) belongs to the stretch: its nearest place

@@ -6,10 +6,12 @@
 #![allow(clippy::needless_range_loop)]
 
 pub mod level;
+pub mod network;
 pub mod road_types;
 pub mod track;
 
 pub use level::*;
+pub use network::{Junction, JunctionKind, NetIndex};
 pub use road_types::{ROAD_TYPES, RoadType, road_index, road_type};
 pub use track::{
     BRANCH_FIT, BRANCH_LIFT, Bounds, BranchTrack, FOG_BLEND, FenceGap, Frame, OPEN_BAND, OPEN_DROP,
