@@ -454,6 +454,23 @@ pub fn wants_box(w: &World, x0: f64, z0: f64, x1: f64, z1: f64) -> bool {
     box_dist2(&pts, x0, z0, x1, z1) <= sec.scenery_radius * sec.scenery_radius
 }
 
+/// Whether a thing standing at (x, z) is this build's to draw: always
+/// for a level; for a section, when it owns the point (streaming) or the
+/// point is within its scenery radius (the menu's views); never for the
+/// base or a view without scenery.
+pub fn owns_point(w: &World, x: f64, z: f64) -> bool {
+    let (Some(sec), Some(track)) = (&w.section, &w.track) else {
+        return true;
+    };
+    if !sec.scenery || sec.base {
+        return false;
+    }
+    if sec.partition {
+        return sec.owns(track, x, z);
+    }
+    dist2(&sec.points(track), x, z) <= sec.scenery_radius * sec.scenery_radius
+}
+
 /// Whether the scenery module `name` builds: always for a level; for a
 /// section, when one of the zones that name it reaches the stretch.
 pub fn builds_module(w: &World, name: &str) -> bool {
