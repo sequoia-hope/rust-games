@@ -1,1093 +1,1093 @@
 {
  "clips": {
   "air-1-1": {
-   "secs": 0.79,
+   "secs": 0.86,
    "text": "Big air!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "air-2-1": {
-   "secs": 1.65,
+   "secs": 1.71,
    "text": "Air traffic control is calling!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "air-3-1": {
-   "secs": 0.84,
+   "secs": 1.08,
    "text": "Still flying!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "air-3-2": {
-   "secs": 0.82,
+   "secs": 0.87,
    "text": "Still flying!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "avalanche-1-1": {
-   "secs": 3.11,
+   "secs": 2.75,
    "text": "Avalanche Bowl! The steepest course on this mountain!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "avalanche-1-2": {
-   "secs": 4.39,
+   "secs": 4.2,
    "text": "Steep, fast, and huge air. In this visibility, you ride the flags.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "avalanche-2-1": {
-   "secs": 2.63,
+   "secs": 2.53,
    "text": "Avalanche Bowl! This is the expert course.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "avalanche-2-2": {
-   "secs": 2.25,
+   "secs": 2.38,
    "text": "And the snow is coming down sideways up there!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "avalanche-2-3": {
-   "secs": 2.14,
+   "secs": 2.38,
    "text": "Our camera crew is very, very brave.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "avalanche-3-1": {
-   "secs": 3.54,
+   "secs": 3.8,
    "text": "Avalanche Bowl, in a whiteout! The cameras can barely see!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "avalanche-3-2": {
-   "secs": 2.46,
+   "secs": 2.1,
    "text": "Neither can the rider. Follow the flags!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "behind-1-1": {
-   "secs": 2.94,
+   "secs": 2.97,
    "text": "Oh, and that's a pass! Down to second.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "behind-2-1": {
-   "secs": 2.05,
+   "secs": 3.11,
    "text": "The lead is gone! Come on, come on!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "behind-3-1": {
-   "secs": 2.55,
+   "secs": 2.27,
    "text": "Trailing now. Plenty of mountain left!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "behind-4-1": {
-   "secs": 1.64,
+   "secs": 1.9,
    "text": "No, no, no! Chase it down!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "big-1-1": {
-   "secs": 1.69,
+   "secs": 1.57,
    "text": "Oh my goodness! Did you see that?",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "big-1-2": {
-   "secs": 2.26,
+   "secs": 1.81,
    "text": "I saw it! I'm still processing it!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "big-2-1": {
-   "secs": 2.23,
+   "secs": 2.27,
    "text": "That is a big one! Write that down!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "big-2-2": {
-   "secs": 1.98,
+   "secs": 2.08,
    "text": "That is going straight on the highlight reel!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "big-3-1": {
-   "secs": 2.6,
+   "secs": 3.59,
    "text": "Absolutely massive! The crowd is on its feet!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "big-3-2": {
-   "secs": 0.81,
+   "secs": 0.94,
    "text": "So is Dani.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "big-4-1": {
-   "secs": 2.47,
+   "secs": 2.04,
    "text": "Okay. That was genuinely impressive.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "big-4-2": {
-   "secs": 3.05,
+   "secs": 2.52,
    "text": "She said genuinely! Folks, that never happens!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "big-5-1": {
-   "secs": 1.77,
+   "secs": 2.33,
    "text": "Huge! Absolutely huge!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "big-6-1": {
-   "secs": 2.59,
+   "secs": 2.42,
    "text": "Textbook! Somebody put that in the training video!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "crash-1-1": {
-   "secs": 1.7,
+   "secs": 1.89,
    "text": "Oh! And that is a yard sale!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crash-2-1": {
-   "secs": 0.86,
+   "secs": 1.05,
    "text": "And that's a fall.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "crash-2-2": {
-   "secs": 0.78,
+   "secs": 0.92,
    "text": "Thank you, Wren!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crash-3-1": {
-   "secs": 1.33,
+   "secs": 1.31,
    "text": "Ooh, that's going to leave a mark!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crash-4-1": {
-   "secs": 2.5,
+   "secs": 2.62,
    "text": "Down they go! Up you get, keep it moving!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "crash-5-1": {
-   "secs": 3.54,
+   "secs": 4.01,
    "text": "Wipeout! That is snow in places snow should never be!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crash-6-1": {
-   "secs": 2.43,
+   "secs": 2.35,
    "text": "That one got away. Happens to the best of them.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "crash-6-2": {
-   "secs": 1.4,
+   "secs": 1.5,
    "text": "Happened to me constantly!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crash-7-1": {
-   "secs": 1.91,
+   "secs": 2.29,
    "text": "Shake it off! Back up and going!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crystal-1-1": {
-   "secs": 4.29,
+   "secs": 4.85,
    "text": "We are live at Crystal Ridge! Wide open groomers and big, friendly kickers!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crystal-1-2": {
-   "secs": 2.31,
+   "secs": 2.13,
    "text": "Friendly is a strong word. They're polite.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "crystal-2-1": {
-   "secs": 5.06,
+   "secs": 5.15,
    "text": "Crystal Ridge today! The sun is out, the snow is fast, and there are no excuses on this one.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "crystal-2-2": {
-   "secs": 1.68,
+   "secs": 1.46,
    "text": "None! Let's go!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crystal-3-1": {
-   "secs": 2.84,
+   "secs": 2.62,
    "text": "Crystal Ridge, and just look at that view from the top!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "crystal-3-2": {
-   "secs": 2.35,
+   "secs": 2.68,
    "text": "Enjoy the view later. Watch the jumps now.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "fast-1-1": {
-   "secs": 0.99,
+   "secs": 1.09,
    "text": "Look at the speed!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "fast-1-2": {
-   "secs": 3.34,
+   "secs": 3.21,
    "text": "Full tuck! Very aerodynamic, very brave!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "fast-2-1": {
-   "secs": 3.25,
+   "secs": 2.29,
    "text": "That's very fast. Too fast. Perfect.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "fast-3-1": {
-   "secs": 2.67,
+   "secs": 2.54,
    "text": "Full tuck! The speed gun is going crazy!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "go-1-1": {
-   "secs": 1.19,
+   "secs": 1.42,
    "text": "And we are underway!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "go-2-1": {
-   "secs": 0.99,
+   "secs": 0.97,
    "text": "Clean out of the gate!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "go-3-1": {
-   "secs": 0.72,
+   "secs": 0.87,
    "text": "Here we go!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "go-4-1": {
-   "secs": 0.63,
+   "secs": 0.7,
    "text": "Send it!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "go-4-2": {
-   "secs": 0.9,
+   "secs": 0.89,
    "text": "Within reason!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "go-5-1": {
-   "secs": 1.78,
+   "secs": 1.43,
    "text": "Good start! Good start!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "go-6-1": {
-   "secs": 0.86,
+   "secs": 0.98,
    "text": "And they're away!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-1-1": {
-   "secs": 5.33,
+   "secs": 6.23,
    "text": "Good afternoon, everybody, and welcome to live coverage of the Ten-Eighty Mountain Series! I'm Dani Reyes!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-1-2": {
-   "secs": 6.11,
+   "secs": 5.49,
    "text": "And I'm Wren Halvorsen. Fast snow, a hungry field, and Dani has already had two coffees.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "ident-1-3": {
-   "secs": 0.46,
+   "secs": 0.39,
    "text": "Three!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-2-1": {
-   "secs": 4.65,
+   "secs": 5.25,
    "text": "Welcome back to the Ten-Eighty Mountain Series! Wren Halvorsen, alongside Dani Reyes.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "ident-2-2": {
-   "secs": 3.71,
+   "secs": 4.45,
    "text": "Wren, it is a gorgeous day up here, and we have got a stacked field!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-2-3": {
-   "secs": 1.38,
+   "secs": 1.78,
    "text": "We have four riders, Dani.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "ident-2-4": {
-   "secs": 0.67,
+   "secs": 0.55,
    "text": "Stacked!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-3-1": {
-   "secs": 6.41,
+   "secs": 6.37,
    "text": "You are watching the Ten-Eighty Mountain Series, live from the mountain! Four courses! Four riders! One booth!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-3-2": {
-   "secs": 3.9,
+   "secs": 3.51,
    "text": "One booth, with a heater that smells like toast. We have told the network.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "ident-4-1": {
-   "secs": 4.67,
+   "secs": 4.79,
    "text": "If you're just joining us, welcome! The riders are up top, choosing their courses right now.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "ident-4-2": {
-   "secs": 3.82,
+   "secs": 4.14,
    "text": "And the crowd at the finish is loud, folks! I can hear the cowbells from the booth!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-5-1": {
-   "secs": 6.97,
+   "secs": 6.81,
    "text": "Live from the summit, this is the Ten-Eighty Mountain Series! I'm Dani Reyes, and beside me, the sharpest analyst in the sport!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-5-2": {
-   "secs": 0.65,
+   "secs": 0.6,
    "text": "Accurate.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "ident-6-1": {
-   "secs": 3.38,
+   "secs": 3.1,
    "text": "Wren Halvorsen and Dani Reyes, back in the booth together!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "ident-6-2": {
-   "secs": 4.41,
+   "secs": 4.24,
    "text": "Fifteen years, folks! We used to race each other. Now we argue on television!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "ident-6-3": {
-   "secs": 2.43,
+   "secs": 2.67,
    "text": "On live television. Which is so much worse.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-1-1": {
-   "secs": 1.11,
+   "secs": 1.19,
    "text": "Good lines so far!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-1-2": {
-   "secs": 2.17,
+   "secs": 2.52,
    "text": "Lovely lines! I love a line!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-2-1": {
-   "secs": 1.77,
+   "secs": 1.84,
    "text": "Wren, what's for dinner tonight?",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-2-2": {
-   "secs": 0.77,
+   "secs": 1.0,
    "text": "We are on air.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-2-3": {
-   "secs": 1.42,
+   "secs": 1.62,
    "text": "So what's for dinner, on air?",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-3-1": {
-   "secs": 2.81,
+   "secs": 2.78,
    "text": "Watch the knees. Soft knees soak up everything.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-3-2": {
-   "secs": 1.86,
+   "secs": 2.08,
    "text": "Soft knees, soft heart!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-4-1": {
-   "secs": 2.14,
+   "secs": 2.15,
    "text": "This is my favorite section of the course!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-4-2": {
-   "secs": 1.59,
+   "secs": 1.67,
    "text": "You say that about every section.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-5-1": {
-   "secs": 1.7,
+   "secs": 1.92,
    "text": "There are free points on those kickers!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-5-2": {
-   "secs": 1.74,
+   "secs": 1.49,
    "text": "Free points are the best points!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-6-1": {
-   "secs": 2.38,
+   "secs": 2.96,
    "text": "I am so proud of every athlete out here today!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-6-2": {
-   "secs": 1.07,
+   "secs": 1.14,
    "text": "It's been four minutes.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-6-3": {
-   "secs": 0.61,
+   "secs": 0.65,
    "text": "Proud!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-7-1": {
-   "secs": 2.11,
+   "secs": 2.82,
    "text": "The longer you hold a grab, the more it scores.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-7-2": {
-   "secs": 1.27,
+   "secs": 1.24,
    "text": "Grab it like you mean it!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-8-1": {
-   "secs": 2.4,
+   "secs": 2.65,
    "text": "Wren, sum up this run in one word!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-8-2": {
    "secs": 0.66,
    "text": "Downhill.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-8-3": {
-   "secs": 0.98,
+   "secs": 0.93,
    "text": "Poetry, folks!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "idle-9-1": {
-   "secs": 2.6,
+   "secs": 2.59,
    "text": "Viewers at home, do not try this in your driveway.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "idle-9-2": {
-   "secs": 1.7,
+   "secs": 2.19,
    "text": "Unless your driveway is a mountain!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "jules-1-1": {
-   "secs": 2.7,
+   "secs": 2.4,
    "text": "Jules is in the gate! The big air specialist!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "jules-1-2": {
-   "secs": 2.35,
+   "secs": 2.76,
    "text": "Jules jumps first and does the math in the air.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "jules-2-1": {
-   "secs": 2.06,
+   "secs": 2.17,
    "text": "Jules at the top! Expect altitude.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "jules-2-2": {
-   "secs": 1.77,
+   "secs": 1.86,
    "text": "Expect the cameras to lose the shot!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "kai-1-1": {
-   "secs": 2.79,
+   "secs": 2.38,
    "text": "In the gate, it's Kai! The all-rounder!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "kai-1-2": {
-   "secs": 3.85,
+   "secs": 3.73,
    "text": "Good at everything, great at nothing. A very consistent career.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "kai-2-1": {
-   "secs": 3.3,
+   "secs": 2.84,
    "text": "Kai at the top! Steady hands, steady board.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "kai-2-2": {
-   "secs": 1.18,
+   "secs": 1.13,
    "text": "Steady as they come!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lead-1-1": {
-   "secs": 2.25,
+   "secs": 1.93,
    "text": "And that's the lead! Out in front!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lead-2-1": {
-   "secs": 1.77,
+   "secs": 1.96,
    "text": "A pass, and a very clean one!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lead-3-1": {
-   "secs": 1.93,
+   "secs": 2.39,
    "text": "Into first place! Go, go, go!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lead-4-1": {
-   "secs": 2.06,
+   "secs": 2.01,
    "text": "Takes the lead! Now don't give it back.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-1-1": {
-   "secs": 1.18,
+   "secs": 1.3,
    "text": "Second place today.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-1-2": {
-   "secs": 1.63,
+   "secs": 1.57,
    "text": "Run it back! Run it back!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-2-1": {
-   "secs": 1.35,
+   "secs": 1.41,
    "text": "Ooh, not quite!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-2-2": {
-   "secs": 2.29,
+   "secs": 1.81,
    "text": "Not today. There's always another run.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-3-1": {
-   "secs": 1.31,
+   "secs": 1.24,
    "text": "Second across the line.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-3-2": {
-   "secs": 1.93,
+   "secs": 2.11,
    "text": "Rematch! We need a rematch!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-4-1": {
-   "secs": 4.38,
+   "secs": 4.49,
    "text": "Second place is the first loser! I'm kidding! I'm kidding, it's great!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-4-2": {
-   "secs": 0.53,
+   "secs": 0.62,
    "text": "Dani.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-5-1": {
-   "secs": 1.31,
+   "secs": 1.3,
    "text": "The rival takes this one.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-5-2": {
-   "secs": 2.05,
+   "secs": 1.67,
    "text": "Heads up! That was a good fight!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-trees-1-1": {
-   "secs": 1.32,
+   "secs": 1.29,
    "text": "Ooh, just missed it!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-trees-1-2": {
-   "secs": 1.64,
+   "secs": 1.54,
    "text": "Next time, fewer trees.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-trees-2-1": {
-   "secs": 2.86,
+   "secs": 2.55,
    "text": "Second place. And the trees had a say in that one.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "lose-trees-2-2": {
-   "secs": 2.25,
+   "secs": 2.28,
    "text": "The trees are undefeated this season, folks!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-trees-3-1": {
-   "secs": 2.23,
+   "secs": 2.21,
    "text": "Not today! But hey, the tree's okay!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "lose-trees-3-2": {
-   "secs": 2.17,
+   "secs": 2.3,
    "text": "The tree has a better record than most of the field.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-1-1": {
-   "secs": 4.05,
+   "secs": 5.21,
    "text": "While we wait on the next rider, Wren, give the folks at home one thing to watch for!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-1-2": {
-   "secs": 3.64,
+   "secs": 3.5,
    "text": "The landings. Anyone can spin. Not everyone can stop spinning.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-10-1": {
-   "secs": 1.56,
+   "secs": 1.54,
    "text": "Wren, who've you got today?",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-10-2": {
-   "secs": 1.3,
+   "secs": 1.55,
    "text": "Whoever lands their tricks.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-10-3": {
-   "secs": 1.03,
+   "secs": 1.19,
    "text": "That is not a pick!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-10-4": {
-   "secs": 1.1,
+   "secs": 1.16,
    "text": "It's the only pick.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-11-1": {
-   "secs": 4.51,
+   "secs": 4.27,
    "text": "Big shout out to the queer ski club, out in force at the bottom of the course today!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-11-2": {
-   "secs": 3.85,
+   "secs": 3.86,
    "text": "They brought a banner. It is very sparkly. The cameras love it.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-12-1": {
-   "secs": 4.34,
+   "secs": 4.39,
    "text": "The nachos at the lodge tonight, folks! I'm just saying! I'm just putting it out there!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-12-2": {
-   "secs": 2.12,
+   "secs": 2.23,
    "text": "Dani will have eaten all of them by four.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-2-1": {
-   "secs": 4.78,
+   "secs": 4.47,
    "text": "A quick stat for the viewers. Dani broke her left collarbone five times in her career.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-2-2": {
-   "secs": 1.91,
+   "secs": 1.97,
    "text": "And I came back every single time!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-2-3": {
-   "secs": 0.87,
+   "secs": 0.97,
    "text": "Very slowly.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-3-1": {
-   "secs": 4.12,
+   "secs": 3.75,
    "text": "Wren, you raced boardercross for, what, eight seasons?",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-3-2": {
-   "secs": 2.43,
+   "secs": 2.09,
    "text": "Seven. My knees voted on the eighth.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-4-1": {
-   "secs": 2.52,
+   "secs": 2.66,
    "text": "I keep a spreadsheet of every trick landed this season.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-4-2": {
-   "secs": 5.26,
+   "secs": 4.34,
    "text": "Folks, it is color coded! The network wants it on screen, and she will not let them!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-5-1": {
-   "secs": 2.67,
+   "secs": 3.03,
    "text": "The truck is telling us we have a moment before the next run.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-5-2": {
-   "secs": 2.55,
+   "secs": 2.45,
    "text": "Which means Wren is going to talk about wax!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-5-3": {
-   "secs": 1.2,
+   "secs": 1.31,
    "text": "Wax matters, Dani!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-6-1": {
-   "secs": 5.8,
+   "secs": 6.34,
    "text": "Let's take you up to the start area! The riders are stretching, they're studying the course, they're getting focused!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-6-2": {
-   "secs": 1.51,
+   "secs": 1.59,
    "text": "They're looking at their phones, Dani.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-7-1": {
-   "secs": 4.14,
+   "secs": 3.82,
    "text": "For the viewers at home: first one to the bottom wins. It's not complicated.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-7-2": {
-   "secs": 2.33,
+   "secs": 2.44,
    "text": "It's beautifully simple! That's why we love it!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-8-1": {
-   "secs": 3.19,
+   "secs": 3.21,
    "text": "Now, we did have a moose wander past the finish area earlier.",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-8-2": {
-   "secs": 2.07,
+   "secs": 2.04,
    "text": "Course security has asked him to leave.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-8-3": {
    "secs": 1.13,
    "text": "His name is Gerald!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "menu-8-4": {
-   "secs": 0.86,
+   "secs": 0.75,
    "text": "We don't know that.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-9-1": {
-   "secs": 8.91,
+   "secs": 8.29,
    "text": "Conditions across the mountain! Sunshine on Crystal Ridge, golden light in the trees on Timber Run, a whiteout in Avalanche Bowl, and sunset in the pipe!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "menu-9-2": {
-   "secs": 1.39,
+   "secs": 1.88,
    "text": "Something for everybody today!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "mika-1-1": {
-   "secs": 3.7,
+   "secs": 3.27,
    "text": "Mika's in the start gate! A technical rider, and very clean.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "mika-1-2": {
-   "secs": 3.81,
+   "secs": 3.99,
    "text": "Mika's the only athlete on tour who actually reads Wren's spreadsheet!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "mika-1-3": {
-   "secs": 0.74,
+   "secs": 0.83,
    "text": "My favorite.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "mika-2-1": {
-   "secs": 2.64,
+   "secs": 2.7,
    "text": "Here's Mika! Nobody on tour lands cleaner!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "pipe-1-1": {
-   "secs": 3.13,
+   "secs": 3.45,
    "text": "The superpipe! Folks, I spent ten years in this thing!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "pipe-1-2": {
-   "secs": 1.33,
+   "secs": 1.32,
    "text": "Mostly on the landings.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "pipe-2-1": {
-   "secs": 4.35,
+   "secs": 3.57,
    "text": "The halfpipe! Wall to wall: height, rotation, and a clean landing.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "pipe-2-2": {
    "secs": 3.08,
    "text": "On both feet, folks! Very important! Both of them!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "pipe-3-1": {
-   "secs": 2.71,
+   "secs": 3.0,
    "text": "Sunset in the pipe! Let's see some spins!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "pipe-3-2": {
-   "secs": 4.06,
+   "secs": 3.93,
    "text": "Clean spins. Rotation without a landing is just falling with ambition.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "restart-1-1": {
-   "secs": 1.29,
+   "secs": 1.55,
    "text": "And we are going again!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "restart-2-1": {
-   "secs": 1.43,
+   "secs": 1.51,
    "text": "Another attempt! Good.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "restart-3-1": {
-   "secs": 1.75,
+   "secs": 1.91,
    "text": "Back to the top! One more time!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "rival-1-1": {
-   "secs": 3.58,
+   "secs": 3.67,
    "text": "The rival is across the line! Keep pushing, all the way down!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "rival-2-1": {
-   "secs": 2.75,
+   "secs": 2.78,
    "text": "The rival's in! Don't give up, finish it out!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "rob-1-1": {
-   "secs": 2.2,
+   "secs": 2.53,
    "text": "Here comes Rob, and Rob is fast!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "rob-1-2": {
-   "secs": 2.96,
+   "secs": 2.86,
    "text": "Rob turns maybe twice a run. Both by accident.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "rob-2-1": {
-   "secs": 3.7,
+   "secs": 3.53,
    "text": "Rob at the top! A pure speed rider. Tuck, point, and hope.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "rob-2-2": {
-   "secs": 1.7,
+   "secs": 1.55,
    "text": "Hope is a strategy for Rob!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "score-1-1": {
-   "secs": 2.2,
+   "secs": 2.1,
    "text": "What a show! Look at that score!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "score-1-2": {
-   "secs": 0.86,
+   "secs": 0.9,
    "text": "Points on the board!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "score-2-1": {
-   "secs": 2.54,
+   "secs": 2.41,
    "text": "And that's the trick attack! Let's see the total.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "score-2-2": {
-   "secs": 1.34,
+   "secs": 1.5,
    "text": "I'm dizzy just watching!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "score-3-1": {
-   "secs": 2.58,
+   "secs": 2.26,
    "text": "That's the session! Style for days!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "score-3-2": {
-   "secs": 2.46,
+   "secs": 2.53,
    "text": "Style for one whole run. But good style.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "sloppy-1-1": {
-   "secs": 1.42,
+   "secs": 1.31,
    "text": "Ooh, sketchy landing!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "sloppy-1-2": {
-   "secs": 0.96,
+   "secs": 1.11,
    "text": "But rides away!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "sloppy-2-1": {
-   "secs": 1.07,
+   "secs": 1.34,
    "text": "Little wobble there!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "sloppy-2-2": {
-   "secs": 0.67,
+   "secs": 1.03,
    "text": "Big wobble.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "sloppy-3-1": {
-   "secs": 1.7,
+   "secs": 1.2,
    "text": "Landed! Technically.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "sloppy-4-1": {
-   "secs": 1.31,
+   "secs": 1.29,
    "text": "Saved it! Mostly!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "timber-1-1": {
-   "secs": 3.57,
+   "secs": 3.01,
    "text": "Timber Run! Tight trees, and you have to pick your line early.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "timber-1-2": {
-   "secs": 4.33,
+   "secs": 4.76,
    "text": "And folks, the trees do not move! I have checked! Personally! With my face!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "timber-2-1": {
    "secs": 4.34,
    "text": "Timber Run, golden hour in the pines! Gorgeous pictures from up top!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "timber-2-2": {
-   "secs": 2.47,
+   "secs": 2.57,
    "text": "Very pretty. The trunks are very hard.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "timber-3-1": {
-   "secs": 3.46,
+   "secs": 3.07,
    "text": "Timber Run is all about rhythm. Turn, turn, breathe.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "timber-3-2": {
-   "secs": 1.88,
+   "secs": 1.61,
    "text": "Turn, turn, scream!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "timber-3-3": {
-   "secs": 1.09,
+   "secs": 1.01,
    "text": "That is not rhythm!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "time-1-1": {
-   "secs": 2.12,
+   "secs": 1.58,
    "text": "Across the line! Check the clock!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "time-1-2": {
-   "secs": 2.44,
+   "secs": 2.38,
    "text": "Is that a record? It feels like a record!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "time-2-1": {
-   "secs": 1.85,
+   "secs": 2.36,
    "text": "And that's the finish! What a run!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "time-2-2": {
-   "secs": 1.22,
+   "secs": 1.32,
    "text": "The time is on the board.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "time-3-1": {
-   "secs": 1.77,
+   "secs": 1.93,
    "text": "Done! Now do it faster.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "time-3-2": {
-   "secs": 1.82,
+   "secs": 2.01,
    "text": "She means that lovingly, folks!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "tree-1-1": {
-   "secs": 0.54,
+   "secs": 0.65,
    "text": "Timber!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "tree-1-2": {
-   "secs": 1.4,
+   "secs": 1.75,
    "text": "The tree is fine, by the way.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "tree-2-1": {
-   "secs": 0.8,
+   "secs": 0.87,
    "text": "Found a tree!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "tree-2-2": {
-   "secs": 1.58,
+   "secs": 2.25,
    "text": "The trees always win, folks!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "tree-3-1": {
-   "secs": 1.85,
+   "secs": 2.05,
    "text": "Oh no, right into the pines!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "tree-3-2": {
-   "secs": 1.27,
+   "secs": 1.34,
    "text": "The pines were here first.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "tree-4-1": {
-   "secs": 2.35,
+   "secs": 2.36,
    "text": "That's a tree. The tree did not move.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "tree-4-2": {
-   "secs": 0.9,
+   "secs": 0.93,
    "text": "They never do!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "trick-1-1": {
-   "secs": 0.81,
+   "secs": 0.86,
    "text": "Oh, nice!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "trick-2-1": {
-   "secs": 0.5,
+   "secs": 0.46,
    "text": "Clean!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "trick-3-1": {
-   "secs": 1.34,
+   "secs": 1.21,
    "text": "Look at the style on that!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "trick-4-1": {
-   "secs": 1.38,
+   "secs": 1.22,
    "text": "Tidy! I'll allow it.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "trick-5-1": {
-   "secs": 1.32,
+   "secs": 1.09,
    "text": "Yes! Stomped it!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "trick-6-1": {
-   "secs": 1.34,
+   "secs": 1.66,
    "text": "That one's going in the spreadsheet!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "trick-7-1": {
-   "secs": 1.66,
+   "secs": 2.03,
    "text": "Beautiful! Just beautiful!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "trick-8-1": {
-   "secs": 2.66,
+   "secs": 1.98,
    "text": "Smooth in, smooth out. Lovely.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "win-1-1": {
-   "secs": 1.97,
+   "secs": 1.73,
    "text": "And that's the win! What a race!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "win-1-2": {
-   "secs": 1.64,
+   "secs": 1.6,
    "text": "Well raced. Genuinely.",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "win-2-1": {
-   "secs": 1.1,
+   "secs": 0.97,
    "text": "First over the line!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "win-2-2": {
-   "secs": 3.25,
+   "secs": 3.26,
    "text": "I'm getting emotional, folks! I am actually getting emotional!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "win-3-1": {
-   "secs": 4.02,
+   "secs": 3.95,
    "text": "Victory! Somebody get this rider a podium and a plate of nachos!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "win-4-1": {
-   "secs": 1.06,
+   "secs": 1.25,
    "text": "That is how you race!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "win-4-2": {
-   "secs": 1.04,
+   "secs": 1.34,
    "text": "That is how you race!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "win-clean-1-1": {
-   "secs": 3.5,
+   "secs": 4.07,
    "text": "First place, and not a single fall! That is a clean run!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   },
   "win-clean-1-2": {
-   "secs": 1.72,
+   "secs": 1.59,
    "text": "Clean as fresh snow, folks!",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "win-clean-2-1": {
-   "secs": 4.62,
+   "secs": 3.42,
    "text": "The win, and they never touched the snow! Wren, did you see that?",
-   "voice": "dani-booth"
+   "voice": "dani-pipe"
   },
   "win-clean-2-2": {
-   "secs": 2.61,
+   "secs": 2.34,
    "text": "Didn't put a foot wrong. That's going in the spreadsheet!",
-   "voice": "wren-booth"
+   "voice": "wren-crisp"
   }
  },
  "voices": {
-  "dani": "dani-booth",
-  "wren": "wren-booth"
+  "dani": "dani-pipe",
+  "wren": "wren-crisp"
  }
 }

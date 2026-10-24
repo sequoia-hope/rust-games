@@ -26,7 +26,7 @@ OUT = ROOT / 'audio' / 'announcers'
 MODEL = 'Qwen/Qwen3-ASR-1.7B'
 
 # How the recogniser writes what the script spells out.
-SAME = {'1080': 'ten eighty', 'danny': 'dani', 'ren': 'wren', 'okay': 'okay', 'ok': 'okay'}
+SAME = {'1080': 'ten eighty', 'danny': 'dani', 'ren': 'wren', 'okay': 'okay', 'ok': 'okay', 'gonna': 'going to'}
 
 
 def words(s):
