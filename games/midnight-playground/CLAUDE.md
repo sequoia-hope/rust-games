@@ -82,6 +82,8 @@ and carry on with the option that best preserves parity.
 | The same for the bay side (stage 6b; pyarrow, numpy, Pillow, shapely: `uv run --with ...` where they are not installed) | `python3 tools/atlas/ground.py hwy-92-east hwy-84-east us-101 i-280 el-camino ralston hillsdale third-ave broadway millbrae san-bruno sf-19th-ave sf-lombard sf-van-ness sf-market sf-geary sf-embarcadero --margin 1200 --step 24 --name bayside` |
 | The city grid over a ground box: built cover and building heights from Overture (stage 6b) | `python3 tools/atlas/city.py --name bayside` |
 | Drive the web client round the loop with the keyboard | `node tools/parity/drive-branch.mjs --level peninsula [--phone] [--secs 900]` |
+| A cruise of the open world from each of its starts, driven along its road, with pictures and frame times (stage 6) | `node tools/parity/cruise-shots.mjs [--starts redwood-city,lombard] [--backend webgl2] [--dist next]` |
+| A streamed level's plan and sections, timed and sized natively (`AT=x,z;x,z` for the squares under points) | `cargo run --release -p mp_worldgen --example stream_cost -- peninsula [N]` |
 | Drive the web client along the open world's roads with the keyboard, watching for a hang (console, ticks, frame time) | `node tools/parity/drive-branch.mjs [--phone] [--query "touch=1&assist=2&physics=player"]` |
 | The police radio's script (every clip, for `tools/radio-voice/render.py`) | `cargo run -p mp_audio --example radio_lines` |
 | JS unit tests | `npm run test:unit` (and `npm run test:unit:kernel`, with the parity kernel) |

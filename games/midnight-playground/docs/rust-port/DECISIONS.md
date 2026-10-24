@@ -11829,3 +11829,26 @@ off road 0 puts the car back on the road it was on. The card shows the
 starts under the mode switch when Cruise is picked (kept per level as
 `start.<level>`; `?start=<id>` forces one), and the stream rings the car
 from the first frame of a cruise begun elsewhere.
+
+## D1244 (2026-10-24): traffic round the player; the HUD reads the road under the car
+
+Stage 6g, and what driving the bay side in the browser showed.
+
+- **A kinematic car has a road** (`Kinematic::road`; its `s` and `lat`
+  are on it; `AgentView::road`, and a player's view is their place on
+  the road under them). Cars follow only cars on their own road.
+- **Off the loop** (the lead player on another road, or a car on one)
+  traffic is round the player: `spawn_near` picks a road within
+  `NET_FAR` (900 m), a place along it 260 to 800 m either way from the
+  player's nearest, and spawns there if it is 230 to 900 m off; a car
+  goes once 1150 m away. At a road's end a car carries on onto the road
+  the junction names, the way it was heading, in one of its lanes
+  (`carry_on`), or goes where nothing meets the end or it would land
+  heading off the other road's own end (two roads end to end, the wrong
+  way: it ping-ponged otherwise). On the loop with the player on it the
+  traffic draws and drives as before.
+- **The HUD's zone** (the card) and **the sky's fog** come from the road
+  under the car (`HudIn::road`, `SkyState::on_road`, each branch's own
+  zones); **the cruise's distance** off the loop is the ground covered,
+  not the loop's projection. The city's arterials are `street` (kerbs),
+  not `boulevard` (guardrails).

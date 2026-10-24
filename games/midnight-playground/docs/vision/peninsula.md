@@ -388,6 +388,20 @@ between them, drawn full.
   the towns to San Francisco and back over 92 to the coast, without a
   loading screen and without a frame the stutter suite flags.
 
+**Built (2026-10-24).** 6b's data (D1239), the network (6c, D1240),
+streaming by place and the far field by propagation (6d, D1241), the
+buildings and the Town kit (6e, D1242), the starts (6f, D1243) and the
+traffic round the player (6g, D1244), and the peninsula level joined to
+the bay side: 20 roads, 48 junctions, 21 thousand buildings, six starts,
+streamed in 239 kilometre squares. Looked at in the browser
+(`tools/parity/cruise-shots.mjs`): Redwood City, San Mateo and Lombard
+Street at night, every window lit by its building's seed, San
+Francisco's towers on the skyline. Not yet: the at-grade crossings meet
+the freeways' real ramps; the ground between the kerb and the buildings
+is the land's colour, not sidewalk; Market Street's end stops 175 m
+short of the Embarcadero; rivals and police are still the loop's; the
+events are all on the loop.
+
 ## 3. Decisions
 
 - **The levels stay.** Nothing in the menu changes; the corridor is a
