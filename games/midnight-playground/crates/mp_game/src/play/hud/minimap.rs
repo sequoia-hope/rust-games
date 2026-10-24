@@ -83,6 +83,57 @@ pub fn road(t: &Track, s: f64) -> Vec<(f64, f64)> {
     out
 }
 
+/// Where the pen lifts between two roads' polylines (canvas px the shader
+/// skips: below -5000).
+pub const BREAK: (f64, f64) = (-9999.0, -9999.0);
+/// How far from the player a road of the network is drawn: the clip
+/// circle reaches 385 m, 490 m ahead.
+const NET_REACH: f64 = 560.0;
+
+/// An open level's network near (x, z) (stage 6): each road's runs of
+/// samples within [`NET_REACH`], the nearest road first, [`BREAK`]
+/// between runs, thinned until they fit [`MAX_ROAD`].
+pub fn network(t: &Track, x: f64, z: f64) -> Vec<(f64, f64)> {
+    let mut roads = t.net.roads_near(x, z, NET_REACH);
+    if let Some(&(r, _, _)) = t.net.nearest_samples(t, x, z, NET_REACH, 0.0).first() {
+        roads.retain(|&q| q != r);
+        roads.insert(0, r);
+    }
+    let r2 = NET_REACH * NET_REACH;
+    let mut step = 6usize;
+    loop {
+        let mut out: Vec<(f64, f64)> = Vec::new();
+        for &r in &roads {
+            let rt = t.road(r);
+            let mut open = false;
+            let mut k = 0;
+            while k < rt.n {
+                let (px, pz) = (f64::from(rt.px[k]), f64::from(rt.pz[k]));
+                let near = (px - x) * (px - x) + (pz - z) * (pz - z) <= r2;
+                if near {
+                    if !open && !out.is_empty() {
+                        out.push(BREAK);
+                    }
+                    out.push((px, pz));
+                    open = true;
+                } else {
+                    open = false;
+                }
+                k += step;
+            }
+            // A loop closes on itself.
+            if rt.is_loop && open {
+                out.push((f64::from(rt.px[0]), f64::from(rt.pz[0])));
+            }
+        }
+        if out.len() <= MAX_ROAD || step >= 96 {
+            out.truncate(MAX_ROAD);
+            return out;
+        }
+        step *= 2;
+    }
+}
+
 /// A dot or a bar, in canvas px, as the shader draws it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shape {
@@ -145,9 +196,21 @@ pub struct Scene {
 pub fn scene(t: &Track, st: &HudIn, clock: f64) -> Scene {
     let (px, pz, yaw) = st.player;
     let xf = Xform::new(px, pz, yaw);
-    let mut road: Vec<(f64, f64)> = road(t, st.s)
+    // A network (an open level's branches): every road near the player.
+    let pts = if t.branches.is_empty() {
+        road(t, st.s)
+    } else {
+        network(t, px, pz)
+    };
+    let mut road: Vec<(f64, f64)> = pts
         .into_iter()
-        .map(|(x, z)| xf.apply(x, z))
+        .map(|(x, z)| {
+            if (x, z) == BREAK {
+                BREAK
+            } else {
+                xf.apply(x, z)
+            }
+        })
         .collect();
     road.truncate(MAX_ROAD);
     let mut shapes = Vec::new();
@@ -272,6 +335,25 @@ pub fn scene(t: &Track, st: &HudIn, clock: f64) -> Scene {
 pub(crate) mod tests {
     use super::*;
     use crate::play::hud::model::{Dot, HudIn, PursuitIn, RivalDot, Unit};
+
+    /// In the city the minimap draws the streets about the car, each its
+    /// own polyline (stage 6).
+    #[test]
+    fn the_network_near_the_car_is_drawn_road_by_road() {
+        let t = Track::new(&mp_levels::level_by_id("peninsula")).expect("track");
+        // Downtown San Francisco, on Market Street.
+        let r = 1 + t.branches.iter().position(|b| b.id == "sf-market").unwrap();
+        let f = t.road(r).frame(1200.0);
+        let pts = network(&t, f.x, f.z);
+        let breaks = pts.iter().filter(|&&p| p == BREAK).count();
+        assert!(pts.len() <= MAX_ROAD && pts.len() > 40, "{}", pts.len());
+        assert!(breaks >= 2, "{breaks} roads' runs");
+        assert_ne!(pts[0], BREAK);
+        // Every drawn point is within reach.
+        for &(x, z) in pts.iter().filter(|&&p| p != BREAK) {
+            assert!((x - f.x).hypot(z - f.z) <= 561.0);
+        }
+    }
 
     /// A straight road along +x, sample i at (i, 0), one zone named SIERRA
     /// PASS: Sierra's track with its arrays replaced.
