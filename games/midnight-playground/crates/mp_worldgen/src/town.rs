@@ -196,13 +196,16 @@ fn sidewalks(world: &World, chunks: &mut Chunks) {
                         [f.x + f.rx * lat * side, f.z + f.rz * lat * side]
                     };
                     let mid = p(&a, lat0(&a) + WALK / 2.0);
-                    if on_another(net, r, mid[0], mid[1]) {
-                        continue;
-                    }
                     let ya = t.surface_y(s, lat0(&a) * side) + KERB;
                     let yb = t.surface_y(s + 4.0, lat0(&b) * side) + KERB;
                     let (ai, ao) = (p(&a, lat0(&a)), p(&a, lat0(&a) + WALK));
                     let (bi, bo) = (p(&b, lat0(&b)), p(&b, lat0(&b) + WALK));
+                    if [mid, ai, ao, bi, bo]
+                        .iter()
+                        .any(|c| on_another(net, r, c[0], c[1]))
+                    {
+                        continue;
+                    }
                     let g = chunks.at(mid[0], mid[1]);
                     let grey = Some([0.62, 0.6, 0.57]);
                     let uv = |l: f64, u: f64| [l / 4.0, u / 4.0];
