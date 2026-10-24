@@ -114,6 +114,65 @@ pub fn tables_json() -> String {
                     .collect(),
             )),
         ),
+        (
+            "profiles",
+            Some(pairs(
+                crate::generator::profile::PROFILES
+                    .iter()
+                    .map(|p| {
+                        let mode_idx = p
+                            .modes
+                            .first()
+                            .map_or(1, |(m, _)| crate::generator::mode_index(m));
+                        let perc_p = {
+                            let hp: Vec<f64> = p
+                                .drums
+                                .iter()
+                                .filter(|l| matches!(l.role, "H" | "P"))
+                                .map(|l| l.p)
+                                .collect();
+                            if hp.is_empty() {
+                                0.5
+                            } else {
+                                hp.iter().sum::<f64>() / hp.len() as f64
+                            }
+                        };
+                        (
+                            p.key.to_owned(),
+                            Val::obj(vec![
+                                ("name", Val::str(p.name)),
+                                ("bpm", Val::num(p.tempo.2)),
+                                (
+                                    "bpmRange",
+                                    Some(Val::Arr(vec![
+                                        Val::num(p.tempo.0).unwrap(),
+                                        Val::num(p.tempo.1).unwrap(),
+                                    ])),
+                                ),
+                                ("swing", Val::num(((p.swing.0 + p.swing.1) * 0.5).round())),
+                                ("mode", Val::num(mode_idx as f64)),
+                                ("bass", Val::str(p.bass.key())),
+                                ("chords", Val::str(p.chords.key())),
+                                ("ext", Val::num(p.ext.0)),
+                                ("arp", Some(Val::Bool(p.arp))),
+                                (
+                                    "leadDensity",
+                                    Val::num(if p.lead.2 > 0.0 { p.lead.0 } else { 0.0 }),
+                                ),
+                                ("percDensity", Val::num(perc_p)),
+                                ("tomFills", Some(Val::Bool(p.tom_fills))),
+                                ("gated", Val::num(p.gated.0)),
+                                ("pump", Val::num(p.pump)),
+                                ("tape", Val::num(p.tape)),
+                                ("glue", Val::num(p.glue)),
+                                ("reverb", Val::num(p.reverb)),
+                                ("kit", Val::str(p.kit)),
+                            ]),
+                        )
+                    })
+                    .collect(),
+            )),
+        ),
     ]);
     canon(&v)
 }
@@ -156,7 +215,10 @@ impl Session {
         let s = |k: &str| d.get(k).and_then(Val::as_str);
         let n = |k: &str| d.get(k).and_then(Val::as_f64);
         let ty = s("type").ok_or("a message needs a type")?;
-        if let ("song" | "play" | "stop" | "patch" | "energy" | "mix" | "mute" | "solo", Some(sp)) = (
+        if let (
+            "song" | "play" | "stop" | "loop" | "patch" | "energy" | "mix" | "mute" | "solo",
+            Some(sp),
+        ) = (
             ty,
             self.song.as_mut().filter(|_| self.on_song || ty == "song"),
         ) {
@@ -283,22 +345,30 @@ impl Session {
             "song" => {
                 let genre = s("genre").ok_or("song: no genre")?;
                 let seed = n("seed").unwrap_or(1.0).max(1.0) as u32;
-                let settings = Settings {
-                    bpm: n("bpm"),
-                    key: n("key").map(|k| k as i32),
-                };
+                let settings = Settings::from_val(d);
                 let song = crate::generator::generate(genre, seed, &settings)
                     .ok_or_else(|| format!("song: no genre {genre}"))?;
-                e.stop();
-                sp.set_mix(e.mix());
-                sp.set_energy(e.energy());
-                sp.set_song(song);
+                let morph = matches!(d.get("morph"), Some(Val::Bool(true)));
+                if morph {
+                    sp.morph_song(song);
+                } else {
+                    e.stop();
+                    sp.set_mix(e.mix());
+                    sp.set_energy(e.energy());
+                    sp.set_song(song);
+                }
             }
             "play" => sp.play(
                 n("bar").unwrap_or(0.0).max(0.0) as u32,
                 n("delay").unwrap_or(0.02),
             ),
             "stop" => sp.stop(),
+            "loop" => {
+                let range = n("start")
+                    .zip(n("end"))
+                    .map(|(a, b)| (a.max(0.0) as u32, b.max(0.0) as u32));
+                sp.set_loop(range);
+            }
             "patch" => {
                 let part = s("part").ok_or("patch: no part")?;
                 let lab = d.get("lab").ok_or("patch: no lab")?;
@@ -503,6 +573,31 @@ mod tests {
             t.get("patches")
                 .and_then(Val::as_arr)
                 .is_some_and(|p| !p.is_empty())
+        );
+        assert!(
+            t.get("profiles")
+                .and_then(Val::as_arr)
+                .is_some_and(|p| !p.is_empty())
+        );
+    }
+
+    #[test]
+    fn genre_dna_settings_morph_a_playing_song() {
+        let mut s = Session::new(5, 48000.0);
+        s.message(r#"{"type":"song","genre":"synthwave","seed":7}"#)
+            .unwrap();
+        s.message(r#"{"type":"play","bar":16}"#).unwrap();
+        assert!(rms(&mut s, 200) > 0.01);
+        s.message(
+            r#"{"type":"song","genre":"synthwave","seed":7,"swing":58,"mode":2,"bass":"acid","chords":"stabs","ext":0.85,"arp":true,"leadDensity":4.0,"percDensity":0.8,"tomFills":false,"gated":0.0,"pump":0.5,"morph":true}"#,
+        )
+        .unwrap();
+        s.message(r#"{"type":"loop","start":16,"end":20}"#).unwrap();
+        assert!(rms(&mut s, 200) > 0.01);
+        let p = parse(&s.poll()).unwrap();
+        assert_eq!(
+            p.get("pos").and_then(|p| p.get("playing")),
+            Some(&Val::Bool(true))
         );
     }
 }

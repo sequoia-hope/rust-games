@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>RP2350 Groovebox · Music Lab</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --chassis: #12151c;
+  --panel: #191d26;
+  --bezel: #0b0d12;
+  --border: #2a3140;
+  --silk: #8d99ae;
+  --silk-hi: #edf2f4;
+  --accent: #ff2e6e;
+  --ok: #1aff7a;
+  --amber: #ffca3a;
+  --cyan: #3aa8ff;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+html, body {
+  margin: 0; padding: 0;
+  width: 100%; height: 100dvh;
+  overflow: hidden;
+  background: #07080b;
+  color: var(--silk-hi);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  touch-action: none;
+}
+#hw {
+  width: 100%; height: 100dvh;
+  padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  display: grid;
+  grid-template-rows: 38px 1fr 68px;
+  gap: 6px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(58,168,255,0.07), transparent 55%),
+    linear-gradient(180deg, #171b24 0%, #10131a 100%);
+  border: 2px solid #262c3a;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 24px rgba(0,0,0,0.7);
+}
+
+/* ── Top Hardware Bezel Bar ── */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 6px;
+  background: var(--bezel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 3px 8px;
+}
+.brand {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--silk);
+  white-space: nowrap;
+}
+.screw {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: radial-gradient(circle, #3b4254 30%, #181c24 80%);
+  border: 1px solid #090b0f;
+  display: inline-block;
+}
+.brand b { color: var(--silk-hi); }
+.brand .chip {
+  font-size: 9px; padding: 1px 5px; border-radius: 4px;
+  background: #1d2432; color: var(--cyan); border: 1px solid #2e3b52;
+}
+.top-controls {
+  display: flex; align-items: center; gap: 5px; flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.hw-btn, .hw-sel {
+  background: linear-gradient(180deg, #252b39 0%, #191e28 100%);
+  color: var(--silk-hi);
+  border: 1px solid #343d50;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font: inherit; font-size: 11px; font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 0 #090b0f, inset 0 1px 0 rgba(255,255,255,0.08);
+  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.hw-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #090b0f; }
+.hw-btn.on {
+  background: linear-gradient(180deg, #ff3d7f 0%, #c91c57 100%);
+  border-color: #ff7aa8; color: #fff;
+  box-shadow: 0 0 10px rgba(255,61,127,0.45), 0 1px 0 #090b0f;
+}
+.hw-btn.ok.on {
+  background: linear-gradient(180deg, #1ed760 0%, #119942 100%);
+  border-color: #6bff9f; color: #051a0c;
+  box-shadow: 0 0 10px rgba(26,255,122,0.45), 0 1px 0 #090b0f;
+}
+.hw-btn.amber.on {
+  background: linear-gradient(180deg, #ffca3a 0%, #d49600 100%);
+  border-color: #ffe28a; color: #1b1300;
+  box-shadow: 0 0 10px rgba(255,202,58,0.45), 0 1px 0 #090b0f;
+}
+.hw-sel { padding: 3px 6px; }
+
+/* ── Main 3-Column Deck ── */
+.deck {
+  display: grid;
+  grid-template-columns: minmax(215px, 1.05fr) minmax(240px, 1.35fr) minmax(215px, 1.05fr);
+  gap: 6px;
+  min-height: 0;
+}
+.module {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  min-height: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.mod-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--silk);
+  border-bottom: 1px solid #252b38;
+  padding-bottom: 3px; margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.mod-head span.badge {
+  color: var(--amber); font-weight: 600; letter-spacing: 0.03em; text-transform: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 145px;
+}
+
+/* ── Center RGB LED Matrix Module ── */
+.matrix-wrap {
+  flex: 1;
+  display: flex; flex-direction: column; justify-content: center;
+  background: #06070a;
+  border: 2px solid #262e3d;
+  border-radius: 7px;
+  padding: 5px;
+  position: relative;
+  min-height: 0;
+  box-shadow: inset 0 0 18px #000;
+}
+#ledMatrix {
+  width: 100%; height: 100%;
+  display: block;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.matrix-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 4px; margin-top: 5px;
+  font-size: 10px; color: var(--silk);
+}
+.matrix-modes { display: flex; gap: 4px; }
+.matrix-modes .hw-btn { padding: 2px 6px; font-size: 9.5px; }
+#lcdLine {
+  font-size: 10px; color: var(--ok);
+  background: #090c10; border: 1px solid #1f2735;
+  border-radius: 4px; padding: 2px 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; text-align: right;
+}
+
+/* ── Stepped Pill Selectors & Micro Switches ── */
+.switch-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.sw-pill {
+  background: #12151d; color: var(--silk);
+  border: 1px solid #283040; border-radius: 4px;
+  padding: 3px 2px; font: inherit; font-size: 9px; font-weight: 700;
+  text-align: center; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sw-pill.on {
+  background: #1f334d; color: #7ce0ff; border-color: #3aa8ff;
+  box-shadow: 0 0 6px rgba(58,168,255,0.35);
+}
+.toggle-strip {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  margin-bottom: 4px;
+}
+.tog-btn {
+  background: #12161f; color: var(--silk);
+  border: 1px solid #2a3242; border-radius: 4px;
+  padding: 3px 4px; font: inherit; font-size: 9px; font-weight: 700;
+  cursor: pointer; text-align: center; white-space: nowrap;
+}
+.tog-btn b { color: var(--silk-hi); }
+.tog-btn.on {
+  border-color: var(--ok); color: var(--ok);
+  background: rgba(26,255,122,0.1);
+}
+
+/* ── Rotary Knobs Grid ── */
+.knob-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 4px;
+  flex: 1;
+  align-items: center;
+}
+.knob-grid.four {
+  grid-template-columns: repeat(4, 1fr);
+}
+.knob-cell {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center;
+  background: rgba(11,13,18,0.55);
+  border: 1px solid #222836;
+  border-radius: 6px;
+  padding: 3px 2px;
+  cursor: ns-resize;
+  position: relative;
+}
+.knob-cell:active, .knob-cell.dragging {
+  border-color: var(--cyan);
+  background: rgba(58,168,255,0.08);
+}
+.knob-svg {
+  width: 42px; height: 42px;
+  display: block;
+}
+.knob-label {
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em;
+  color: var(--silk); text-transform: uppercase;
+  margin-top: 1px; white-space: nowrap;
+}
+.knob-val {
+  font-size: 9px; font-weight: 600; color: var(--silk-hi);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Bottom Performance Strip (Role Mutes + Scale-Locked Jam Pads) ── */
+.bottombar {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 6px;
+  min-height: 0;
+}
+.pad-bank {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 6px;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.bank-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--silk);
+}
+.bank-head .mini-btns { display: flex; gap: 3px; }
+.bank-head .mini-btns button {
+  background: #12151e; color: var(--silk); border: 1px solid #2b3344;
+  border-radius: 3px; padding: 1px 5px; font: inherit; font-size: 8.5px; font-weight: 700; cursor: pointer;
+}
+.bank-head .mini-btns button.on {
+  background: var(--amber); color: #111; border-color: #ffe28a;
+}
+.role-grid, .jam-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  flex: 1;
+  margin-top: 3px;
+}
+.role-pad, .jam-pad {
+  position: relative;
+  background: linear-gradient(180deg, #232938 0%, #161a24 100%);
+  border: 1px solid #353f54;
+  border-radius: 5px;
+  color: var(--silk-hi);
+  font: inherit; font-size: 10px; font-weight: 700;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px;
+  padding: 2px;
+  cursor: pointer;
+  box-shadow: 0 2px 0 #080a0e, inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.role-pad .led {
+  width: 14px; height: 4px; border-radius: 2px;
+  background: var(--c, #4dff8a);
+  box-shadow: 0 0 6px var(--c, #4dff8a);
+  transition: opacity 0.06s;
+}
+.role-pad.muted {
+  opacity: 0.42;
+  background: #10131a;
+}
+.role-pad.muted .led {
+  background: #2a303d !important;
+  box-shadow: none !important;
+}
+.role-pad.focused {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px #fff, 0 2px 0 #080a0e;
+}
+.role-pad.soloed {
+  border-color: var(--amber);
+}
+.role-pad small, .jam-pad small {
+  font-size: 7.5px; font-weight: 600; color: var(--silk);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.jam-pad {
+  background: linear-gradient(180deg, #1e2636 0%, #131822 100%);
+  border-color: #2f3c56;
+}
+.jam-pad.down {
+  background: linear-gradient(180deg, #3aa8ff 0%, #1b6ca8 100%);
+  border-color: #9be0ff; color: #fff;
+  box-shadow: 0 0 12px rgba(58,168,255,0.6);
+  transform: translateY(1px);
+}
+
+/* Portrait hint overlay for phones held vertically */
+#rotateHint {
+  display: none;
+  position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 50;
+  background: rgba(15,18,26,0.94); border: 1px solid var(--amber);
+  color: var(--amber); padding: 6px 10px; border-radius: 6px;
+  font-size: 11px; text-align: center; pointer-events: none;
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  #rotateHint { display: block; }
+}
+@media (max-height: 430px) {
+  #hw { grid-template-rows: 32px 1fr 56px; gap: 4px; padding: 4px max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left)); }
+  .knob-svg { width: 34px; height: 34px; }
+  .knob-label { font-size: 7.5px; }
+  .knob-val { font-size: 8px; }
+}
+</style>
+</head>
+<body>
+<div id="hw">
+  <!-- TOP BEZEL: BRAND + PRESET GENRE + SEED + TRANSPORT -->
+  <header class="topbar">
+    <div class="brand">
+      <i class="screw"></i>
+      <a id="backLab" href="index.html" class="hw-btn" title="Return to Music Lab">← LAB</a>
+      <b>RP2350 GROOVEBOX</b>
+      <span class="chip" id="cpuChip">DSP 0%</span>
+    </div>
+    <div class="top-controls">
+      <select id="genreSel" class="hw-sel" aria-label="Genre Preset"></select>
+      <button id="seedBtn" class="hw-btn" title="Current seed (tap to enter)">SEED <span id="seedVal">1</span></button>
+      <button id="diceBtn" class="hw-btn" title="Roll new seed">🎲 DICE</button>
+      <button id="resetDnaBtn" class="hw-btn" title="Reset knobs to genre profile defaults">↺ PROFILE</button>
+      <button id="loopBtn" class="hw-btn amber" title="Loop current 4-bar phrase">🔁 LOOP 4B</button>
+      <button id="playBtn" class="hw-btn ok">▶ PLAY</button>
+      <button id="fsBtn" class="hw-btn" title="Full Screen">⛶</button>
+    </div>
+  </header>
+
+  <!-- MAIN 3-COLUMN HARDWARE DECK -->
+  <main class="deck">
+    <!-- LEFT MODULE: GENRE DNA & GROOVE -->
+    <section class="module">
+      <div class="mod-head">
+        <span>1 · GENRE DNA & GROOVE</span>
+        <span class="badge" id="dnaBadge">Profile Default</span>
+      </div>
+
+      <!-- 8 Bass Style Pills -->
+      <div class="switch-row" id="bassRow" title="Bassline motion style"></div>
+
+      <!-- 3 Structural Toggle Switches -->
+      <div class="toggle-strip">
+        <button id="chordStyleBtn" class="tog-btn" title="Toggle Sustain Pads vs Off-16th Chord Stabs">CHORD: <b>PAD</b></button>
+        <button id="arpBtn" class="tog-btn on" title="Toggle Arpeggiator Hook Layer">ARP: <b>ON</b></button>
+        <button id="fillsBtn" class="tog-btn on" title="Toggle 80s Simmons Tom Fills vs House Kick Turnarounds">FILL: <b>TOMS</b></button>
+      </div>
+
+      <!-- 6 Genre DNA Rotary Pots -->
+      <div class="knob-grid" id="dnaKnobs"></div>
+    </section>
+
+    <!-- CENTER MODULE: 16x8 DISCRETE RGB LED PIXEL MATRIX -->
+    <section class="module" style="padding:5px 6px">
+      <div class="mod-head">
+        <span>16×8 RGB PIXEL MATRIX</span>
+        <span class="badge" id="posBadge">BAR 1 · STEP 1</span>
+      </div>
+      <div class="matrix-wrap">
+        <canvas id="ledMatrix" width="640" height="300"></canvas>
+      </div>
+      <div class="matrix-foot">
+        <div class="matrix-modes">
+          <button class="hw-btn on" data-mode="step" id="modeStep" title="16-step live bar pattern view">STEP 16</button>
+          <button class="hw-btn" data-mode="song" id="modeSong" title="Song sections & arrangement matrix (tap column to jump)">SONG ARR</button>
+          <button class="hw-btn" data-mode="dna" id="modeDna" title="Genre DNA fingerprint bar graph">DNA MAP</button>
+        </div>
+        <div id="lcdLine">READY · TAP ▶ PLAY</div>
+      </div>
+    </section>
+
+    <!-- RIGHT MODULE: ERA PHYSICS & ACTIVE SYNTH SCULPTOR -->
+    <section class="module">
+      <div class="mod-head">
+        <span>2 · ERA & BUS PHYSICS</span>
+        <span class="badge" id="grBadge">GLUE 0.0 dB</span>
+      </div>
+      <div class="knob-grid four" id="busKnobs"></div>
+
+      <div class="mod-head" style="margin-top:4px">
+        <span>3 · SYNTH SCULPTOR</span>
+        <span class="badge" id="synthBadge">BASS</span>
+      </div>
+      <div class="knob-grid four" id="synthKnobs"></div>
+    </section>
+  </main>
+
+  <!-- BOTTOM PERFORMANCE DECK: 8 ROLE MUTE/FOCUS KEYS + 8 SCALE-LOCKED JAM PADS -->
+  <footer class="bottombar">
+    <div class="pad-bank">
+      <div class="bank-head">
+        <span>CHANNELS (TAP = MUTE · FOCUS MODE = SELECT SYNTH)</span>
+        <div class="mini-btns">
+          <button id="actMute" class="on" title="Tap role pad to Mute/Unmute">MUTE</button>
+          <button id="actFocus" title="Tap role pad to Focus its synth knobs">FOCUS</button>
+          <button id="actSolo" title="Tap role pad to Solo">SOLO</button>
+          <button id="unmuteAll" title="Unmute all layers">ALL ON</button>
+        </div>
+      </div>
+      <div class="role-grid" id="roleGrid"></div>
+    </div>
+
+    <div class="pad-bank">
+      <div class="bank-head">
+        <span id="jamTitle">LIVE PADS (SCALE-LOCKED SYNTH)</span>
+        <div class="mini-btns">
+          <button id="jamModeSynth" class="on" title="Play scale-locked notes on focused synth">SCALE SYNTH</button>
+          <button id="jamModeDrums" title="Trigger synthesized drum kit pads">DRUM KIT</button>
+          <button id="jamOctDown" title="Octave down">OCT−</button>
+          <button id="jamOctUp" title="Octave up">OCT+</button>
+        </div>
+      </div>
+      <div class="jam-grid" id="jamGrid"></div>
+    </div>
+  </footer>
+</div>
+
+<div id="rotateHint">↻ Rotate iPhone to Landscape for the full RP2350 Hardware Groovebox layout</div>
+
+<script type="module" src="hardware.js?v=20261024a"></script>
+</body>
+</html>

@@ -241,6 +241,11 @@ async function toggleAutoplay() {
 $('play').onclick = togglePlay;
 $('autoplay').onclick = toggleAutoplay;
 $('nextSong').onclick = () => nextAutoTrack(true);
+$('openHardware').onclick = () => {
+  const g = (cur?.genre in NEW) ? cur.genre : 'synthwave';
+  const s = cur?.seed ?? 7;
+  location.href = `hardware.html?genre=${encodeURIComponent(g)}&seed=${s}`;
+};
 
 function showPlaying() {
   $('play').textContent = playing ? '■ Stop' : '▶ Play';

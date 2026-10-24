@@ -226,12 +226,27 @@ pub extern "C" fn music_generate(ptr: *mut u8, len: usize, seed: u32, dejavu: f6
 /// `bpm` and `key` (0 = C) below zero are drawn.
 #[unsafe(no_mangle)]
 pub extern "C" fn music_song(ptr: *mut u8, len: usize, seed: u32, bpm: f64, key: i32) -> *const u8 {
-    let genre = take_text(ptr, len).unwrap_or_default();
+    let raw = take_text(ptr, len).unwrap_or_default();
+    if raw.trim_start().starts_with('{') {
+        let Ok(d) = crate::json::parse(&raw) else {
+            return give("null".to_owned());
+        };
+        let genre = d.get("genre").and_then(Val::as_str).unwrap_or_default();
+        let s = d
+            .get("seed")
+            .and_then(Val::as_f64)
+            .map_or(seed, |v| v.max(1.0) as u32);
+        let settings = crate::generator::Settings::from_val(&d);
+        return give(
+            crate::lab::song_json(genre, s, &settings).unwrap_or_else(|| "null".to_owned()),
+        );
+    }
     let settings = crate::generator::Settings {
         bpm: (bpm > 0.0).then_some(bpm),
         key: (key >= 0).then_some(key),
+        ..crate::generator::Settings::default()
     };
-    give(crate::lab::song_json(&genre, seed, &settings).unwrap_or_else(|| "null".to_owned()))
+    give(crate::lab::song_json(&raw, seed, &settings).unwrap_or_else(|| "null".to_owned()))
 }
 
 pub struct LabNode {

@@ -1106,10 +1106,32 @@ pub fn choose_progression(pool: &[(Vec<Chord>, f64)], stm: &Ppm, d: &mut Dice) -
 /// The profile's progression pool for a mode, with extensions drawn per
 /// chord (7th, 9th, 11th by the profile's probabilities).
 pub fn pool(p: &Profile, mode: &Mode, d: &mut Dice) -> Vec<(Vec<Chord>, f64)> {
+    pool_ext(p, mode, None, d)
+}
+
+/// Like [`pool`], with an optional harmonic extension override `0.0..=1.0`
+/// (`0.0` strips chords to bare triads; `1.0` voices lush 7ths, 9ths and 11ths).
+pub fn pool_ext(
+    p: &Profile,
+    mode: &Mode,
+    ext_override: Option<f64>,
+    d: &mut Dice,
+) -> Vec<(Vec<Chord>, f64)> {
     let src = if mode.minor {
         p.minor_progs
     } else {
         p.major_progs
+    };
+    let ext = match ext_override {
+        Some(e) => {
+            let e = e.clamp(0.0, 1.0);
+            (
+                (e * 1.35).clamp(0.0, 1.0),
+                ((e - 0.25) * 1.15).clamp(0.0, 1.0),
+                ((e - 0.55) * 0.90).clamp(0.0, 1.0),
+            )
+        }
+        None => p.ext,
     };
     src.iter()
         .filter_map(|(s, w)| {
@@ -1120,6 +1142,9 @@ pub fn pool(p: &Profile, mode: &Mode, d: &mut Dice) -> Vec<(Vec<Chord>, f64)> {
                     c.tones = prev_tones.clone();
                     continue;
                 }
+                if ext_override.is_some_and(|e| e < 0.20) && !d.chance(ext.0) {
+                    c.tones.retain(|&t| t < 10);
+                }
                 let has7 = c.tones.iter().any(|t| *t == 10 || *t == 11);
                 let diatonic7 = if c.minor {
                     10
@@ -1128,12 +1153,12 @@ pub fn pool(p: &Profile, mode: &Mode, d: &mut Dice) -> Vec<(Vec<Chord>, f64)> {
                 } else {
                     10
                 };
-                if !has7 && d.chance(p.ext.0) {
+                if !has7 && d.chance(ext.0) {
                     c.tones.push(diatonic7);
                 }
-                if d.chance(p.ext.1) && !c.tones.contains(&14) {
+                if d.chance(ext.1) && !c.tones.contains(&14) {
                     c.tones.push(14);
-                } else if d.chance(p.ext.2) && c.minor && !c.tones.contains(&17) {
+                } else if d.chance(ext.2) && c.minor && !c.tones.contains(&17) {
                     c.tones.push(17);
                 }
                 c.tones.sort();
