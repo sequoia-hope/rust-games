@@ -11682,3 +11682,99 @@ The owner still saw the menu's flyover stutter while the other levels' views (se
 - **`preview::holding`.** True while the menu draws sections and any section is still queued, building, spawning, or warming up (`SectionWarm`). `fly_system` then steps the attract camera with `dt = 0`, as it already does behind the loading screen, so the camera, the sky's clock and the scenery's animators stand at the shown view's first frame. A tab still switches the view at once (to that level's still first frame, once its section is up). When the last section is up and its pipelines have compiled, the camera starts its run from the start.
 - **Measured** (release web build, headless Chrome on this machine, Sierra saved): before, the camera flew through 4.1 s of preparation with 18 frames over 50 ms (the longest 267 ms); after, it stands at one place for the same 3.7 to 4.3 s (WebGPU, WebGL2) and then flies with no frame over 50 ms. The long frames (mostly the stand-ins' pipeline compiles) are still there while it stands, but nothing moves to show them. Raising the menu's budgets (20 ms of build and of spawning a frame) was tried and dropped: no faster to all up, and the menu's median frame went from 17 to 33 ms.
 - **Not done:** pre-rendered pictures of each level. The section's own first frame is the still picture; it needs no extra assets, matches what then flies, and a tab still shows the level the menu selects.
+
+## D1240 (2026-10-24): the open world's roads form a network
+
+Stage 6c of `docs/vision/peninsula.md`. The bay side's city is crossing
+streets; the open world was a star, every branch leaving road 0.
+
+- **A branch joins the network built before it.** `build_branch` takes
+  the road nearest the path's start among road 0 and the branches listed
+  earlier (`BranchTrack::parent`), and its far end is open on whichever
+  road's pavement it lies (`end_road`). A level lists its roads greatest
+  first: a road's rank is its index.
+- **Crossings come from the geometry** (`network::find_crossings`): a
+  road whose centreline crosses a greater one's, away from the ends it
+  joins by, gets a `Junction` of kind `Cross`; its surface is fitted to
+  the greater road's over that road's pavement (lifted 2 cm, as a mouth
+  is) and returns over `BRANCH_FIT` either side; both roads' fences
+  open. All crossings are at grade: the arcade has intersections where
+  the real freeways have interchanges.
+- **`Track::junctions`** (road 0's Track) lists every start, joined end
+  and crossing, in the order the branches were built, then the
+  crossings. The road builder clears rails where a lesser road meets a
+  road and stands nothing on the tarmac of the greater roads a road
+  meets (`RoadCtx::network` replaces `parent`); the streaming ring links
+  sections across every junction. Both read the list in the old order,
+  so the loop builds and streams as it did.
+- **`NetIndex`**: every road's samples (every second) in 64 m cells,
+  tagged by road. `project_road` asks only the roads near the car, and
+  `Track::nearest_place` (what `Section::s_of` is now) searches rings of
+  cells outward instead of every road's own hash with a 900 m reach.
+
+## D1241 (2026-10-24): streaming by place; the far field by propagation
+
+Stage 6d. On a network the unit to stream is a square of the map, not a
+stretch of one road.
+
+- **`Level::stream_cell`**: when set, `Planned` lays a grid of squares
+  over the network's box (those with a road within 600 m, the Land kit's
+  reach and more, are sections) and a section is a `section::Place`: the
+  square and the runs of every road's metres inside it. `owns` is the
+  square, `holds_road`/`clip_road`/`has_road` answer for any road, and
+  the ring is the squares within a square (the client's `BEHIND`) of the
+  one under the car, with one more as slack. The loop still streams by
+  road; a test streams it by place and checks that every metre of every
+  road is in exactly one square.
+- **The far field on an open level built whole** is a vector distance
+  transform (four sweeps carrying each cell's nearest of every road's
+  12th samples to its neighbours) rather than a 3 km disc stamped round
+  every sample: its cost is the grid's, not the roads' length times the
+  disc. Its zone is now the nearest road's own (a branch's zone colours
+  its land); s, side and lateral distance stay road 0's. The loop plans
+  in 0.4 s rather than 1.8 s. A section's terrain clipped to bounds (the
+  menu's views) still stamps.
+- **The terrain's fields are shared** (`Arc`, copied on write) by the
+  clones a section build makes: a loop section holds 18 MB over the plan
+  rather than 46 MB.
+- `examples/stream_cost.rs` times and sizes the plan and its sections.
+
+## D1242 (2026-10-24): buildings are the simulation's
+
+Stage 6e. The open world has no walls, so a car would drive through a
+city's buildings; and every player of a race must meet the same walls.
+
+- **`Level::buildings`** places footprints (`mp_track::Footprint`: an
+  oriented box, the ground under it, a height, a kind and a seed) from
+  the built network; `Track::new` runs it last and indexes them in 32 m
+  cells (`Buildings`, behind an `Arc`).
+- **The arcade car** is pushed out along the shortest axis of the
+  overlap (separating axes over both boxes) the way `collide_walls`
+  pushes it off a wall: bounced (0.25), scrubbed, the nose swung along
+  the face, an impact over 1.5 m/s and the scrape. Over the roof (a
+  jump) nothing. **The sim model** gets the face its box's centre is
+  outside of as a plane collider, from buildings its box reaches.
+- **`mp_levels::city::place`** puts them along every street but the
+  freeways (rows of lots behind a 4 m sidewalk, sized by kind: houses,
+  low shops, mid-rises, towers; a second row where the ground is built
+  up) and fills the built-up land between the streets on a jittered
+  46 m grid, each turned to its nearest road; every lot clear of every
+  road's pavement and sidewalk and of the others. Buildings are full
+  size on half-size roads: the real density is drawn with fewer of them.
+- **The Town kit** (`mp_worldgen::town`, the zones' scenery `Town`)
+  draws them on Downtown Streets' façade atlas, whose shader lights each
+  window by the building's seed: walls from 1.5 m below the ground to
+  the roof, a cap, plant or a crown on the taller ones. A section draws
+  the buildings standing in it (`section::owns_point`), in 200 m chunks.
+
+## D1243 (2026-10-24): a cruise starts where it is asked to
+
+Stage 6f. **`Level::starts`** lists places (a road by branch id, empty
+for road 0, and metres along it, from its end when negative) and
+**`Level::start`** names the chosen one; `Track::chosen_start` resolves
+it. A cruise begins there (`CarPhysics::reset_on`, `Vehicle::place_on`:
+on a branch the car's road-0 place is the nearest to it), and a reset
+off road 0 puts the car back on the road it was on. The card shows the
+starts under the mode switch when Cruise is picked (kept per level as
+`start.<level>`; `?start=<id>` forces one), and the stream rings the car
+from the first frame of a cruise begun elsewhere.
