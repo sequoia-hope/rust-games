@@ -133,8 +133,9 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
                 + textureSampleLevel(water_tex, samp, uv + vec2<f32>(d.x, -d.y), 0.0)
                 + textureSampleLevel(water_tex, samp, uv + vec2<f32>(-d.x, d.y), 0.0));
             let k = clamp(0.5 * mpp / p.water.z, 0.04, 0.5);
-            // Both faded out at the grid's edge, past which nothing is known.
-            let fade = smoothstep(0.0, 0.04, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
+            // Both faded out towards the grid's edge: past it nothing is known
+            // (the cover covers the roads' corridors, 1200 m either side).
+            let fade = smoothstep(0.0, 0.08, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
             // The built-up land a shade lighter, softly.
             acc = over(acc, vec3<f32>(52.0, 58.0, 76.0) / 255.0, 0.35 * v.g * fade);
             let wet = smoothstep(0.5 - k, 0.5 + k, v.r) * fade;

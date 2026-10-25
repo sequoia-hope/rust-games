@@ -11969,8 +11969,9 @@ open world's 20 roads.
   20.5 m a texel (7.6 MB), offsets kept within 16 texels. The route is a
   field of its own over its own box, built when an event begins and the
   atlas is open. The water and the built-up land are an `Rg8Unorm` grid,
-  768 texels along a box twice as wide as the network's (so the sea
-  reaches the panel's sides), sampled from the cover: the cover's sea
+  768 texels along the network's box and 1200 m round it (as far as the
+  cover's corridors reach; faded out towards its edge, since past it the
+  cover only repeats its edge), sampled from the cover: the cover's sea
   class only where the ground is at sea level (it also fills cells it has
   no data for, in the towns), its water class anywhere; the shader blurs
   it over four taps so the shore does not show the cover's cells.

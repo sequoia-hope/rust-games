@@ -139,7 +139,7 @@ impl LevelMap {
         let g = Grid::over(bounds, 400.0, NET_DIM, NET_FINEST);
         let water = if t.level.cover.is_some() {
             WaterStage::Building {
-                grid: Grid::over(wide_box(bounds), 2000.0, WATER_DIM, NET_FINEST * 2.0),
+                grid: Grid::over(bounds, 1200.0, WATER_DIM, NET_FINEST * 2.0),
                 row: 0,
                 data: Vec::new(),
             }
@@ -154,20 +154,6 @@ impl LevelMap {
             water,
             route: None,
         }
-    }
-}
-
-/// The box grown across to twice as wide as tall (or tall as wide), so the
-/// water reaches the panel's sides at the whole map's zoom; past the cover
-/// grid's own box its edge carries on (the sea goes on west of the coast).
-fn wide_box(b: [f64; 4]) -> [f64; 4] {
-    let (w, h) = (b[2] - b[0], b[3] - b[1]);
-    let (cx, cz) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
-    let (hw, hh) = (w.max(h * 2.0) / 2.0, h.max(w * 2.0) / 2.0);
-    if w < h {
-        [cx - hw, b[1], cx + hw, b[3]]
-    } else {
-        [b[0], cz - hh, b[2], cz + hh]
     }
 }
 
