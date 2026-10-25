@@ -803,6 +803,9 @@ impl CarPhysics {
             if self.collide_barriers(v, t, dt) {
                 rt = v.project_onto(t);
             }
+            if !t.props.is_empty() && self.collide_props(v, t, dt) {
+                rt = v.project_onto(t);
+            }
         }
 
         if t.open_ground.is_some() {
@@ -914,15 +917,37 @@ impl CarPhysics {
         if v.y > b.y + b.height {
             return false;
         }
-        self.meet_face(v, p.nx, p.nz, p.depth, dt);
+        self.meet_face(v, p.nx, p.nz, p.depth, dt, false);
         true
+    }
+
+    /// The open world's solid scenery (stage 7d, D1248): the car stops
+    /// against every trunk, fence and house off the road the way it does
+    /// against a building, unless it is over it. Twice, for a car wedged
+    /// between two. Returns whether it moved the car.
+    pub fn collide_props(&mut self, v: &mut Vehicle, t: &Track, dt: f64) -> bool {
+        let mut moved = false;
+        for _ in 0..2 {
+            let (c, s) = (kernel::cos(v.yaw), kernel::sin(v.yaw));
+            let Some(p) = t.props.push_out(t, v.x, v.z, v.y, c, s, v.half_w, v.half_l) else {
+                break;
+            };
+            // A trunk turns the car only when it glances off it: square on,
+            // swinging the nose along its tangent would steer the car round.
+            let round = matches!(p.solid.shape, mp_track::Shape::Round { .. });
+            self.meet_face(v, p.nx, p.nz, p.depth, dt, round);
+            moved = true;
+        }
+        moved
     }
 
     /// The car against a face whose outward normal is (nx, nz), `depth`
     /// into it: out along the normal, the speed into the face bounced a
     /// little and the rest scrubbed, the nose swung along the face, an
-    /// impact when it is hard and the scrape while it rubs.
-    fn meet_face(&mut self, v: &mut Vehicle, nx: f64, nz: f64, depth: f64, dt: f64) {
+    /// impact when it is hard and the scrape while it rubs. `glance`: the
+    /// nose swings only when the car meets the face at a glance (under 45
+    /// degrees off it).
+    fn meet_face(&mut self, v: &mut Vehicle, nx: f64, nz: f64, depth: f64, dt: f64, glance: bool) {
         let (c, s) = (kernel::cos(v.yaw), kernel::sin(v.yaw));
         v.x += nx * depth;
         v.z += nz * depth;
@@ -943,9 +968,11 @@ impl CarPhysics {
             if rel.abs() > PI / 2.0 {
                 rel = wrap_angle(rel - PI);
             }
-            v.yaw -= rel * clamp(vn * 0.06, 0.05, 0.5);
-            if v.yaw_rate * rel > 0.0 {
-                v.yaw_rate *= 0.5;
+            if !glance || rel.abs() < PI / 4.0 {
+                v.yaw -= rel * clamp(vn * 0.06, 0.05, 0.5);
+                if v.yaw_rate * rel > 0.0 {
+                    v.yaw_rate *= 0.5;
+                }
             }
             if vn > 1.5 {
                 self.events.push(PhysEvent::Impact {
@@ -986,7 +1013,7 @@ impl CarPhysics {
             let d = (v.x - b.x) * b.nx + (v.z - b.z) * b.nz;
             let depth = ext - d;
             if depth > 0.0 && v.y < b.top {
-                self.meet_face(v, b.nx, b.nz, depth, dt);
+                self.meet_face(v, b.nx, b.nz, depth, dt, false);
                 moved = true;
             }
         }

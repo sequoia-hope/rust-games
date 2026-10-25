@@ -162,6 +162,20 @@ impl Ground for TrackGround<'_> {
                     normal: Vec3::new(b.nx, 0.0, b.nz),
                 });
             }
+            // And the trunks, fences and houses off the road (7d) that the
+            // box reaches and is not over.
+            if !net.props.is_empty() {
+                for p in net.props.near(net, cx, cz, r) {
+                    if aabb.min.y > p.y + p.height || !p.reaches(cx, cz, r) {
+                        continue;
+                    }
+                    let (pt, n) = p.face(cx, cz);
+                    out.push(Collider::Plane {
+                        point: Vec3::new(pt[0], p.y, pt[1]),
+                        normal: Vec3::new(n[0], 0.0, n[1]),
+                    });
+                }
+            }
             return;
         }
         out.push(Collider::Plane {
