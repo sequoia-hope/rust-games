@@ -89,7 +89,15 @@ impl<'a> TrackGround<'a> {
 impl Ground for TrackGround<'_> {
     fn height(&self, x: f64, z: f64) -> GroundSample {
         let (k, p) = self.project(x, z);
-        let y = self.track.ground_at(k, x, z, p.s, p.lat);
+        let y = crate::physics::ground_under(
+            self.track,
+            k,
+            x,
+            z,
+            p.s,
+            p.lat,
+            self.y.unwrap_or(f64::NEG_INFINITY),
+        );
         let t = self.track.road(k);
         let f = t.frame(p.s);
         // Slopes across and along the road, from the surface itself, so
@@ -167,6 +175,9 @@ impl Ground for TrackGround<'_> {
             let r = 0.5 * kernel::hypot(aabb.max.x - aabb.min.x, aabb.max.z - aabb.min.z);
             for id in net.buildings.near(cx, cz, r) {
                 let b = &net.buildings.list[id];
+                if b.garage.is_some() {
+                    continue;
+                }
                 // Only a building the box reaches: a face's plane runs on
                 // past its corners.
                 let (la, lb) = b.local(cx, cz);
@@ -177,6 +188,27 @@ impl Ground for TrackGround<'_> {
                 out.push(Collider::Plane {
                     point: Vec3::new(pt[0], b.y, pt[1]),
                     normal: Vec3::new(n[0], 0.0, n[1]),
+                });
+            }
+            // A garage's walls, each face toward the box (8c).
+            for w in net.buildings.garage_walls(cx, cz, r) {
+                let y = self.y.unwrap_or(w.y0);
+                if y < w.y0 || y > w.y1 {
+                    continue;
+                }
+                let (ex, ez) = (w.q[0] - w.p[0], w.q[1] - w.p[1]);
+                let len = (ex * ex + ez * ez).sqrt().max(1e-9);
+                let u = ((cx - w.p[0]) * ex + (cz - w.p[1]) * ez) / (len * len);
+                if !(-0.05..=1.05).contains(&u) {
+                    continue;
+                }
+                let (mut nx, mut nz) = (-ez / len, ex / len);
+                if (cx - w.p[0]) * nx + (cz - w.p[1]) * nz < 0.0 {
+                    (nx, nz) = (-nx, -nz);
+                }
+                out.push(Collider::Plane {
+                    point: Vec3::new(w.p[0], w.y0, w.p[1]),
+                    normal: Vec3::new(nx, 0.0, nz),
                 });
             }
             // And its roadside barriers, each face toward the box (7c).

@@ -513,11 +513,21 @@ pub fn stage_race(play: &mut Play, v: &serde_json::Value) -> bool {
     let t = r.session.lr.track.clone();
     let num = |k: &str| v[k].as_f64();
     match cmd {
-        // `race.phys.reset(s, lat)`.
+        // `race.phys.reset(s, lat)`; with `road`, on that road of the
+        // network (the open world's tools: a viaduct, a garage's street).
         "reset" => {
             let p = &mut r.session.curr.players[0];
-            let s = num("s").unwrap_or(p.v.s);
-            p.phys.reset(&mut p.v, &t, s, num("lat").unwrap_or(0.0));
+            let lat = num("lat").unwrap_or(0.0);
+            match v["road"].as_u64() {
+                Some(road) if (road as usize) <= t.branches.len() => {
+                    let s = num("s").unwrap_or(0.0);
+                    p.phys.reset_on(&mut p.v, &t, road as usize, s, lat);
+                }
+                _ => {
+                    let s = num("s").unwrap_or(p.v.s);
+                    p.phys.reset(&mut p.v, &t, s, lat);
+                }
+            }
         }
         // `a.writePos()`.
         "aiWritePos" => {

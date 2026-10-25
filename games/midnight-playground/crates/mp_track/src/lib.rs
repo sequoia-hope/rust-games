@@ -7,6 +7,7 @@
 
 pub mod barriers;
 pub mod buildings;
+pub mod garage;
 pub mod level;
 pub mod network;
 pub mod road_types;

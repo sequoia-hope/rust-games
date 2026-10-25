@@ -54,6 +54,11 @@ const CELLS: [&[usize]; 4] = [
     ],
 ];
 
+/// A plain panel over the whole box (a garage's concrete).
+pub(crate) fn panel_opts(cell: f64, fd: P3) -> PrismOpts {
+    panel(cell, fd, cell, Some(16.0))
+}
+
 /// `{ cell, color: fd, tileW: 4, tileH: 4, roofCell, roofTile }`, as
 /// Streets' panels.
 fn panel(cell: f64, fd: P3, roof_cell: f64, roof_tile: Option<f64>) -> PrismOpts {
@@ -139,6 +144,121 @@ pub fn draw(b: &mut GeoBuilder, fp: &Footprint) {
             yaw,
             &panel(mech, fd, f::ROOF as f64 + 16.0 * seed, Some(16.0)),
         );
+    }
+}
+
+/// A parking garage (stage 8c, `mp_track::garage`): its slabs and ramps in
+/// the pavement's concrete (`walk`, top and underside), and on the façade
+/// atlas's plain panel its parapets at every deck (the floor's front open at
+/// the entrance), the pillars round it and the wall along the ramps' strip.
+fn draw_garage(b: &mut GeoBuilder, walk: &mut GeoBuilder, fp: &Footprint) {
+    use mp_track::garage::{DECK_H, PARAPET, RAMP_L};
+    let Some(g) = fp.garage else { return };
+    let at = |a: f64, bb: f64, y: f64| -> P3 {
+        [
+            fp.x + a * fp.ux - bb * fp.uz,
+            y,
+            fp.z + a * fp.uz + bb * fp.ux,
+        ]
+    };
+    let grey = Some([0.55, 0.54, 0.52]);
+    // A level quad over local [a0, a1] × [b0, b1] from height y0 at a0 to
+    // y1 at a1, facing up (and its underside 0.3 below, facing down,
+    // unless on the floor).
+    let mut slab = |a0: f64, a1: f64, b0: f64, b1: f64, y0: f64, y1: f64, under: bool| {
+        let uv = |a: f64, bb: f64| [a / 4.0, bb / 4.0];
+        let (p0, p1, p2, p3) = (
+            at(a0, b0, y0),
+            at(a1, b0, y1),
+            at(a1, b1, y1),
+            at(a0, b1, y0),
+        );
+        // Counter-clockwise seen from above with a along x and b along z
+        // (b runs to the footprint's right, which is -z of forward × up).
+        walk.quad(
+            p0,
+            p3,
+            p2,
+            p1,
+            Some([uv(a0, b0), uv(a0, b1), uv(a1, b1), uv(a1, b0)]),
+            grey,
+            0.0,
+        );
+        if under {
+            let d = |p: P3| [p[0], p[1] - 0.3, p[2]];
+            walk.quad(
+                d(p0),
+                d(p1),
+                d(p2),
+                d(p3),
+                Some([uv(a0, b0), uv(a1, b0), uv(a1, b1), uv(a0, b1)]),
+                grey,
+                0.0,
+            );
+        }
+    };
+    let (hx, hz) = (fp.hx, fp.hz);
+    let (s0, s1) = g.strip(hz);
+    let n = g.decks as usize;
+    let half = RAMP_L / 2.0;
+    // The main band beside the strip.
+    let (m0, m1) = if g.front > 0.0 { (s1, hz) } else { (-hz, s0) };
+    for k in 0..n {
+        let y = g.floor + k as f64 * DECK_H;
+        if k == 0 {
+            slab(-hx, hx, -hz, hz, y + 0.02, y + 0.02, false);
+            continue;
+        }
+        slab(-hx, hx, m0, m1, y, y, true);
+        slab(-hx, -half, s0, s1, y, y, true);
+        slab(half, hx, s0, s1, y, y, true);
+    }
+    for k in 0..n.saturating_sub(1) {
+        let y = g.floor + k as f64 * DECK_H;
+        slab(-half, half, s0, s1, y + 0.03, y + DECK_H, true);
+    }
+    // Concrete: the atlas's panel cell, lit by no window.
+    let seed = 1.0 + f64::from(fp.seed % 900);
+    let fd = [g.floor + 0.15, 1.0, 0.08];
+    let pan = panel_opts(f::PANEL as f64 + 16.0 * seed, fd);
+    let yaw = kernel::atan2(fp.uz, fp.ux);
+    let mut boxed = |a: f64, bb: f64, w: f64, d: f64, y: f64, h: f64| {
+        let c = at(a, bb, 0.0);
+        b.box_(c[0], y, c[2], w, h, d, yaw, &pan);
+    };
+    let t = 0.25;
+    let (e0, e1) = g.entrance(hx);
+    let fb = g.front * (hz - t / 2.0);
+    let bk = -fb;
+    for k in 0..n {
+        let y = g.floor + k as f64 * DECK_H;
+        // The back and the ends.
+        boxed(0.0, bk, 2.0 * hx, t, y, PARAPET);
+        boxed(-hx + t / 2.0, 0.0, t, 2.0 * hz, y, PARAPET);
+        boxed(hx - t / 2.0, 0.0, t, 2.0 * hz, y, PARAPET);
+        // The front, open at the floor's entrance.
+        if k == 0 {
+            boxed((-hx + e0) / 2.0, fb, e0 + hx, t, y, PARAPET);
+            boxed((e1 + hx) / 2.0, fb, hx - e1, t, y, PARAPET);
+        } else {
+            boxed(0.0, fb, 2.0 * hx, t, y, PARAPET);
+        }
+        // The strip's inner wall, open at its ends.
+        let inner = if g.front > 0.0 { s1 } else { s0 };
+        boxed(0.0, inner, 2.0 * (half - 4.0), t, y, PARAPET);
+    }
+    // Pillars round it, every 8 m along, from the floor to the top deck.
+    let tall = g.top() + PARAPET;
+    let mut a = -hx + 0.3;
+    while a <= hx - 0.3 + 1e-6 {
+        for bb in [-hz + 0.3, hz - 0.3] {
+            // Not in the entrance.
+            if (bb > 0.0) == (g.front > 0.0) && a > e0 - 0.3 && a < e1 + 0.3 {
+                continue;
+            }
+            boxed(a, bb, 0.5, 0.5, g.floor, tall);
+        }
+        a += 8.0;
     }
 }
 
@@ -274,7 +394,11 @@ impl Scenery for Town {
         let mut chunks = Chunks::new(CHUNK, true, true);
         for i in mine {
             let fp = &list.list[i];
-            draw(chunks.at(fp.x, fp.z), fp);
+            if fp.garage.is_some() {
+                draw_garage(chunks.at(fp.x, fp.z), walks.at(fp.x, fp.z), fp);
+            } else {
+                draw(chunks.at(fp.x, fp.z), fp);
+            }
         }
         let group = graph.group("town");
         chunks.emit(

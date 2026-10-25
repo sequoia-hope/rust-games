@@ -42,7 +42,17 @@ pub mod style {
     pub const LOW: u8 = 1;
     pub const MID: u8 = 2;
     pub const TOWER: u8 = 3;
+    /// A parking garage (stage 8c): driven into, not stood against.
+    pub const GARAGE: u8 = 4;
 }
+
+/// Where a lot may be a parking garage (built ground at least this share)
+/// and how often one is; its size along the street and deep, and decks.
+const GARAGE_COVER: f64 = 0.4;
+const GARAGE_ODDS: f64 = 0.05;
+const GARAGE_W: f64 = 48.0;
+const GARAGE_D: f64 = 40.0;
+const GARAGE_DECKS: u8 = 4;
 
 /// The sidewalk between the paved edge and the lots (m).
 pub const WALK: f64 = 4.0;
@@ -225,6 +235,7 @@ impl Placer<'_> {
             height: h,
             style: k,
             seed,
+            garage: None,
         };
         let mut lo = f64::INFINITY;
         for c in f.corners() {
@@ -263,9 +274,31 @@ impl Placer<'_> {
                     u += 10.0 + 10.0 * rng.next_f64();
                     continue;
                 }
+                // A parking garage now and then where the ground is built
+                // up (stage 8c), chosen by a draw of its own so the lots
+                // round it are as they were.
+                let pick = Mulberry32::new(
+                    seed ^ 0x6a12_0f5b
+                        ^ (r as u32).wrapping_mul(0x2c1b_3c6d)
+                        ^ (u as u32).wrapping_mul(0x297a_2d39)
+                        ^ si as u32,
+                )
+                .next_f64();
+                let garage = dn.coverage > GARAGE_COVER && pick < GARAGE_ODDS;
                 let h = height(&dn, &mut rng);
                 let k = kind(h, &dn);
                 let (w, d) = size(k, &mut rng);
+                let (h, k, w, d) = if garage {
+                    let top = f64::from(GARAGE_DECKS - 1) * mp_track::garage::DECK_H;
+                    (
+                        top + mp_track::garage::PARAPET,
+                        style::GARAGE,
+                        GARAGE_W,
+                        GARAGE_D,
+                    )
+                } else {
+                    (h, k, w, d)
+                };
                 let setback = if k == style::HOUSE {
                     3.0 + 4.0 * rng.next_f64()
                 } else {
@@ -285,10 +318,24 @@ impl Placer<'_> {
                     k,
                     seed_of(&mut rng),
                 );
+                let mut fp = fp;
+                if garage {
+                    // Its floor the pavement's height, its front the
+                    // street's side (the footprint's b runs to the road's
+                    // right).
+                    fp.garage = Some(mp_track::garage::Garage {
+                        decks: GARAGE_DECKS,
+                        front: -side,
+                        floor: t.walk_y(mid, side),
+                    });
+                }
                 if self.clear(&fp) && !self.overlaps(&fp, 0.4) {
                     self.push(fp);
                     // A second row behind where the ground is built up.
-                    if k != style::HOUSE && dn.coverage > 0.3 && rng.next_f64() < dn.coverage * 1.4
+                    if k != style::HOUSE
+                        && k != style::GARAGE
+                        && dn.coverage > 0.3
+                        && rng.next_f64() < dn.coverage * 1.4
                     {
                         let h2 = height(&dn, &mut rng);
                         let k2 = kind(h2, &dn).max(style::LOW);

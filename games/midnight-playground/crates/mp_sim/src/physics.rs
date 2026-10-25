@@ -314,6 +314,56 @@ pub fn barrier_planes(t: &Track, x: f64, z: f64, reach: f64) -> Vec<BarrierFace>
     out
 }
 
+/// The open world's ground under (x, z), for a car at height `y`
+/// projected at (s, lat) on road `road`: a parking garage's deck or ramp
+/// where one stands (stage 8c), else the network's ground.
+pub fn ground_under(t: &Track, road: usize, x: f64, z: f64, s: f64, lat: f64, y: f64) -> f64 {
+    t.buildings
+        .garage_ground(x, z, y)
+        .unwrap_or_else(|| t.ground_at(road, x, z, s, lat))
+}
+
+/// Where a wall of a parking garage meets a car's box at (x, z) heading
+/// (c, s), half `hl` long and `hw` wide (stage 8c): the face's normal
+/// toward the car and how far the box is into it, if it is.
+pub fn wall_contact(
+    w: &mp_track::garage::Wall,
+    x: f64,
+    z: f64,
+    c: f64,
+    s: f64,
+    hl: f64,
+    hw: f64,
+) -> Option<(f64, f64, f64)> {
+    let (ex, ez) = (w.q[0] - w.p[0], w.q[1] - w.p[1]);
+    let len2 = ex * ex + ez * ez;
+    if len2 < 1e-9 {
+        return None;
+    }
+    let u = (((x - w.p[0]) * ex + (z - w.p[1]) * ez) / len2).clamp(0.0, 1.0);
+    let (cx, cz) = (w.p[0] + ex * u, w.p[1] + ez * u);
+    let (dx, dz) = (x - cx, z - cz);
+    let d = (dx * dx + dz * dz).sqrt();
+    if d < 1e-6 {
+        return None;
+    }
+    // Along the wall the face's own normal; past its ends, from its end.
+    let (nx, nz) = if u > 0.0 && u < 1.0 {
+        let len = len2.sqrt();
+        let (px, pz) = (-ez / len, ex / len);
+        if px * dx + pz * dz >= 0.0 {
+            (px, pz)
+        } else {
+            (-px, -pz)
+        }
+    } else {
+        (dx / d, dz / d)
+    };
+    let ext = hl * (nx * c + nz * s).abs() + hw * (nx * -s + nz * c).abs();
+    let depth = ext - (dx * nx + dz * nz);
+    (depth > 0.0 && depth < ext + 0.5).then_some((nx, nz, depth))
+}
+
 /// The ground under a car's four wheels at (x, z) heading `yaw`: their
 /// mean height and the surface's up normal through them.
 pub fn wheel_contact(t: &Track, v: &Vehicle, x: f64, z: f64) -> (f64, [f64; 3]) {
@@ -322,7 +372,7 @@ pub fn wheel_contact(t: &Track, v: &Vehicle, x: f64, z: f64) -> (f64, [f64; 3]) 
     let at = |l: f64, w: f64| {
         let (px, pz) = (x + c * l - s * w, z + s * l + c * w);
         let (k, p) = t.project_road_at(px, pz, v.y, v.road, v.road_s);
-        t.ground_at(k, px, pz, p.s, p.lat)
+        ground_under(t, k, px, pz, p.s, p.lat, v.y)
     };
     let (fl, fr, bl, br) = (at(al, -aw), at(al, aw), at(-al, -aw), at(-al, aw));
     // Along: front less back over the wheelbase; across: right less left.
@@ -803,6 +853,9 @@ impl CarPhysics {
             if self.collide_barriers(v, t, dt) {
                 rt = v.project_onto(t);
             }
+            if self.collide_garages(v, t, dt) {
+                rt = v.project_onto(t);
+            }
         }
 
         if t.open_ground.is_some() {
@@ -965,6 +1018,24 @@ impl CarPhysics {
             self.scrape = js::min(1.0, 0.4 + sp / 60.0);
             self.scrape_side = Some(side);
         }
+    }
+
+    /// The walls of the parking garages (stage 8c): the perimeter at every
+    /// deck, the entrance open at the floor, the ramps' strip walled from
+    /// the decks. Returns whether it moved the car.
+    pub fn collide_garages(&mut self, v: &mut Vehicle, t: &Track, dt: f64) -> bool {
+        let (c, s) = (kernel::cos(v.yaw), kernel::sin(v.yaw));
+        let mut moved = false;
+        for w in t.buildings.garage_walls(v.x, v.z, v.half_l + 1.0) {
+            if v.y < w.y0 || v.y > w.y1 {
+                continue;
+            }
+            if let Some((nx, nz, depth)) = wall_contact(&w, v.x, v.z, c, s, v.half_l, v.half_w) {
+                self.meet_face(v, nx, nz, depth, dt);
+                moved = true;
+            }
+        }
+        moved
     }
 
     /// The open world's roadside barriers (stage 7c, D1247): the car stops

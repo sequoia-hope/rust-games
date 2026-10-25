@@ -24,6 +24,9 @@ pub struct Footprint {
     /// numbering) and a seed for its looks.
     pub style: u8,
     pub seed: u32,
+    /// A parking garage's decks, which the car drives into and up (stage
+    /// 8c, [`crate::garage`]); `None` for a building that stands solid.
+    pub garage: Option<crate::garage::Garage>,
 }
 
 impl Footprint {
@@ -127,6 +130,9 @@ impl Buildings {
     pub fn inside(&self, x: f64, z: f64) -> bool {
         self.near(x, z, 0.0).into_iter().any(|i| {
             let f = &self.list[i];
+            if f.garage.is_some() {
+                return false;
+            }
             let (a, b) = f.local(x, z);
             a.abs() < f.hx && b.abs() < f.hz
         })
@@ -148,6 +154,10 @@ impl Buildings {
         let mut best: Option<Push> = None;
         for i in self.near(x, z, reach) {
             let f = &self.list[i];
+            // A garage is not solid: its walls and decks are its own.
+            if f.garage.is_some() {
+                continue;
+            }
             let (dx, dz) = (x - f.x, z - f.z);
             let rr = reach + f.radius();
             if dx * dx + dz * dz > rr * rr {
@@ -191,6 +201,26 @@ impl Buildings {
         best
     }
 
+    /// The ground in a garage at (x, z) for a car at height `y`, if a
+    /// garage stands there.
+    pub fn garage_ground(&self, x: f64, z: f64, y: f64) -> Option<f64> {
+        self.near(x, z, 0.0).into_iter().find_map(|i| {
+            let f = &self.list[i];
+            let g = f.garage.as_ref()?;
+            let (a, b) = f.local(x, z);
+            (a.abs() <= f.hx && b.abs() <= f.hz).then(|| g.ground(f.hz, a, b, y))
+        })
+    }
+
+    /// The walls of the garages within `r` of (x, z).
+    pub fn garage_walls(&self, x: f64, z: f64, r: f64) -> Vec<crate::garage::Wall> {
+        self.near(x, z, r)
+            .into_iter()
+            .filter(|&i| self.list[i].garage.is_some())
+            .flat_map(|i| self.list[i].garage_walls())
+            .collect()
+    }
+
     /// The face of building `id` that (x, z) is furthest outside of (or
     /// least inside): a point on it and its outward normal, for a
     /// half-space collider.
@@ -230,6 +260,7 @@ mod tests {
             height: 10.0,
             style: 0,
             seed: 0,
+            garage: None,
         }
     }
 

@@ -113,11 +113,21 @@ fn the_city_streets_have_sidewalks() {
             && g.material(m).desc.program_key.as_deref() == Some("streets-amb-pave")
         {
             let n = g.geometry(geo).get_attribute("normal").unwrap();
+            let pos = g.geometry(geo).get_attribute("position").unwrap();
+            let t = w.track.as_ref().unwrap();
+            // A parking garage's slabs face down under its decks (stage
+            // 8c); every other pavement faces up.
+            let in_garage = |x: f64, z: f64| {
+                t.buildings.list.iter().any(|f| {
+                    let (a, b) = f.local(x, z);
+                    f.garage.is_some() && a.abs() <= f.hx + 0.1 && b.abs() <= f.hz + 0.1
+                })
+            };
             for i in 0..n.count() {
                 let v = n.get_vector3(i);
                 if v.y > 0.9 {
                     up += 1;
-                } else if v.y < -0.9 {
+                } else if v.y < -0.9 && !in_garage(pos.get_x(i), pos.get_z(i)) {
                     down += 1;
                 }
             }
