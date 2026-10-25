@@ -120,6 +120,36 @@ pub struct Build {
     /// pixels' hash: a section's textures are the level's own generated
     /// ones, the same in every section (D1214).
     image_cache: Option<ImageCache>,
+    /// What the build has handed the GPU so far (the frame's work, D1238).
+    uploads: Uploads,
+    /// The combinations drawn, named (the work-budget tests, D1238).
+    drawn: Vec<Drawn>,
+}
+
+/// The bytes a build has made for the GPU: meshes' vertices and indices,
+/// images' pixels (those not found in the image cache), and instanced
+/// meshes' instance streams.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Uploads {
+    pub mesh_bytes: u64,
+    pub image_bytes: u64,
+    pub instance_bytes: u64,
+}
+
+impl Uploads {
+    pub fn total(&self) -> u64 {
+        self.mesh_bytes + self.image_bytes + self.instance_bytes
+    }
+}
+
+/// A material × mesh-layout × shadow combination a build draws, with its
+/// material's name: what picks a render pipeline (the warm-up, SPEC 6.3).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Drawn {
+    pub key: ThreeKey,
+    pub layout: pk_shell::warmup::Signature,
+    pub casts: bool,
+    pub material: String,
 }
 
 /// Images by the hash of their pixels, shared between a streamed level's
@@ -190,6 +220,8 @@ impl Build {
             converted: Vec::new(),
             material_base: 0,
             image_cache: None,
+            uploads: Uploads::default(),
+            drawn: Vec::new(),
             step: Step::Textures,
             cursor: 0,
             scene,
@@ -253,6 +285,9 @@ impl Build {
             Some(img) => img.take(),
             None => convert::build_image(&self.scene, t),
         };
+        if let Some(d) = img.as_ref().and_then(|i| i.data.as_ref()) {
+            self.uploads.image_bytes += d.len() as u64;
+        }
         let h = img.map(|i| images.add(i));
         if let (Some(c), Some(key), Some(h)) = (&self.image_cache, key, &h)
             && let Ok(mut m) = c.lock()
@@ -260,6 +295,21 @@ impl Build {
             m.insert(key, h.clone());
         }
         h
+    }
+
+    /// Entities spawned so far.
+    pub fn entities(&self) -> usize {
+        self.out.counts.entities
+    }
+
+    /// The bytes made for the GPU so far.
+    pub fn uploads(&self) -> Uploads {
+        self.uploads
+    }
+
+    /// The combinations drawn so far, each once.
+    pub fn drawn(&self) -> &[Drawn] {
+        &self.drawn
     }
 
     /// Fraction done, for the loading bar.
@@ -278,6 +328,7 @@ impl Build {
             return h.clone();
         }
         let h = convert::build_mesh(&self.scene, key).map(|m| {
+            self.uploads.mesh_bytes += crate::frame_work::mesh_bytes(&m);
             let layout = Layout::of(&m);
             let centre = m.compute_aabb().map_or(Vec3::ZERO, |b| b.center.into());
             let h = assets.add(m);
@@ -334,12 +385,35 @@ impl Build {
         h
     }
 
-    /// Notes a material drawn on a mesh, for the warm-up.
-    fn note_combo(&mut self, mesh: &Handle<Mesh>, material: &Handle<ThreeMaterial>, casts: bool) {
+    /// Notes a material (the scene's `mi`) drawn on a mesh, for the
+    /// warm-up.
+    fn note_combo(
+        &mut self,
+        mesh: &Handle<Mesh>,
+        material: &Handle<ThreeMaterial>,
+        mi: u32,
+        casts: bool,
+    ) {
         if let (Some(layout), Some(key)) =
             (self.layouts.get(&mesh.id()), self.keys.get(&material.id()))
         {
+            let before = self.combos.len();
             self.combos.note(*key, material, layout, casts);
+            if self.combos.len() > before {
+                self.drawn.push(Drawn {
+                    key: *key,
+                    layout: layout.signature(),
+                    casts,
+                    material: {
+                        let m = &self.scene.materials[mi as usize];
+                        if m.name.is_empty() {
+                            format!("{:?} {}", m.kind, m.ty)
+                        } else {
+                            format!("{} ({:?})", m.name, m.kind)
+                        }
+                    },
+                });
+            }
         }
     }
 
@@ -453,6 +527,7 @@ fn spawn_node(
     // An InstancedMesh's stream and world bounding sphere, made at its first
     // drawn part and shared by its material groups.
     let mut stream: Option<Option<Stream>> = None;
+    let mut first_part = true;
     let mut spawned = 0;
     for (mi, (start, count)) in parts {
         let mdesc = &b.scene.materials[mi as usize];
@@ -518,7 +593,7 @@ fn spawn_node(
                 let Some(mat) = b.material(mi, false, false, materials.0) else {
                     continue;
                 };
-                b.note_combo(&mesh_h, &mat, node.cast_shadow);
+                b.note_combo(&mesh_h, &mat, mi, node.cast_shadow);
                 let t = Transform::from_matrix(world);
                 if !b.out.fixed_bounds {
                     b.out.min = b.out.min.min(t.translation);
@@ -562,10 +637,15 @@ fn spawn_node(
                 let Some((stream, sphere)) = made.clone() else {
                     continue;
                 };
+                if first_part {
+                    b.uploads.instance_bytes +=
+                        u64::from(stream.0.count()) * (instancing::INSTANCE_FLOATS * 4) as u64;
+                    first_part = false;
+                }
                 let Some(mat) = b.material(mi, inst.colors.is_some(), true, materials.0) else {
                     continue;
                 };
-                b.note_combo(&mesh_h, &mat, node.cast_shadow);
+                b.note_combo(&mesh_h, &mat, mi, node.cast_shadow);
                 let mut e = commands.spawn((
                     Mesh3d(mesh_h.clone()),
                     MeshMaterial3d(mat),
@@ -911,36 +991,95 @@ pub fn step_section(
 ) -> bool {
     let t0 = Instant::now();
     while t0.elapsed().as_millis() < budget_ms {
-        match b.step {
-            Step::Textures => {
-                if b.cursor < b.scene.textures.len() {
-                    let img = b.image(b.cursor, images);
-                    b.images.push(img);
-                    b.cursor += 1;
-                } else {
-                    b.step = Step::Nodes;
-                    b.cursor = 0;
-                }
-            }
-            Step::Nodes => {
-                if b.cursor < b.scene.nodes.len() {
-                    let i = b.cursor;
-                    b.out.counts.entities +=
-                        spawn_node(b, i, commands, meshes, (materials, sky_materials));
-                    b.cursor += 1;
-                } else {
-                    b.step = Step::Lights;
-                }
-            }
-            Step::Lights | Step::Done => return true,
+        if step_item(b, commands, meshes, materials, sky_materials, images) {
+            return true;
         }
     }
     matches!(b.step, Step::Lights | Step::Done)
 }
 
+/// The least a slice of [`step_section`] does: one texture or one node
+/// (the work-budget tests measure each, D1238). True once everything is
+/// spawned.
+pub fn step_item(
+    b: &mut Build,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ThreeMaterial>,
+    sky_materials: &mut Assets<SkyMaterial>,
+    images: &mut Assets<Image>,
+) -> bool {
+    match b.step {
+        Step::Textures => {
+            if b.cursor < b.scene.textures.len() {
+                let img = b.image(b.cursor, images);
+                b.images.push(img);
+                b.cursor += 1;
+            } else {
+                b.step = Step::Nodes;
+                b.cursor = 0;
+            }
+            false
+        }
+        Step::Nodes => {
+            if b.cursor < b.scene.nodes.len() {
+                let i = b.cursor;
+                b.out.counts.entities +=
+                    spawn_node(b, i, commands, meshes, (materials, sky_materials));
+                b.cursor += 1;
+            } else {
+                b.step = Step::Lights;
+            }
+            false
+        }
+        Step::Lights | Step::Done => true,
+    }
+}
+
+/// What [`step_item`] does next, for a message: `texture 3 (2048×2048)`,
+/// `node 41 under 'beach:solid:far' (Terrain)` (the nearest named node
+/// above it), or `done`.
+pub fn next_item(b: &Build) -> String {
+    let scene = &b.scene;
+    match b.step {
+        Step::Textures => scene.textures.get(b.cursor).map_or_else(
+            || "-".into(),
+            |t| {
+                format!(
+                    "texture {} '{}' ({}×{})",
+                    b.cursor, t.name, t.width, t.height
+                )
+            },
+        ),
+        Step::Nodes => scene.nodes.get(b.cursor).map_or_else(
+            || "-".into(),
+            |n| {
+                let mut named = Some(n);
+                while let Some(m) = named
+                    && m.name.is_empty()
+                {
+                    named = m.parent.and_then(|p| scene.nodes.get(p as usize));
+                }
+                let kind = n
+                    .materials
+                    .first()
+                    .and_then(|&m| scene.materials.get(m as usize))
+                    .map_or_else(String::new, |m| format!(" ({:?})", m.kind));
+                format!(
+                    "node {} under '{}'{kind}",
+                    b.cursor,
+                    named.map_or("", |m| m.name.as_str())
+                )
+            },
+        ),
+        Step::Lights | Step::Done => "done".into(),
+    }
+}
+
 /// The end of a section's build, as [`build_step`]'s for a level: the
 /// counts, the warm-up's stand-ins, the animators' index, the local lights
-/// and the sky's noise; the scene's CPU copy is dropped with the build.
+/// and the sky dome's noise, if it has a dome; the scene's CPU copy is
+/// dropped with the build.
 pub fn finish_section(
     mut b: Build,
     commands: &mut Commands,
@@ -953,9 +1092,10 @@ pub fn finish_section(
     c.images = b.images.iter().filter(|m| m.is_some()).count();
     c.hidden_kinds = std::mem::take(&mut b.hidden);
     let (spot, point) = lights_of(&b);
-    let noise = b
-        .sky_noise()
-        .or_else(|| crate::render::sky::noise_image().map(|i| images.add(i)));
+    // The dome's own; a menu section without one makes the generator's
+    // (`crate::preview`), a streamed section has the base's sky (D1238).
+    let noise = b.sky_noise();
+    let _ = images;
     let warm_up = b.combos.spawn_each(commands, meshes);
     let index = crate::animate::SceneIndex::new(&b.scene, &b.meshes, &b.offset, &b.materials)
         .with_material_base(b.material_base);

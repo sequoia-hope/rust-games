@@ -43,6 +43,7 @@ pub mod cars;
 pub mod convert;
 pub mod debug;
 pub mod fly;
+pub mod frame_work;
 pub mod levels;
 pub mod loader;
 pub mod matscene;
@@ -613,6 +614,7 @@ pub fn app(o: Options, (hq, scale): (bool, f64)) -> App {
     viewer::plugin(&mut app);
     animate::plugin(&mut app);
     stream::plugin(&mut app);
+    frame_work::plugin(&mut app);
     levels::plugin(&mut app);
     debug::plugin(&mut app);
     recording::plugin(&mut app);

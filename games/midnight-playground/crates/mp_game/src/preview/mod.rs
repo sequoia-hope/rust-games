@@ -715,6 +715,8 @@ fn drive(
             noise,
             warm_up,
         } = loader::finish_section(build, &mut commands, &mut meshes, &mut images);
+        // No dome: the generator's noise for the environment's sky.
+        let noise = noise.or_else(|| crate::render::sky::noise_image().map(|i| images.add(i)));
         // Behind the menu, the stand-ins are the section's own; the first
         // section's are the loading screen's warm-up (`WarmUp`), with the
         // menu's UI.
