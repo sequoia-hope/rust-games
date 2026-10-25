@@ -264,8 +264,16 @@ impl SkyState {
 }
 
 /// `terrainDetailTexture()` (the dome's `tNoise`) as a Bevy image, from
-/// `mp_worldgen`'s port, for a scene that has no dome of its own.
+/// `mp_worldgen`'s port, for a scene that has no dome of its own. Made
+/// once: it is the same every time, and every streamed section without a
+/// dome asks for it, where making it is tens of milliseconds on the web
+/// (a hitch each time a section came up).
 pub fn noise_image() -> Option<Image> {
+    static MADE: std::sync::OnceLock<Option<Image>> = std::sync::OnceLock::new();
+    MADE.get_or_init(make_noise_image).clone()
+}
+
+fn make_noise_image() -> Option<Image> {
     let t = mp_worldgen::textures::terrain_detail_texture();
     let mut scene = mp_scene::Scene::default();
     scene.buffers.push(mp_scene::Buffer {
