@@ -47,6 +47,9 @@ fn drive(physics: mp_sim::model::Physics) {
     let mut el = 0.0;
     let mut switched = false;
     let mut turned = false;
+    // Stuck against something off the road (a tree, stage 7d), a driver
+    // backs off a car's length and tries again.
+    let (mut stuck, mut backing) = (0.0, 0.0);
     while el < 240.0 {
         let v = &st.players[0].v;
         let aim = if v.road == 0 {
@@ -78,13 +81,39 @@ fn drive(physics: mp_sim::model::Physics) {
         let alpha = wrap_angle(kernel::atan2(aim.z - v.z, aim.x - v.x) - v.yaw);
         let speed = kernel::hypot(v.vx, v.vz);
         let fast = v.road == 0 && v.s > b.s + 200.0;
-        let (want, reverse) = if fast { (22.0, false) } else { (14.0, false) };
+        // Slowly round the corner onto 84: a car carried wide leaves the
+        // road for the trees (stage 7d).
+        let corner = v.road_s < 40.0;
+        let (want, reverse) = if fast {
+            (22.0, false)
+        } else if corner {
+            (8.0, false)
+        } else {
+            (14.0, false)
+        };
         let _ = reverse;
-        let inp = Input {
-            steer: clamp(alpha * 2.5, -1.0, 1.0),
-            throttle: if speed < want { 0.6 } else { 0.0 },
-            brake: if speed > want + 2.0 { 0.3 } else { 0.0 },
-            ..Input::default()
+        stuck = if el > 5.0 && speed < 1.0 && backing <= 0.0 {
+            stuck + DT
+        } else {
+            0.0
+        };
+        if stuck > 2.0 {
+            backing = 1.5;
+        }
+        let inp = if backing > 0.0 {
+            backing -= DT;
+            Input {
+                steer: -clamp(alpha * 2.5, -1.0, 1.0),
+                brake: 0.6,
+                ..Input::default()
+            }
+        } else {
+            Input {
+                steer: clamp(alpha * 2.5, -1.0, 1.0),
+                throttle: if speed < want { 0.6 } else { 0.0 },
+                brake: if speed > want + 2.0 { 0.3 } else { 0.0 },
+                ..Input::default()
+            }
         };
         // At the start, under way; then turned round where the car is
         // past the junction (the coast road's guardrails, stage 7c, leave

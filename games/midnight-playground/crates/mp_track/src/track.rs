@@ -281,6 +281,11 @@ pub struct Track {
     /// The level's buildings (`Level::buildings`, stage 6e), shared by
     /// every clone; road 0's Track holds them.
     pub buildings: std::sync::Arc<crate::buildings::Buildings>,
+    /// The open world's solid scenery off the road (stage 7d,
+    /// [`crate::props`]): the planting's trunks and fences, planted a tile
+    /// at a time as cars come near, shared by every clone; road 0's Track
+    /// holds it.
+    pub props: std::sync::Arc<crate::props::Props>,
     pub elevated: Vec<u8>,
     /// Collision limits either side of the centreline (positive distances).
     pub wall_l: Vec<f32>,
@@ -411,6 +416,28 @@ impl Track {
         if let Some(place) = &level.buildings {
             let list = place(&t);
             t.buildings = std::sync::Arc::new(crate::buildings::Buildings::new(list));
+        }
+        if t.open_ground.is_some() {
+            let planting = crate::planting::Planting::new(&t, level);
+            let town = crate::seabright::town(&t);
+            let mut fixed = Vec::new();
+            if let Some(town) = &town {
+                let ground = t.open_ground.clone().expect("an open level");
+                fixed = town.solids(&*ground);
+                // The kerb railing opens where each cross street meets
+                // the boulevard (the Beach kit's `setupRanges`).
+                for &c in &town.cross_s {
+                    t.fence_gaps.push(FenceGap {
+                        s0: c - 5.5,
+                        s1: c + 5.5,
+                        side: 1.0,
+                    });
+                }
+            }
+            if planting.is_some() || town.is_some() {
+                t.props =
+                    std::sync::Arc::new(crate::props::Props::new(fixed, planting).with_town(town));
+            }
         }
         Ok(t)
     }
@@ -1669,6 +1696,7 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
         overpasses: Vec::new(),
         net: NetIndex::default(),
         buildings: Default::default(),
+        props: Default::default(),
         elevated: elev_raw,
         wall_l,
         wall_r,

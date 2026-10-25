@@ -85,6 +85,37 @@ impl NetIndex {
         out
     }
 
+    /// Every indexed sample within `radius` of (x, z): `(road, sample, x,
+    /// z)`, cell by cell.
+    pub fn samples_within(
+        &self,
+        t: &Track,
+        x: f64,
+        z: f64,
+        radius: f64,
+    ) -> Vec<(u32, u32, f64, f64)> {
+        let (a0, b0) = Self::key(x - radius, z - radius);
+        let (a1, b1) = Self::key(x + radius, z + radius);
+        let r2 = radius * radius;
+        let mut out = Vec::new();
+        for a in a0..=a1 {
+            for b in b0..=b1 {
+                let Some(v) = self.cells.get(&(a, b)) else {
+                    continue;
+                };
+                for &(r, k) in v {
+                    let rt = t.road(r as usize);
+                    let (sx, sz) = (f64::from(rt.px[k as usize]), f64::from(rt.pz[k as usize]));
+                    let (dx, dz) = (x - sx, z - sz);
+                    if dx * dx + dz * dz <= r2 {
+                        out.push((r, k, sx, sz));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Each road's nearest indexed sample within `radius` of (x, z), for
     /// the roads whose nearest lies within `slack` of the nearest of all:
     /// `(road, sample, distance)` in road order. The cells are searched in

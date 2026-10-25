@@ -11992,3 +11992,143 @@ stopped a car on an open one.
   off the road and now clear the barriers; the junction race turns its car
   round (no room for a U-turn between the coast road's rails) and steers
   round a crashed car in its lane.
+
+## D1248 (2026-10-25): the open world's trees, fences and houses stand
+
+Stage 7d. The owner: the land off the road should be more solid, but for
+street signs and small things. On an open level the car passed through
+everything but the city's buildings and (D1247) the roadside barriers.
+
+- **What stands off the road is mp_track's** (`props`, `planting`,
+  `seabright`), placed from the level's ground and cover and the road
+  network alone, so every peer of a race meets the same and what is
+  drawn is what stands. `Track::props` holds the fixed solids (indexed in
+  32 m cells) and the planting, which plants a 64 m tile the first time a
+  car comes near it and keeps it (a memo: a tile's planting is a
+  function of the tile, so when it is planted changes nothing; at most
+  4096 kept). A solid is a circle (a trunk, a rock's foot) or a box (a
+  fence's rails between two posts, a building's block), the ground under
+  it and its height.
+- **The planting** is the Land kit's rules (D1212: by cover and distance
+  from the road, clear of the roads, off the sea and the steepest
+  ground), the Coast kit's cypress and pines and its landward outcrops,
+  and the crop land's post-and-rail fences, moved out of world
+  generation. The terrain's far field, ground and zone weights are world
+  generation's, so the planting asks the level's ground, the nearest
+  road sample (and its zone) and the roads themselves; the clumps are
+  the terrain's second noise, made again from its seed. Candidates stand
+  on a lattice fixed in the world, 8 m apart (the kits' odds for their 7
+  and 12 m walks scaled), each drawn from its own seed instead of a
+  cell's one stream, so any tile plants alone; a fence's post belongs to
+  where it stands and a rail to where its middle is, so any box of land
+  finds the same ones. The Land kit draws every plant, rock, post and
+  rail of its cells from it, on the terrain's ground, its looks (tilt,
+  tint) from the plant's seed; the Coast kit no longer plants its trees
+  or outcrops on an open level.
+- **The beach town** (`seabright`): the Beach kit's layout of Seabright
+  (the frontage lots block by block, the houses behind main street, the
+  hill houses, the palms) on its own streams, since on a closed level
+  the kit draws layout and looks from one stream only it can follow;
+  nothing on another road of the network. On an open level the kit draws
+  the layout's lots, houses and palms, with its own stream for the looks,
+  and starts from the layout's occupied ground. Each lot's blocks are its
+  parts' bodies (a shop's box, the motel's rooms and office, the gas
+  station's shop and canopy columns); a parking lot and the forecourts
+  are open. The cross streets' gaps in the kerb railing, which only the
+  kit's plan made (so the simulation had a railing there and the road kit
+  drew a gap), are the track's now.
+- **What collides:** trunks of conifers, oaks, cypress, pines and palms
+  (their templates' radius at the foot, scaled, at least 25 cm; 8 m
+  high), the coast's outcrops (0.7 of their radius), the crop fences
+  (16 cm thick, 2 m over the land's own ground, which near a road lies
+  under the ground the car rides), and the town's storefronts, houses,
+  motel, hotel and gas station. **Passable:** scrub and grass, signs,
+  lamps, poles, delineators, benches and the like, parked cars, the
+  pier and the marina, the promenade's rail, the boulders at the foot of
+  rock walls and the crags in the cut faces (both behind the road's
+  barriers), canopies over the car.
+- The arcade meets a solid as it meets a building (`collide_props`,
+  `meet_face`: the shortest way out of the box, a trunk by the car's
+  nearest point), twice a tick for a car wedged between two; the sim car
+  gets the face toward its box as a plane collider (a trunk's tangent).
+- Closed levels are untouched: none is open, and the kits' open-level
+  paths are new branches.
+- Cost (native release): the load adds only the town's layout, 0.1 ms
+  (the peninsula's `Track::new` was 0.56 to 0.9 s on a busy machine,
+  as before); a tile is planted in 0.14 ms (1 ms unoptimised), and a car
+  at speed meets a new one about every second. The Land kit plants its
+  cells from the same tiles; the section timing and stream budget tests
+  pass unchanged.
+- Tests: mp_sim tests/props.rs (a car at a tree stops, arcade and sim
+  car; a crop fence stops it; scrub does not), mp_levels tests/planting.rs
+  (the same every build, a cell's fences are its tiles', the town clear
+  of every road, the cost), mp_worldgen tests/land.rs (what is drawn is
+  what is planted) and tests/beach_open.rs.
+
+## D1249 (2026-10-25): freeways over the roads they cross; a car held by the road at its height
+
+Stage 8a and 8b of docs/vision/peninsula.md: the owner asked the world for
+verticality, lifted highways and parking garages (D1250). Every crossing
+met at grade; nothing stood over anything.
+
+- **Overpasses** (`network::find_crossings`, `lift_over`; `OVERPASS_CLEAR`
+  7 m, `OVERPASS_GRADE` 4.5 %). Where a freeway crosses a lesser road it
+  rises over it, its deck 7 m over that road's surface across its width
+  (wider as the angle narrows) and down at 4.5 % either side; the crossing
+  is no junction (`Track::overpasses`), and neither road's fence opens. A
+  crossing too near one of the freeway's own junctions to rise (the roads
+  that start and end on it were fitted to its surface as it was) stays at
+  grade; a lift never goes past what the freeway's junctions allow over its
+  heights before any lift, so two crossings near one junction cannot stack
+  (they did: a 13 % ramp where 101 ends on El Camino, which winds under it
+  twice; there the deck is 4.3 m over the street, 2.5 m of headroom).
+- **Viaducts by the level's word** (`Branch::lift`, `track::lift_road`):
+  the peninsula's 101 and 280 stand 8 m up north of z -13 300 (San
+  Francisco at the plan's scale), ramped at 4.5 % and down to nothing within
+  25 m of their ends, before the roads that end on them are built, so a
+  street that ends on one climbs to its deck as a ramp over the branch fit's
+  120 m. Only four true crossings of the freeways exist on the peninsula
+  (most streets end on them), so the city's lifted highways come from this.
+- **Elevated** (`ELEVATED_LIFT` 1.5 m over its own heights): the terrain's
+  near field is not raised to it (as before for `elevated` samples), the
+  road kit stands it on piers with a deck underside, and off its edge the
+  simulation's ground is the land's, not the near field pulled up to the
+  deck.
+- **A car held by the road at its height** (`Track::project_road_at`,
+  `REACH_UP` 1.5, `REACH_DOWN` 4): the projection chose a road by the
+  horizontal alone, so the street under a viaduct and the deck over it took
+  a car from each other. Now a road whose surface there is more than 1.5 m
+  over the car or 4 m under it cannot hold it, and of those that hold it the
+  surface nearest under it wins (if none, the least past a shoulder of those
+  in reach, else of all, as before). The car's projection, its wheels'
+  ground and the sim car's ground pass its height; a barrier counts only
+  level with the car (a deck's jersey barrier over the street does not stop
+  a car under it).
+
+## D1250 (2026-10-25): parking garages
+
+Stage 8c. `mp_track::garage`: one layout read by the simulation and by
+world generation.
+
+- **Where:** a frontage lot is a garage 5 % of the time where the ground is
+  at least 40 % built (`mp_levels::city`, chosen by a draw of its own so the
+  lots round it are as they were): 48 m along the street, 40 deep, four
+  decks; the peninsula has 75. A `Footprint` carries it (`garage`: decks,
+  the front's side, the floor at the pavement's height).
+- **Layout:** decks 3.2 m apart; along the back a strip 7 m wide holds the
+  ramps, each 32 m long (10 %) and climbing one deck the same way, stacked a
+  deck apart, the decks running on 8 m past their ends: up a ramp, turn on
+  the deck, back to the next. A wall along the strip's inner edge (open
+  4 m at each end) keeps a car from dropping onto a ramp half a deck down.
+  The perimeter's walls stand at every deck; the entrance, 7 m at the
+  front's start, is open at the floor.
+- **Simulation:** the ground in a garage is the highest deck or ramp at
+  most 0.6 m over the car (`Garage::ground`, `physics::ground_under`, both
+  car models), its walls stop the car (`collide_garages`, the sim car's
+  colliders), and push-out and the sim car's building faces leave garages
+  out.
+- **Drawn:** the slabs and ramps (top and underside) in the pavement's
+  concrete, the parapets, pillars and the strip's wall on the facade atlas's
+  panel cell: no new pipeline.
+- The page's `reset` command takes `road` (the network's), for tools that
+  put the car on a viaduct or a garage's street.
