@@ -257,6 +257,9 @@ The commands for building, testing and linting the Rust workspace are in
 | R | Put the car back on the road |
 | M | Mute or unmute music. The menu and the pause screen have separate music and SFX volume sliders |
 | T | Next music track. There are seven; each level starts on its own, and the playlist moves on when a song ends. The pause screen has a Next track button, and the menu a Track picker |
+| G | Open or close the map of the whole level (the race goes on under it). Clicking or tapping the minimap opens it too |
+| Z | On the map: step between the whole map and 3 km round the car, which follows it. With the map closed: zoom the minimap out and back |
+| + / − or the mouse wheel | On the map: zoom in and out (the wheel about the cursor). Drag to move it |
 | Esc / P | Pause |
 
 ### Gamepads
@@ -274,6 +277,9 @@ the standard layout:
 | Y | Change camera |
 | Back | Put the car back on the road |
 | Start | Pause |
+| LB (D-pad up if LB is remapped) | Open or close the map |
+| Right stick click (D-pad down if remapped) | The map's zoom step (or the minimap's, with the map closed) |
+| Right stick up / down | On the map: zoom in and out |
 
 **Menus.** Push the D-pad or the left stick and a highlight appears. Move it
 to any button, car, level or option, and press A to choose it. On a slider or

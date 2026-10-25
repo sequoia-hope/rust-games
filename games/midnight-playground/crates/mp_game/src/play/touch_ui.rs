@@ -252,6 +252,9 @@ pub(super) fn spawn(
                 right: Val::Px(0.0),
                 ..default()
             },
+            // Over the atlas (D1251), which is drawn under the controls
+            // so they keep working while it is up.
+            GlobalZIndex(2),
             Visibility::Hidden,
             Part::Root,
         ))
