@@ -154,7 +154,7 @@ impl SimCar {
         } else {
             (v.road_s, v.road_lat)
         };
-        let ground = t.road(v.road).ground_y(v.x, v.z, s, lat);
+        let ground = t.ground_at(v.road, v.x, v.z, s, lat);
         let mut car = mp_vdyn::Vehicle::new(&def, v.x, ground, v.z, v.yaw);
         let rest_height = car.body.pos.y - ground;
         let speed = v.vx * kernel::cos(v.yaw) + v.vz * kernel::sin(v.yaw);

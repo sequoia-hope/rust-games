@@ -55,7 +55,24 @@ fn drive(physics: mp_sim::model::Physics) {
                 b.track.point_at(8.0, 0.0)
             }
         } else {
-            b.track.point_at(v.road_s + 30.0, 0.0)
+            // Round a car stopped in the way up 84 (a crashed oncoming
+            // car sits in the lane a while), as a driver would.
+            let lane = st
+                .traffic
+                .cars
+                .iter()
+                .filter(|c| c.active && c.k.road == 1)
+                .filter(|c| (0.0..30.0).contains(&(c.k.s - v.road_s)) && c.k.speed.abs() < 3.0)
+                .map(|c| {
+                    if c.k.lat > 0.0 {
+                        c.k.lat - 3.5
+                    } else {
+                        c.k.lat + 3.5
+                    }
+                })
+                .next()
+                .unwrap_or(0.0);
+            b.track.point_at(v.road_s + 30.0, lane)
         };
         let alpha = wrap_angle(kernel::atan2(aim.z - v.z, aim.x - v.x) - v.yaw);
         let speed = kernel::hypot(v.vx, v.vz);

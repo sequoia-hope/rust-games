@@ -17,6 +17,8 @@ pub const SURFACE_RUNOFF: u16 = 1;
 /// across the road, and along it (the track is sampled every metre).
 const D_LAT: f64 = 0.05;
 const D_S: f64 = 0.5;
+/// An open level's step across x and z for the ground's normal (m).
+const D_XZ: f64 = 0.25;
 
 /// The track as ground, near arc length `hint` on road `road` of the
 /// level's network (where the car is: every projection searches from
@@ -62,8 +64,9 @@ impl<'a> TrackGround<'a> {
 
 impl Ground for TrackGround<'_> {
     fn height(&self, x: f64, z: f64) -> GroundSample {
-        let (t, p) = self.on(x, z);
-        let y = t.ground_y(x, z, p.s, p.lat);
+        let (k, p) = self.track.project_road(x, z, self.road, self.hint);
+        let y = self.track.ground_at(k, x, z, p.s, p.lat);
+        let t = self.track.road(k);
         let f = t.frame(p.s);
         // Slopes across and along the road, from the surface itself, so
         // bank, grade and run-off all come out as the arcade sees them.
@@ -71,12 +74,25 @@ impl Ground for TrackGround<'_> {
             (t.surface_y(p.s, p.lat + D_LAT) - t.surface_y(p.s, p.lat - D_LAT)) / (2.0 * D_LAT);
         let g_s = (t.surface_y(p.s + D_S, p.lat) - t.surface_y(p.s - D_S, p.lat)) / (2.0 * D_S);
         // n = t_lat × t_s, with t_s = (fx, g_s, fz), t_lat = (rx, g_lat, rz).
-        let normal = Vec3::new(
-            g_lat * f.fz - f.fx * g_s,
-            f.fx * f.fx + f.fz * f.fz,
-            -f.fz * g_s - g_lat * f.fx,
-        )
-        .normalize();
+        let normal = if t.open_ground.is_some() {
+            // An open level's ground off the tarmac is not the road's
+            // plane carried on (the shoulder's slope, the kerb, the land,
+            // stage 7b): its normal from the ground itself, across x and z.
+            let h = |x: f64, z: f64| {
+                let q = t.project(x, z, p.s);
+                self.track.ground_at(k, x, z, q.s, q.lat)
+            };
+            let hx = (h(x + D_XZ, z) - h(x - D_XZ, z)) / (2.0 * D_XZ);
+            let hz = (h(x, z + D_XZ) - h(x, z - D_XZ)) / (2.0 * D_XZ);
+            Vec3::new(-hx, 1.0, -hz).normalize()
+        } else {
+            Vec3::new(
+                g_lat * f.fz - f.fx * g_s,
+                f.fx * f.fx + f.fz * f.fz,
+                -f.fz * g_s - g_lat * f.fx,
+            )
+            .normalize()
+        };
         let off = self.off(t, x, z, &p, f.hw);
         GroundSample {
             y,

@@ -166,6 +166,37 @@ impl Track {
         out.map(|(r, s, _)| (r, s))
     }
 
+    /// Whether (x, z) lies on the tarmac of a road other than `road` (its
+    /// pavement and half a metre more): where a road's pavement would
+    /// cross another road, at a junction's mouth or a crossing, there is
+    /// none (stage 7b; the Town kit draws none there either).
+    pub fn on_other_tarmac(&self, road: usize, x: f64, z: f64) -> bool {
+        self.net.roads_near(x, z, 30.0).into_iter().any(|r| {
+            if r == road {
+                return false;
+            }
+            let t = self.road(r);
+            let d = t.distance_to_road(x, z, 30.0);
+            d.s.is_some_and(|s| {
+                let f = t.frame(s.clamp(0.0, t.length));
+                d.d < f.hw + f.margin + 0.5
+            })
+        })
+    }
+
+    /// The open world's ground under (x, z) on road `road` at (s, lat) of
+    /// it: the road's profile ([`Track::ground_y_walk`]), with its kerb and
+    /// pavement where it has them and no other road's tarmac covers the
+    /// place (stage 7b).
+    pub fn ground_at(&self, road: usize, x: f64, z: f64, s: f64, lat: f64) -> f64 {
+        let t = self.road(road);
+        let walk = t.open_ground.is_some() && {
+            let f = t.frame(s.clamp(0.0, t.length));
+            lat.abs() > f.hw + f.margin && t.walks(s) && !self.on_other_tarmac(road, x, z)
+        };
+        t.ground_y_walk(x, z, s, lat, walk)
+    }
+
     /// The junctions road `road` takes part in, either side.
     pub fn junctions_of(&self, road: usize) -> impl Iterator<Item = &Junction> {
         self.junctions

@@ -832,6 +832,7 @@ impl Road {
                     continue;
                 }
                 let city = edge_type == "jersey";
+                let open = t.open_ground.is_some();
                 let tint = match z.zone.landform {
                     "mountain" => [0.55, 0.52, 0.48],
                     "coast" => [0.6, 0.55, 0.47],
@@ -849,6 +850,20 @@ impl Road {
                             pt(move |f| side * f.hw, 0.0, 0.0),
                             pt(move |f| side * (w(f) + 0.35), 0.0, 0.4),
                             pt(move |f| side * (w(f) + 0.35), -1.6, 1.0),
+                        ]
+                    } else if open {
+                        // An open level's roadside eases down to the land
+                        // as the simulation's ground does (stage 7b):
+                        // `EDGE_RUN` out, to just under the near field's
+                        // drop.
+                        vec![
+                            pt(move |f| side * f.hw, -0.01, 0.0),
+                            pt(move |f| side * w(f), -0.08, 0.5),
+                            pt(
+                                move |f| side * (w(f) + mp_track::EDGE_RUN),
+                                -mp_track::OPEN_DROP - 0.12,
+                                1.0,
+                            ),
                         ]
                     } else {
                         vec![

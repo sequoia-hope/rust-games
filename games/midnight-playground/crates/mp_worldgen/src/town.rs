@@ -9,7 +9,7 @@
 //! A section draws the buildings that stand in it, merged in chunks small
 //! enough that each chunk's centre lies in the section that drew it.
 
-use mp_track::{Footprint, Track};
+use mp_track::Footprint;
 use pk_math::{Mulberry32, kernel};
 
 use crate::geom::{GeoBuilder, P2, P3, PrismOpts, StaticOpts};
@@ -20,10 +20,6 @@ use crate::world::{Scenery, SceneryInfo, World};
 
 /// Metres of ground a merged chunk covers.
 const CHUNK: f64 = 200.0;
-/// The sidewalk either side of a town's streets (`mp_levels::city::WALK`)
-/// and its height over the road at the kerb.
-const WALK: f64 = 4.0;
-const KERB: f64 = 0.15;
 
 pub struct Town {
     pub label: &'static str,
@@ -146,37 +142,18 @@ pub fn draw(b: &mut GeoBuilder, fp: &Footprint) {
     }
 }
 
-/// Whether the sidewalk at (x, z) beside road `road` would lie on another
-/// road's tarmac (a crossing, a mouth).
-fn on_another(net: &Track, road: usize, x: f64, z: f64) -> bool {
-    net.net.roads_near(x, z, 30.0).into_iter().any(|r| {
-        if r == road {
-            return false;
-        }
-        let t = net.road(r);
-        let d = t.distance_to_road(x, z, 30.0);
-        d.s.is_some_and(|s| {
-            let f = t.frame(s.clamp(0.0, t.length));
-            d.d < f.hw + f.margin + 0.5
-        })
-    })
-}
-
-/// The sidewalks of the town's streets: a strip of pavement either side
-/// from the kerb out [`WALK`] metres, level across at kerb height, with a
-/// skirt down to the land beyond, every 4 m that this build holds.
+/// The sidewalks of the town's streets (stage 7b, D1246), across as the
+/// simulation's ground has them (`mp_track::Track::ground_y_walk`): a
+/// gutter on the road's plane out to its shoulder, the kerb's ramp
+/// `KERB_RUN` wide up to `KERB`, the pavement level across out to `WALK`,
+/// and a slope `WALK_RUN` wide down to the land, every 4 m that this build
+/// holds, each piece left out where it would lie on another road's tarmac.
 fn sidewalks(world: &World, chunks: &mut Chunks) {
     let (Some(net), Some(terrain)) = (&world.track, &world.terrain) else {
         return;
     };
     for (r, t) in net.roads().enumerate() {
-        let zone = t.zone.first().copied().unwrap_or(0) as usize;
-        let town = world
-            .level
-            .zones
-            .get(zone)
-            .is_some_and(|z| z.scenery == "Town");
-        if r == 0 || !town {
+        if r == 0 {
             continue;
         }
         let mut s = 0.0;
@@ -185,91 +162,84 @@ fn sidewalks(world: &World, chunks: &mut Chunks) {
                 .section
                 .as_ref()
                 .is_none_or(|sec| sec.holds_road(r, t, s, sec.scenery_radius));
-            let key = mp_track::ROAD_TYPES
-                .get(t.road_type[t.idx(s)] as usize)
-                .map_or("", |rt| rt.key);
-            if held && key != "freeway" {
-                let (a, b) = (t.frame(s), t.frame(s + 4.0));
+            if held && t.walks(s) && t.walks(s + 4.0) {
                 for side in [-1.0, 1.0] {
-                    let lat0 = |f: &mp_track::Frame| f.hw + f.margin;
-                    let p = |f: &mp_track::Frame, lat: f64| {
-                        [f.x + f.rx * lat * side, f.z + f.rz * lat * side]
-                    };
-                    let mid = p(&a, lat0(&a) + WALK / 2.0);
-                    let ya = t.surface_y(s, lat0(&a) * side) + KERB;
-                    let yb = t.surface_y(s + 4.0, lat0(&b) * side) + KERB;
-                    let (ai, ao) = (p(&a, lat0(&a)), p(&a, lat0(&a) + WALK));
-                    let (bi, bo) = (p(&b, lat0(&b)), p(&b, lat0(&b) + WALK));
-                    if [mid, ai, ao, bi, bo]
-                        .iter()
-                        .any(|c| on_another(net, r, c[0], c[1]))
-                    {
-                        continue;
-                    }
-                    let g = chunks.at(mid[0], mid[1]);
-                    let grey = Some([0.62, 0.6, 0.57]);
-                    let uv = |l: f64, u: f64| [l / 4.0, u / 4.0];
-                    // Wound to face up whichever side it is on (the right is south of
-                    // east here: forward × right points down).
-                    let (q0, q1, q2, q3) = if side < 0.0 {
-                        (
-                            [ai[0], ya, ai[1]],
-                            [bi[0], yb, bi[1]],
-                            [bo[0], yb, bo[1]],
-                            [ao[0], ya, ao[1]],
-                        )
-                    } else {
-                        (
-                            [ao[0], ya, ao[1]],
-                            [bo[0], yb, bo[1]],
-                            [bi[0], yb, bi[1]],
-                            [ai[0], ya, ai[1]],
-                        )
-                    };
-                    g.quad(
-                        q0,
-                        q1,
-                        q2,
-                        q3,
-                        Some([uv(0.0, s), uv(0.0, s + 4.0), uv(WALK, s + 4.0), uv(WALK, s)]),
-                        grey,
-                        0.0,
-                    );
-                    // The skirt down to the land past the outer edge.
-                    let (ga, gb) = (
-                        terrain.height_at(ao[0], ao[1]),
-                        terrain.height_at(bo[0], bo[1]),
-                    );
-                    if ga < ya - 0.05 || gb < yb - 0.05 {
-                        let (lo_a, lo_b) = (ga.min(ya) - 0.3, gb.min(yb) - 0.3);
-                        let (w0, w1, w2, w3) = if side < 0.0 {
-                            (
-                                [ao[0], lo_a, ao[1]],
-                                [ao[0], ya, ao[1]],
-                                [bo[0], yb, bo[1]],
-                                [bo[0], lo_b, bo[1]],
-                            )
-                        } else {
-                            (
-                                [bo[0], lo_b, bo[1]],
-                                [bo[0], yb, bo[1]],
-                                [ao[0], ya, ao[1]],
-                                [ao[0], lo_a, ao[1]],
-                            )
-                        };
-                        g.quad(
-                            w0,
-                            w1,
-                            w2,
-                            w3,
-                            Some([uv(0.0, 0.0), uv(0.0, 1.0), uv(1.0, 1.0), uv(1.0, 0.0)]),
-                            grey,
-                            0.0,
-                        );
-                    }
+                    strip(net, r, t, terrain, s, side, chunks);
                 }
             }
             s += 4.0;
+        }
+    }
+}
+
+/// One side's sidewalk from `s` to `s + 4`.
+fn strip(
+    net: &mp_track::Track,
+    r: usize,
+    t: &mp_track::Track,
+    terrain: &crate::terrain::Terrain,
+    s: f64,
+    side: f64,
+    chunks: &mut Chunks,
+) {
+    use mp_track::{KERB_RUN, WALK, WALK_RUN};
+    let grey = Some([0.62, 0.6, 0.57]);
+    // The profile's lateral offsets from the centreline and heights, at
+    // one end of the strip.
+    let across = |s: f64| -> [(P2, f64); 5] {
+        let f = t.frame(s);
+        let edge = f.hw + f.margin;
+        let p = |lat: f64| [f.x + f.rx * lat * side, f.z + f.rz * lat * side];
+        let base = t.surface_y(s, edge * side) + 0.01;
+        let top = t.walk_y(s, side);
+        let foot = p(edge + WALK + WALK_RUN);
+        let land = terrain.height_at(foot[0], foot[1]) - 0.05;
+        [
+            (p(f.hw), t.surface_y(s, f.hw * side) + 0.01),
+            (p(edge), base),
+            (p(edge + KERB_RUN), top),
+            (p(edge + WALK), top),
+            (foot, land.min(top)),
+        ]
+    };
+    let (a, b) = (across(s), across(s + 4.0));
+    for k in 0..4 {
+        let corners = [a[k].0, a[k + 1].0, b[k].0, b[k + 1].0];
+        if corners.iter().any(|c| net.on_other_tarmac(r, c[0], c[1])) {
+            continue;
+        }
+        let q = |p: (P2, f64)| [p.0[0], p.1, p.0[1]];
+        let (ia, oa, ib, ob) = (q(a[k]), q(a[k + 1]), q(b[k]), q(b[k + 1]));
+        let mid = [
+            (a[k].0[0] + b[k + 1].0[0]) / 2.0,
+            (a[k].0[1] + b[k + 1].0[1]) / 2.0,
+        ];
+        let g = chunks.at(mid[0], mid[1]);
+        // UVs in metres over 4, across from the road's edge and along.
+        let (u0, u1) = (k as f64, k as f64 + 1.0);
+        let uv = |u: f64, v: f64| [u / 4.0, v / 4.0];
+        // Wound to face up whichever side it is on (the right is south of
+        // east here: forward × right points down).
+        if side < 0.0 {
+            g.quad(
+                ia,
+                ib,
+                ob,
+                oa,
+                Some([uv(u0, s), uv(u0, s + 4.0), uv(u1, s + 4.0), uv(u1, s)]),
+                grey,
+                0.0,
+            );
+        } else {
+            g.quad(
+                oa,
+                ob,
+                ib,
+                ia,
+                Some([uv(u1, s), uv(u1, s + 4.0), uv(u0, s + 4.0), uv(u0, s)]),
+                grey,
+                0.0,
+            );
         }
     }
 }

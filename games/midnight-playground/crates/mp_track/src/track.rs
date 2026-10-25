@@ -165,6 +165,20 @@ pub const OPEN_BAND: f64 = 30.0;
 pub const OPEN_POW: f64 = 0.7;
 pub const OPEN_DROP: f64 = 0.3;
 
+/// An open level's roadside, sloped rather than stepped (stage 7b, D1246):
+/// past a road's shoulder the ground eases down to the land over
+/// `EDGE_RUN` metres; a town's street has a kerb `KERB` high that rises
+/// over `KERB_RUN` (a ramp a wheel rolls up, not a step it hits), a
+/// pavement level across out to `WALK` from the shoulder (where the
+/// buildings' frontage begins, `mp_levels::city`), and beyond it a slope of
+/// `WALK_RUN` down to the land. The simulation's ground and the drawn
+/// shoulders and pavements both follow these.
+pub const EDGE_RUN: f64 = 2.0;
+pub const KERB: f64 = 0.15;
+pub const KERB_RUN: f64 = 0.6;
+pub const WALK: f64 = 4.0;
+pub const WALK_RUN: f64 = 2.0;
+
 /// Over how many metres past the parent's shoulder a branch's heights
 /// return from the parent's surface to its own, and how far it is lifted
 /// where it lies over the parent's shoulder (so the two meshes do not
@@ -247,6 +261,10 @@ pub struct Track {
     /// them, the branches' are empty): every branch's start and joined
     /// far end, and the crossings.
     pub junctions: Vec<Junction>,
+    /// An open level's roads' edges, by road (stage 7c,
+    /// [`crate::barriers`]): what the simulation stops a car against.
+    /// Empty on a closed level, whose walls are the road's.
+    pub edges: Vec<crate::barriers::Edges>,
     /// Every road's samples in one index ([`NetIndex`]); road 0's Track
     /// holds it, the branches' are empty.
     pub net: NetIndex,
@@ -376,6 +394,9 @@ impl Track {
                 }
                 t.junctions.extend(crossings);
             }
+        }
+        if t.open_ground.is_some() {
+            t.edges = (0..=t.branches.len()).map(|r| t.edges_of(r)).collect();
         }
         if let Some(place) = &level.buildings {
             let list = place(&t);
@@ -585,8 +606,42 @@ impl Track {
     /// road's own surface out to the shoulder, then the ground, with the
     /// road blended into it as world generation blends it (the terrain's
     /// near field: `OPEN_R0`, `OPEN_BAND`, `OPEN_POW`, `OPEN_DROP`), so the
-    /// car sits on the drawn land. On any other level, [`Track::surface_y`].
+    /// car sits on the drawn land, and between them a slope `EDGE_RUN`
+    /// wide. On any other level, [`Track::surface_y`]. Without the
+    /// pavement: the network's [`Track::ground_at`] knows where one lies.
     pub fn ground_y(&self, x: f64, z: f64, s: f64, lat: f64) -> f64 {
+        self.ground_y_walk(x, z, s, lat, false)
+    }
+
+    /// Whether the road has pavements at `s`: a street (not a freeway) in
+    /// a zone of the Town scenery (stage 7b; `mp_worldgen::town` draws
+    /// them where this says).
+    pub fn walks(&self, s: f64) -> bool {
+        if self.open_ground.is_none() {
+            return false;
+        }
+        let i = self.idx(s.clamp(0.0, self.length));
+        let zone = self.zone[i] as usize;
+        let town = self
+            .zones
+            .iter()
+            .any(|z| z.id == zone && z.zone.scenery == "Town");
+        town && ROAD_TYPES
+            .get(self.road_type[i] as usize)
+            .is_some_and(|rt| rt.key != "freeway")
+    }
+
+    /// The pavement's height at `s` on the side of `lat`: the road's plane
+    /// at the shoulder and the kerb on it, level across.
+    pub fn walk_y(&self, s: f64, lat: f64) -> f64 {
+        let f = self.frame(s.clamp(0.0, self.length));
+        let edge = f.hw + f.margin;
+        self.surface_y(s, if lat < 0.0 { -edge } else { edge }) + KERB
+    }
+
+    /// [`Track::ground_y`], with the kerb and the pavement past the
+    /// shoulder when `walk`.
+    pub fn ground_y_walk(&self, x: f64, z: f64, s: f64, lat: f64, walk: bool) -> f64 {
         let Some(g) = &self.open_ground else {
             return self.surface_y(s, lat);
         };
@@ -609,8 +664,22 @@ impl Track {
             );
         let land = g(x, z);
         let blend = land + (road - land) * k;
-        // Off the shoulder the surface steps down to the land over a metre.
-        let w = smoothstep(edge, edge + 1.0, a);
+        if walk {
+            let top = self.walk_y(s, lat);
+            let d = a - edge;
+            if d <= KERB_RUN {
+                // Up the kerb's ramp from the road's edge.
+                let base = self.surface_y(s, if lat < 0.0 { -edge } else { edge });
+                return base + (top - base) * d / KERB_RUN;
+            }
+            if d <= WALK {
+                return top;
+            }
+            let w = smoothstep(WALK, WALK + WALK_RUN, d);
+            return top + (blend - top) * w;
+        }
+        // Off the shoulder the surface eases down to the land.
+        let w = smoothstep(edge, edge + EDGE_RUN, a);
         let plane = self.surface_y(s, lat);
         plane + (blend - plane) * w
     }
@@ -1474,6 +1543,7 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
         branches: Vec::new(),
         open_end: false,
         junctions: Vec::new(),
+        edges: Vec::new(),
         net: NetIndex::default(),
         buildings: Default::default(),
         elevated: elev_raw,

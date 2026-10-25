@@ -262,7 +262,7 @@ pub fn wheel_contact(t: &Track, v: &Vehicle, x: f64, z: f64) -> (f64, [f64; 3]) 
     let at = |l: f64, w: f64| {
         let (px, pz) = (x + c * l - s * w, z + s * l + c * w);
         let (k, p) = t.project_road(px, pz, v.road, v.road_s);
-        t.road(k).ground_y(px, pz, p.s, p.lat)
+        t.ground_at(k, px, pz, p.s, p.lat)
     };
     let (fl, fr, bl, br) = (at(al, -aw), at(al, aw), at(-al, -aw), at(-al, aw));
     // Along: front less back over the wheelbase; across: right less left.
