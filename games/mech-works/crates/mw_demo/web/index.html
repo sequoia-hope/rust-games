@@ -64,10 +64,14 @@
   @media (max-height: 780px) { #loading { gap: 10px; justify-content: flex-start; padding-top: 18px; }
                                .logo { font-size: clamp(40px, 7vw, 76px); } }
   @media (max-height: 500px) { #loading { gap: 8px; padding: 10px 16px; } .logo { font-size: 34px; } }
-  #ui { position: fixed; inset: 0; pointer-events: none; font: 13px/1.35 system-ui, sans-serif; }
+  /* viewport-fit=cover draws under the notch / Dynamic Island and the home
+     indicator: everything on #ui keeps clear of the safe-area insets. */
+  #ui { position: fixed; inset: 0; pointer-events: none; font: 13px/1.35 system-ui, sans-serif;
+        --sa-t: env(safe-area-inset-top, 0px); --sa-r: env(safe-area-inset-right, 0px);
+        --sa-b: env(safe-area-inset-bottom, 0px); --sa-l: env(safe-area-inset-left, 0px); }
   #ui button, #ui select, #ui input, #ui label, #panel, #inspector, header { pointer-events: auto; }
   header#bar-top { position: absolute; top: 0; left: 0; right: 0; display: flex; gap: 6px; align-items: center;
-                   padding: 8px 12px; background: linear-gradient(180deg, rgba(18,19,20,.92), rgba(18,19,20,.0)); }
+                   padding: calc(var(--sa-t) + 8px) calc(var(--sa-r) + 12px) 8px calc(var(--sa-l) + 12px); background: linear-gradient(180deg, rgba(18,19,20,.92), rgba(18,19,20,.0)); }
   .brand { font-weight: 800; letter-spacing: .14em; color: var(--accent); margin-right: 10px; }
   .brand small { color: var(--dim); letter-spacing: .05em; font-weight: 500; margin-left: 4px; }
   #ui button { font: 600 12px system-ui, sans-serif; color: var(--fg); background: rgba(40,38,36,.9);
@@ -75,7 +79,7 @@
   #ui button:hover { border-color: var(--accent); }
   #ui button.on { background: var(--accent); color: #1a1208; border-color: var(--accent); }
   .spacer { flex: 1; }
-  #panel { position: absolute; top: 48px; right: 10px; bottom: 10px; width: 320px; overflow-y: auto;
+  #panel { position: absolute; top: calc(var(--sa-t) + 48px); right: calc(var(--sa-r) + 10px); bottom: calc(var(--sa-b) + 10px); width: 320px; overflow-y: auto;
            background: rgba(22,22,23,.88); border: 1px solid #3a3632; border-radius: 10px; padding: 4px 14px 12px; }
   #panel[hidden], #panel [hidden] { display: none; }
   #panel h3 { margin: 12px 0 6px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
@@ -91,7 +95,7 @@
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin: 0 3px 0 8px; }
   .dot.ok { background: #7fc97f; } .dot.bad { background: #e5603b; }
   #curves canvas, #coverage { width: 100%; background: #19191a; border-radius: 6px; display: block; margin: 4px 0; }
-  #inspector { position: absolute; left: 10px; bottom: 10px; width: min(520px, calc(100vw - 360px)); max-height: 55vh; overflow-y: auto;
+  #inspector { position: absolute; left: calc(var(--sa-l) + 10px); bottom: calc(var(--sa-b) + 10px); width: min(520px, calc(100vw - 360px)); max-height: 55vh; overflow-y: auto;
                background: rgba(22,22,23,.88); border: 1px solid #3a3632; border-radius: 10px; padding: 10px 12px; }
   .jrow { display: grid; grid-template-columns: 96px 1fr 1fr 1fr 44px; gap: 6px; align-items: center; margin: 2px 0; font-size: 11px; }
   .jrow.head { color: var(--dim); }
@@ -109,9 +113,10 @@
   .pbar i.true { background: #f4f0e8; } .pbar i.told { background: var(--accent); height: 5px; top: 2px; }
   .pbar i.est { background: var(--est); height: 5px; top: 4px; }
   .pbar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #555; }
-  #hud { position: absolute; left: 12px; top: 52px; color: var(--fg); text-shadow: 0 1px 3px #000; font-variant-numeric: tabular-nums; }
+  #hud { position: absolute; left: calc(var(--sa-l) + 12px); top: calc(var(--sa-t) + 52px); color: var(--fg); text-shadow: 0 1px 3px #000; font-variant-numeric: tabular-nums; }
   #hud b { color: var(--accent); }
-  @media (max-width: 760px) { #panel { width: auto; left: 10px; top: auto; height: 46vh; } #inspector { width: auto; right: 10px; bottom: calc(46vh + 20px); max-height: 30vh; }
+  @media (max-width: 760px) { #panel { width: auto; left: calc(var(--sa-l) + 10px); top: auto; height: 46vh; }
+                              #inspector { width: auto; right: calc(var(--sa-r) + 10px); bottom: calc(var(--sa-b) + 46vh + 20px); max-height: 30vh; }
                               header#bar-top { flex-wrap: wrap; } .brand small { display: none; } }
 </style>
 </head>
