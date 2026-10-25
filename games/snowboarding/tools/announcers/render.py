@@ -16,6 +16,24 @@ script's is not played (the caption still shows).
     python tools/announcers/render.py --only big-   # re-record ids containing this
     python tools/announcers/render.py --force       # re-record everything
 
+Qwen3-TTS Base ICL cloning notes:
+  1. Tail-energy recency bias: `create_voice_clone_prompt` defaults to ICL mode
+     (`x_vector_only_mode=False`), which prepends `ref_code` (the 12 Hz codec
+     tokens of `ref_audio`) and generates target speech tokens immediately
+     after it. Because of causal self-attention recency bias, the energy,
+     projection, and pace of generated lines—especially short 1-3 s trick/crash
+     calls—follow the final 2-3 seconds of `ref_audio`. Ensure `ref_audio` ends
+     on an energetic peak call rather than a falling transition or trailing sigh.
+  2. Exact `ref_text` alignment: In ICL mode, `ref_text` must exactly match the
+     words spoken in `ref_audio`. If `ref_audio` was trimmed or differs from
+     `ref_text`, text-to-codec alignment breaks and the model may babble or fail
+     to emit `eos_token_id`.
+  3. Bounded `max_new_tokens`: `generate_voice_clone` defaults to
+     `max_new_tokens=2048` (~170 s at 12 Hz). If a particular seed misses EOS,
+     it can stall the batch and exhaust GPU KV-cache memory. We cap
+     `max_new_tokens=240` (~20 s at 12 Hz, well above the longest 10 s booth
+     line) and re-render any clip flagged by `check.py` with `--seed <n> --only <id>`.
+
 Borrowed from midnight-playground's tools/dj-voice/render.py. Needs a
 Python with qwen-tts, a CUDA GPU with about 5 GB free, and ffmpeg.
 """
@@ -38,6 +56,7 @@ OUT = ROOT / 'audio' / 'announcers'
 CLONE_MODEL = 'Qwen/Qwen3-TTS-12Hz-1.7B-Base'
 BATCH = 4
 RATE = 24000
+MAX_NEW_TOKENS = 240  # ~20 s at 12 Hz; guards against runaway generation if a seed misses EOS
 
 
 def trim(wav):
@@ -100,16 +119,19 @@ def main():
             mine = [c for c in jobs if c['who'] == who]
             if not mine:
                 continue
-            prompt = model.create_voice_clone_prompt(
-                ref_audio=str(HERE / 'voices' / f'{chosen[who]}.flac'),
-                ref_text=cfg['announcers'][who]['candidates'][chosen[who]].get('ref_text') or cfg['announcers'][who]['ref_text'])
+            with torch.inference_mode():
+                prompt = model.create_voice_clone_prompt(
+                    ref_audio=str(HERE / 'voices' / f'{chosen[who]}.flac'),
+                    ref_text=cfg['announcers'][who]['candidates'][chosen[who]].get('ref_text') or cfg['announcers'][who]['ref_text'])
             print(f'{who}: {len(mine)} lines in the "{chosen[who]}" voice', flush=True)
             for i in range(0, len(mine), BATCH):
                 batch = mine[i:i + BATCH]
                 torch.manual_seed(args.seed + i)
-                wavs, sr = model.generate_voice_clone(
-                    text=[c['text'] for c in batch], language=['English'] * len(batch),
-                    voice_clone_prompt=prompt * len(batch))
+                with torch.inference_mode():
+                    wavs, sr = model.generate_voice_clone(
+                        text=[c['text'] for c in batch], language=['English'] * len(batch),
+                        voice_clone_prompt=prompt * len(batch),
+                        max_new_tokens=MAX_NEW_TOKENS)
                 for c, wav in zip(batch, wavs):
                     wav = level(trim(wav), sr)
                     encode(wav, sr, OUT / f"{c['id']}.mp3")

@@ -68,9 +68,19 @@ Toolchain: Rust 1.99.0 with `wasm32-unknown-unknown` (`rust-toolchain.toml`),
 - The announcers are a high-energy **television** sports booth
   (play-by-play and analyst), not radio DJs: in the words, and in the
   reference clips their voices are cloned from (the clone copies the
-  delivery). A line must be true of what happened: one that assumes
-  something (a tree hit, a clean run) goes in a topic the director picks
-  only when it did (`lose-trees`, `win-clean`), never in a generic one.
+  delivery). When designing or tuning reference voices in
+  `tools/announcers/voices.json` (`design.py` $\to$ `render.py`), design
+  directly with `VoiceDesign` (avoid double-cloning via `"clone"`), anchor
+  vocal register in `instruct` rather than putting `!` on every sentence
+  (which shifts F0 up an octave into a shrill 400 Hz voice), end `ref_text`
+  at peak landing excitement (because Base ICL cloning's causal recency bias
+  makes short action calls copy the energy of the final 2–3 seconds of
+  `ref_audio`), and set `"max_pause_s": 0.14` to tighten pauses. See the
+  headers of `tools/announcers/design.py` and `render.py` and `"about"` in
+  `tools/announcers/voices.json` for full notes. A line must be true of what
+  happened: one that assumes something (a tree hit, a clean run) goes in a
+  topic the director picks only when it did (`lose-trees`, `win-clean`),
+  never in a generic one.
 - Audio is presentation: the announcers' director draws its own random
   numbers, never the session's.
 

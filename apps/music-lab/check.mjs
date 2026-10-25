@@ -101,25 +101,64 @@ try {
   const status = await page.$eval('#status', (e) => e.textContent);
   check(!/refused|failed|stopped with an error/i.test(status), `status: ${status}`);
 
-  // Open the RP2350 Hardware Groovebox page in iPhone landscape viewport via the button in Music Lab.
+  // Seamlessly open the RP2350 Hardware Groovebox from the player and go back and forth with zero audio hiccup.
+  // Note: Puppeteer's setViewport reloads the page when toggling isMobile/hasTouch, so set viewport before starting playback.
   await page.setViewport({ width: 844, height: 390, isMobile: true, hasTouch: true, isLandscape: true });
-  await Promise.all([
-    page.waitForNavigation({ timeout: 30000 }),
-    page.click('#openHardware'),
-  ]);
-  await page.waitForFunction(() => window.groovebox?.song?.layers?.length > 0, { timeout: 30000 });
-  await page.click('#playBtn');
-  const hwPlaying = await page.waitForFunction(() => window.groovebox.pos?.playing, { timeout: 30000 }).then(() => true, () => false);
+  await page.waitForFunction(() => window.musicLab?.cur, { timeout: 30000 });
+  await page.select('#genre', 'synthwave');
+  await page.click('#make');
+  await page.waitForFunction(() => window.musicLab.cur?.genre === 'synthwave' && window.musicLab.pos?.playing && window.musicLab.pos.barIndex >= 1, { timeout: 30000 });
+  const beforeHw = await page.evaluate(() => ({
+    genre: window.musicLab.cur.genre,
+    seed: window.musicLab.cur.seed,
+    title: window.musicLab.cur.track.title,
+    chords: window.groovebox.dna.chords,
+    bar: window.musicLab.pos.barIndex,
+  }));
+  await page.click('#openHardware');
+  const hwPlaying = await page.waitForFunction(
+    () => window.musicLab.view === 'groovebox' && window.groovebox?.playing && window.groovebox?.pos?.playing && window.groovebox?.song?.layers?.length > 0,
+    { timeout: 30000 },
+  ).then(() => true, () => false);
   await page.click('#bassRow button[data-bass="acid"]');
   await page.click('#chordStyleBtn');
   await sleep(300);
   const hwState = await page.evaluate(() => ({
     genre: window.groovebox.genre,
+    seed: window.groovebox.seed,
+    title: window.groovebox.song.title,
     bass: window.groovebox.dna.bass,
     chords: window.groovebox.dna.chords,
+    sameCtx: window.groovebox.ctx === window.musicLab.ctx && window.groovebox.lab === window.musicLab.lab,
     hasPatterns: window.groovebox.song.layers.some((l) => l.patterns?.length > 0),
   }));
-  check(hwPlaying && hwState.bass === 'acid' && hwState.chords === 'stabs' && hwState.hasPatterns, `hardware groovebox (iPhone landscape): plays and morphs Genre DNA (${hwState.genre}, bass=${hwState.bass}, chords=${hwState.chords})`);
+  const expectedChords = beforeHw.chords === 'stabs' ? 'sustain' : 'stabs';
+  check(
+    hwPlaying && hwState.sameCtx && hwState.genre === beforeHw.genre && hwState.seed === beforeHw.seed && hwState.title === beforeHw.title && hwState.bass === 'acid' && hwState.chords === expectedChords && hwState.hasPatterns,
+    `hardware groovebox (iPhone landscape): seamlessly opens exact playing preset and morphs Genre DNA (${hwState.title}, bass=${hwState.bass}, chords=${hwState.chords})`,
+  );
+
+  // Freely go back to player and back to groovebox while audio continues uninterrupted.
+  await page.click('#backLab');
+  const backInLab = await page.evaluate(() => ({
+    view: window.musicLab.view,
+    playing: window.musicLab.playing && window.musicLab.pos?.playing,
+    genre: window.musicLab.cur.genre,
+    seed: window.musicLab.cur.seed,
+    bassOverride: window.musicLab.cur.dnaOverrides?.bass,
+  }));
+  await page.click('#openHardware');
+  const backInHw = await page.evaluate(() => ({
+    view: window.musicLab.view,
+    playing: window.groovebox.playing && window.groovebox.pos?.playing,
+    genre: window.groovebox.genre,
+    seed: window.groovebox.seed,
+    bass: window.groovebox.dna.bass,
+  }));
+  check(
+    backInLab.view === 'lab' && backInLab.playing && backInLab.bassOverride === 'acid' && backInHw.view === 'groovebox' && backInHw.playing && backInHw.bass === 'acid',
+    `seamless round-trip player ↔ groovebox preserves live playback and morphed preset (${backInHw.genre} #${backInHw.seed})`,
+  );
   await page.click('#playBtn'); // stop
 
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
