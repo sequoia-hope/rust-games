@@ -155,6 +155,13 @@ impl Ground for TrackGround<'_> {
                     normal: Vec3::new(n[0], 0.0, n[1]),
                 });
             }
+            // And its roadside barriers, each face toward the box (7c).
+            for b in crate::physics::barrier_planes(net, cx, cz, r) {
+                out.push(Collider::Plane {
+                    point: Vec3::new(b.x, b.top - 1.2, b.z),
+                    normal: Vec3::new(b.nx, 0.0, b.nz),
+                });
+            }
             return;
         }
         out.push(Collider::Plane {

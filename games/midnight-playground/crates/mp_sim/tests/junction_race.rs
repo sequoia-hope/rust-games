@@ -46,6 +46,7 @@ fn drive(physics: mp_sim::model::Physics) {
     // Through the countdown, then turn round and drive to the junction.
     let mut el = 0.0;
     let mut switched = false;
+    let mut turned = false;
     while el < 240.0 {
         let v = &st.players[0].v;
         let aim = if v.road == 0 {
@@ -85,26 +86,26 @@ fn drive(physics: mp_sim::model::Physics) {
             brake: if speed > want + 2.0 { 0.3 } else { 0.0 },
             ..Input::default()
         };
-        // At the start, turn round: full lock and throttle until facing back.
+        // At the start, under way; then turned round where the car is
+        // past the junction (the coast road's guardrails, stage 7c, leave
+        // no room for a U-turn at full lock: a driver would back and fill).
         let inp = if el < 1.0 {
             Input {
                 throttle: 1.0,
                 ..Input::default()
             }
-        } else if !switched && v.road == 0 && v.s > b.s + 200.0 {
-            let f = t.frame(v.s);
-            let heading = kernel::atan2(f.fz, f.fx);
-            let facing_back = wrap_angle(v.yaw - heading).abs() > PI * 0.8;
-            if facing_back {
-                inp
-            } else {
-                Input {
-                    steer: 1.0,
-                    throttle: 0.7,
-                    ..Input::default()
-                }
-            }
         } else {
+            if !switched && !turned && v.road == 0 && v.s > b.s + 200.0 {
+                let f = t.frame(v.s);
+                let heading = kernel::atan2(f.fz, f.fx);
+                if wrap_angle(v.yaw - heading).abs() < PI * 0.8 {
+                    let p = &mut st.players[0].v;
+                    p.yaw = wrap_angle(heading + PI);
+                    p.vx = 0.0;
+                    p.vz = 0.0;
+                }
+                turned = true;
+            }
             inp
         };
         // The client's steering help runs on the controls before the tick

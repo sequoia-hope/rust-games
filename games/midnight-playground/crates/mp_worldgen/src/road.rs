@@ -14,7 +14,7 @@
 
 use mp_scene::{MaterialKind, three};
 use mp_track::road_types::{ROAD_TYPES, RoadType};
-use mp_track::{Frame, JunctionKind, Track};
+use mp_track::{Frame, Track};
 use pk_math::{clamp, js, kernel};
 use serde_json::Value;
 
@@ -644,69 +644,26 @@ impl Road {
                 }
             }
         }
-        // Nothing across the mouth of a branch, nor where a branch's far
-        // end meets the road again (round a loop's wrap; D1218).
-        let mut clear = |at: f64, w: f64, side: f64| {
-            let (k0, k1) = ((at - w).floor() as i64, (at + w).ceil() as i64);
-            for k in k0..=k1 {
-                let i = if t.is_loop {
-                    k.rem_euclid(n as i64)
-                } else if (0..n as i64).contains(&k) {
-                    k
-                } else {
-                    continue;
-                } as usize;
-                let arr = if side < 0.0 { &mut l } else { &mut r };
-                arr[i] = 0;
-            }
-        };
-        // And where a street crosses it, both sides (stage 6c).
+        // Nothing where the network meets the road: across the mouths of
+        // the roads that join it, where one crosses it, and on the tarmac
+        // of a greater road it meets (`mp_track::barriers`, which the
+        // simulation's barriers are too: stage 7c).
         if let Some(net) = c.network {
-            // How much wider a road's mouth is along this one for the angle
-            // it meets at (the road's direction a little in from its end).
-            let slant = |bt: &Track, at: f64, other_s: f64| {
-                let f = bt.frame(at);
-                let g = t.frame(other_s);
-                let cos = f.fx * g.fx + f.fz * g.fz;
-                1.0 / (1.0 - cos * cos).max(0.09).sqrt()
-            };
-            for j in net.junctions.iter().filter(|j| j.other == c.road) {
-                let bt = net.road(j.road);
-                match j.kind {
-                    JunctionKind::Start => {
-                        let k = slant(bt, (bt.length * 0.5).min(25.0), j.other_s);
-                        let w = (f64::from(bt.hw[0]) + f64::from(bt.margin[0])) * k + 3.0;
-                        clear(j.other_s, w, net.branches[j.road - 1].side);
-                    }
-                    JunctionKind::End => {
-                        let last = bt.n - 1;
-                        let k = slant(bt, (bt.length - 25.0).max(bt.length * 0.5), j.other_s);
-                        let w = (f64::from(bt.hw[last]) + f64::from(bt.margin[last])) * k + 3.0;
-                        // The side the branch comes in from.
-                        let f = bt.frame((bt.length - 30.0).max(0.0));
-                        let side = js::sign(t.project(f.x, f.z, j.other_s).lat);
-                        clear(j.other_s, w, side);
-                    }
-                    JunctionKind::Cross => {
-                        // The crossing's width along this road grows as
-                        // the angle between them narrows.
-                        let f = bt.frame(j.s);
-                        let g = t.frame(j.other_s);
-                        let cos = f.fx * g.fx + f.fz * g.fz;
-                        let sin = (1.0 - cos * cos).max(0.09).sqrt();
-                        let w = (f.hw + f.margin) / sin + 3.0;
-                        clear(j.other_s, w, -1.0);
-                        clear(j.other_s, w, 1.0);
-                    }
+            let own;
+            let e = match net.edges.get(c.road) {
+                Some(e) => e,
+                None => {
+                    own = net.edges_of(c.road);
+                    &own
                 }
-            }
-        }
-        // A road stands nothing on the tarmac of the greater roads it
-        // meets.
-        for i in 0..n {
-            if c.on_greater(i as f64) {
-                l[i] = 0;
-                r[i] = 0;
+            };
+            for i in 0..n {
+                if e.left[i] == mp_track::barriers::NONE {
+                    l[i] = 0;
+                }
+                if e.right[i] == mp_track::barriers::NONE {
+                    r[i] = 0;
+                }
             }
         }
         self.side_l = l;

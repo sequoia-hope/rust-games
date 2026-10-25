@@ -254,6 +254,66 @@ const SUSP_WHEEL_VY: f64 = 2.5;
 const WHEEL_L: f64 = 0.72;
 const WHEEL_W: f64 = 0.82;
 
+/// A roadside barrier's face toward a place near it (stage 7c): a point on
+/// it, its normal toward the place, and its top.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BarrierFace {
+    pub x: f64,
+    pub z: f64,
+    pub nx: f64,
+    pub nz: f64,
+    pub top: f64,
+}
+
+/// How thick a barrier stands, out from the road's wall line (m), and how
+/// high over the road a car must be to clear it.
+const BARRIER_THICK: f64 = 0.45;
+const BARRIER_TOP: f64 = 1.2;
+
+/// The faces of the barriers within `reach` of (x, z) on an open level,
+/// each facing the side the place is on: from the road the face at the
+/// wall line toward the road, from behind it the far face toward the land.
+pub fn barrier_planes(t: &Track, x: f64, z: f64, reach: f64) -> Vec<BarrierFace> {
+    let mut out = Vec::new();
+    if t.edges.is_empty() {
+        return out;
+    }
+    let r_near = reach + 12.0;
+    for r in t.net.roads_near(x, z, r_near) {
+        let rt = t.road(r);
+        let d = rt.distance_to_road(x, z, r_near);
+        let Some(s) = d.s else { continue };
+        if !rt.is_loop && !(0.0..=rt.length).contains(&s) {
+            continue;
+        }
+        let side = if d.lat < 0.0 { -1.0 } else { 1.0 };
+        if !t.barrier_at(r, s, side) {
+            continue;
+        }
+        let f = rt.frame(if rt.is_loop { rt.wrap(s) } else { s });
+        let w = if side < 0.0 { f.wall_l } else { f.wall_r };
+        let a = d.lat.abs();
+        if (a - w - BARRIER_THICK / 2.0).abs() > reach + BARRIER_THICK {
+            continue;
+        }
+        // Inside (the road's side of the barrier's middle) or behind it.
+        let inside = a < w + BARRIER_THICK / 2.0;
+        let (lat, n) = if inside {
+            (w, -side)
+        } else {
+            (w + BARRIER_THICK, side)
+        };
+        out.push(BarrierFace {
+            x: f.x + f.rx * side * lat,
+            z: f.z + f.rz * side * lat,
+            nx: f.rx * n,
+            nz: f.rz * n,
+            top: rt.surface_y(s, side * w) + BARRIER_TOP,
+        });
+    }
+    out
+}
+
 /// The ground under a car's four wheels at (x, z) heading `yaw`: their
 /// mean height and the surface's up normal through them.
 pub fn wheel_contact(t: &Track, v: &Vehicle, x: f64, z: f64) -> (f64, [f64; 3]) {
@@ -736,8 +796,13 @@ impl CarPhysics {
         // drive through its buildings.
         if t.open_ground.is_none() {
             self.collide_walls(v, t, dt);
-        } else if !t.buildings.is_empty() && self.collide_buildings(v, t, dt) {
-            rt = v.project_onto(t);
+        } else {
+            if !t.buildings.is_empty() && self.collide_buildings(v, t, dt) {
+                rt = v.project_onto(t);
+            }
+            if self.collide_barriers(v, t, dt) {
+                rt = v.project_onto(t);
+            }
         }
 
         if t.open_ground.is_some() {
@@ -849,21 +914,31 @@ impl CarPhysics {
         if v.y > b.y + b.height {
             return false;
         }
-        v.x += p.nx * p.depth;
-        v.z += p.nz * p.depth;
-        // Which side of the car the building is on: +1 right, -1 left.
-        let side = if -p.nx * -s + -p.nz * c >= 0.0 { 1 } else { -1 };
-        let vn = -(v.vx * p.nx + v.vz * p.nz); // into the face
+        self.meet_face(v, p.nx, p.nz, p.depth, dt);
+        true
+    }
+
+    /// The car against a face whose outward normal is (nx, nz), `depth`
+    /// into it: out along the normal, the speed into the face bounced a
+    /// little and the rest scrubbed, the nose swung along the face, an
+    /// impact when it is hard and the scrape while it rubs.
+    fn meet_face(&mut self, v: &mut Vehicle, nx: f64, nz: f64, depth: f64, dt: f64) {
+        let (c, s) = (kernel::cos(v.yaw), kernel::sin(v.yaw));
+        v.x += nx * depth;
+        v.z += nz * depth;
+        // Which side of the car the face is on: +1 right, -1 left.
+        let side = if -nx * -s + -nz * c >= 0.0 { 1 } else { -1 };
+        let vn = -(v.vx * nx + v.vz * nz); // into the face
         if vn > 0.0 {
             let e = 0.25;
-            v.vx += p.nx * vn * (1.0 + e);
-            v.vz += p.nz * vn * (1.0 + e);
+            v.vx += nx * vn * (1.0 + e);
+            v.vz += nz * vn * (1.0 + e);
             let scrub = 1.0 - clamp(0.05 + vn * 0.025, 0.0, 0.35);
             v.vx *= scrub;
             v.vz *= scrub;
             // Swing the nose along the face, toward whichever way along
             // it the car already points.
-            let face = kernel::atan2(p.nx, -p.nz);
+            let face = kernel::atan2(nx, -nz);
             let mut rel = wrap_angle(v.yaw - face);
             if rel.abs() > PI / 2.0 {
                 rel = wrap_angle(rel - PI);
@@ -875,9 +950,9 @@ impl CarPhysics {
             if vn > 1.5 {
                 self.events.push(PhysEvent::Impact {
                     strength: clamp(vn / 18.0, 0.0, 1.0),
-                    x: v.x - p.nx * v.half_w,
+                    x: v.x - nx * v.half_w,
                     y: v.y + 0.5,
-                    z: v.z - p.nz * v.half_w,
+                    z: v.z - nz * v.half_w,
                     side,
                 });
             }
@@ -890,7 +965,32 @@ impl CarPhysics {
             self.scrape = js::min(1.0, 0.4 + sp / 60.0);
             self.scrape_side = Some(side);
         }
-        true
+    }
+
+    /// The open world's roadside barriers (stage 7c, D1247): the car stops
+    /// against every fence, concrete barrier, railing and rock face or
+    /// guardrail the road kit draws, from the road or from the land behind
+    /// it (a car that left by a gap meets the fence's back). Returns
+    /// whether it moved the car.
+    pub fn collide_barriers(&mut self, v: &mut Vehicle, t: &Track, dt: f64) -> bool {
+        if t.buildings.is_empty() {
+            // `collide_buildings` lets the scrape fade where there are any.
+            self.scrape = js::max(0.0, self.scrape - dt * 4.0);
+        }
+        let (c, s) = (kernel::cos(v.yaw), kernel::sin(v.yaw));
+        let mut moved = false;
+        for b in barrier_planes(t, v.x, v.z, v.half_l + 1.0) {
+            // The car's reach toward the face, and how far it is into it.
+            let ext =
+                v.half_l * (b.nx * c + b.nz * s).abs() + v.half_w * (b.nx * -s + b.nz * c).abs();
+            let d = (v.x - b.x) * b.nx + (v.z - b.z) * b.nz;
+            let depth = ext - d;
+            if depth > 0.0 && v.y < b.top {
+                self.meet_face(v, b.nx, b.nz, depth, dt);
+                moved = true;
+            }
+        }
+        moved
     }
 
     pub fn collide_walls(&mut self, v: &mut Vehicle, t: &Track, dt: f64) {

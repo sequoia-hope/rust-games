@@ -17,8 +17,13 @@ use std::sync::Arc;
 
 const DT: f64 = 1.0 / 120.0;
 
+/// Level `id`'s track, without its roadside barriers: these tests are of
+/// the ground off the road, which the barriers (stage 7c, tests/barriers.rs)
+/// keep the car from along most of the coast.
 fn track(id: &str) -> Arc<Track> {
-    LevelRuntime::new(mp_levels::level_by_id(id)).unwrap().track
+    let mut t = LevelRuntime::new(mp_levels::level_by_id(id)).unwrap().track;
+    Arc::make_mut(&mut t).edges.clear();
+    t
 }
 
 /// Full lock to one side with the throttle down, from `s` at road speed:
