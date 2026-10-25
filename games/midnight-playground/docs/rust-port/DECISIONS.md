@@ -11924,3 +11924,65 @@ the car crossed into a new square.
   the corner, frames ran 75 to 110 ms for ten seconds once and not again
   in two later runs (150 to 400 draws a frame; the machine's load average
   was 20): not chased further.
+
+## D1246 (2026-10-24): the atlas, a map of the whole level over the race
+
+The owner asked for "a larger atlas view, not just the local upcoming
+turns": the minimap (`hud/minimap.rs`) shows the roads within about
+400 m, which is right for a race and no help in finding the way across the
+open world's 20 roads.
+
+- **What it is** (`play/atlas/`): a panel over the race, which goes on
+  under it (a glance, like a satnav). It shows the network (major roads
+  bolder than city streets), the water and the built-up land from the
+  level's cover grid, an event's route in the event's colour with its
+  start and finish (a delivery's drop, pulsing), the events' starts in a
+  cruise, rivals, police, traffic once zoomed in, the player's arrow along
+  the car's heading, north up, the cruise starts and the roads' stretches
+  (zones) by name where they fit, and a scale bar in the HUD's units.
+- **Controls.** G opens and closes it; so do a tap or click on the
+  minimap and its X. Z steps between the whole map and 3 km round the car
+  (which follows the car; a drag lets go of it); the wheel (about the
+  cursor), + and − and the right stick zoom between 600 m across and a
+  little past the whole map. With it closed, Z steps the minimap between
+  its scale (0.28 px a metre) and a wide one (0.09, about 1.2 km across;
+  the dots keep their size), and the atlas's MINIMAP button does the same.
+  M was the obvious key but is the music's. On a pad: LB toggles and the
+  right stick's click steps, each falling back to D-pad up and down when
+  a remap has bound the button (the pad's map is read, not changed: no new
+  `Action`, so saved maps stay valid). On a touch screen the panel fills
+  the screen inside the insets, under the touch controls (their root is
+  now `GlobalZIndex(2)`, the atlas 1), which keep working; its buttons and
+  the minimap take a tap before the controls, as the radio's do (D1160).
+- **How it is drawn.** Per-pixel loops over polylines, as the minimap
+  draws its 256 points, would not scale to the whole network on a phone,
+  and a raster of the roads blurs at a 3 km zoom. Instead each road set is
+  an **offset field** (`atlas/field.rs`): over the level's box, each texel
+  holds the offset in metres to the nearest point of a road, in half
+  floats (`Rgba16Float`: all roads, major roads; filterable on WebGL2 and
+  WebGPU). A bilinear blend of offsets is exact along a straight road, so
+  one sample gives the true distance at any zoom and the shader strokes
+  the road in screen pixels (a casing and a core, the minimap's colours);
+  only where the nearest road changes (a junction) does the blend shorten,
+  by under a texel. The peninsula's network thins (Douglas-Peucker, 1.5 m)
+  to 2223 segments over an 11.8 by 30.6 km box: a 616 by 1536 field at
+  20.5 m a texel (7.6 MB), offsets kept within 16 texels. The route is a
+  field of its own over its own box, built when an event begins and the
+  atlas is open. The water and the built-up land are an `Rg8Unorm` grid,
+  768 texels along a box twice as wide as the network's (so the sea
+  reaches the panel's sides), sampled from the cover: the cover's sea
+  class only where the ground is at sea level (it also fills cells it has
+  no data for, in the towns), its water class anywhere; the shader blurs
+  it over four taps so the shore does not show the cover's cells.
+- **When it is built.** A slice a frame from the race's start (30 000
+  texel visits a frame shut, 250 000 open; the whole network is 2.6
+  million, 0.38 s in a debug build), so it is ready before it is wanted
+  and costs well under a millisecond a frame while it builds; cached per
+  level across races. The view and the markers are uniforms written into
+  one buffer in place (`atlas/material.rs`, as D865 does for the HUD), so
+  a frame with the atlas open makes no buffer or bind group. Shut, a 1 px
+  node of the material stays drawn, so its pipeline is built with the
+  race's and the first open compiles nothing.
+- `?map=whole|region` opens it at the start and `?minimap=wide` starts
+  the minimap zoomed out (pictures, tests); `tools/parity/atlas-shots.mjs`
+  takes the pictures on a desktop window and a phone.
