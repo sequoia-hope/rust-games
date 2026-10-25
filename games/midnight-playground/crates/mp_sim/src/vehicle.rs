@@ -65,6 +65,10 @@ pub struct Vehicle {
     /// present and its own pitch and roll springs otherwise. Derived each
     /// tick; not part of the state hash.
     pub pose: Option<Box<SimPose>>,
+    /// The ground's up normal under the four wheels, on an open level's
+    /// suspension (stage 7a): the client tilts the body to it rather than
+    /// to the road's frame. Derived each tick; not part of the state hash.
+    pub ground_normal: Option<[f64; 3]>,
 }
 
 /// What the client draws for a simulated chassis (SPEC 8.3).
@@ -132,6 +136,7 @@ impl Vehicle {
             vis_y: None,
             prog: None,
             pose: None,
+            ground_normal: None,
         }
     }
 

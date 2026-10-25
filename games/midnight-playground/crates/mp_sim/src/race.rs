@@ -1955,6 +1955,15 @@ pub fn hash(st: &SimState) -> u64 {
             rec.extend_from_slice(&st.race.finish_prog.to_bits().to_le_bytes());
         }
     }
+    // An open level's suspension (stage 7a): only there on one, so every
+    // closed level hashes as it did.
+    for (i, p) in st.players.iter().enumerate() {
+        if let Some(s) = &p.phys.suspension {
+            rec.extend_from_slice(b"susp");
+            rec.push(i as u8);
+            rec.extend_from_slice(&s.contact.to_bits().to_le_bytes());
+        }
+    }
     // A sim car's own state (docs/vehicle-dynamics/SPEC.md 10): only there
     // when one is driving, so arcade races hash as they always did.
     for (i, p) in st.players.iter().enumerate() {

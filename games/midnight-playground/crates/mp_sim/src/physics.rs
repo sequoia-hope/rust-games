@@ -226,6 +226,60 @@ pub struct CarPhysics {
     /// Missing until the first scrape.
     pub scrape_side: Option<i32>,
     pub on_ground: bool,
+    /// An open level's suspension (stage 7a, D1246): the body rides a
+    /// spring over the ground under its four wheels. None on a closed
+    /// level, whose car follows the road as the JS's does.
+    pub suspension: Option<Suspension>,
+}
+
+/// The suspension's state between ticks.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Suspension {
+    /// The ground under the wheels last tick: their mean height.
+    pub contact: f64,
+}
+
+/// The suspension's spring (1/s²: force per kg per metre), its damping
+/// (1/s), how far it compresses past its sag before the body takes the
+/// ground's speed whole (bottoming out, m), and how far the wheels hang
+/// below their rest before the car is in the air (m). The sag (G / K, 3 cm)
+/// is taken up so that a car at rest sits on the ground.
+const SUSP_K: f64 = 320.0;
+const SUSP_D: f64 = 22.0;
+const SUSP_TRAVEL: f64 = 0.16;
+const SUSP_HANG: f64 = 0.22;
+/// The most of the ground's vertical speed the damper passes on (m/s).
+const SUSP_WHEEL_VY: f64 = 2.5;
+/// Where the wheels are, as fractions of the half length and half width.
+const WHEEL_L: f64 = 0.72;
+const WHEEL_W: f64 = 0.82;
+
+/// The ground under a car's four wheels at (x, z) heading `yaw`: their
+/// mean height and the surface's up normal through them.
+pub fn wheel_contact(t: &Track, v: &Vehicle, x: f64, z: f64) -> (f64, [f64; 3]) {
+    let (c, s) = (kernel::cos(v.yaw), kernel::sin(v.yaw));
+    let (al, aw) = (v.half_l * WHEEL_L, v.half_w * WHEEL_W);
+    let at = |l: f64, w: f64| {
+        let (px, pz) = (x + c * l - s * w, z + s * l + c * w);
+        let (k, p) = t.project_road(px, pz, v.road, v.road_s);
+        t.road(k).ground_y(px, pz, p.s, p.lat)
+    };
+    let (fl, fr, bl, br) = (at(al, -aw), at(al, aw), at(-al, -aw), at(-al, aw));
+    // Along: front less back over the wheelbase; across: right less left.
+    let (dl, dw) = ((fl + fr - bl - br) / 2.0, (fr + br - fl - bl) / 2.0);
+    let along = [c * 2.0 * al, dl, s * 2.0 * al];
+    let across = [-s * 2.0 * aw, dw, c * 2.0 * aw];
+    // across × along points up (x right, z forward in the car's frame).
+    let n = [
+        across[1] * along[2] - across[2] * along[1],
+        across[2] * along[0] - across[0] * along[2],
+        across[0] * along[1] - across[1] * along[0],
+    ];
+    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-9);
+    (
+        (fl + fr + bl + br) / 4.0,
+        [n[0] / len, n[1] / len, n[2] / len],
+    )
 }
 
 impl CarPhysics {
@@ -259,6 +313,7 @@ impl CarPhysics {
             off_track: None,
             scrape_side: None,
             on_ground: false,
+            suspension: None,
         }
     }
 
@@ -277,6 +332,8 @@ impl CarPhysics {
         self.drifting = false;
         self.on_ground = true;
         v.on_ground = true;
+        self.suspension = None;
+        v.ground_normal = None;
     }
 
     /// Equal steps of about 1/120 s that add up to exactly the frame's time. A
@@ -683,6 +740,11 @@ impl CarPhysics {
             rt = v.project_onto(t);
         }
 
+        if t.open_ground.is_some() {
+            self.suspend(v, t, dt);
+            return;
+        }
+
         // Vertical: follow the road unless it falls away faster than gravity.
         let ground = rt.ground_y(v.x, v.z, v.road_s, v.road_lat);
         let ground_vy = (ground - prev_ground) / dt;
@@ -712,6 +774,62 @@ impl CarPhysics {
             }
         }
         v.vis_y = Some(if v.on_ground { ground } else { v.y });
+    }
+
+    /// An open level's vertical (stage 7a, D1246): the body on a spring
+    /// over the ground under its four wheels, which it meets as a car does.
+    /// The road's own step (the JS's) gives the body the ground's vertical
+    /// speed whole each tick, so every crest and kerb threw the car in the
+    /// air; here the spring takes a rise up and the wheels follow a fall,
+    /// and only a bump past the suspension's travel kicks the body, only a
+    /// drop past its hang leaves the car in the air.
+    fn suspend(&mut self, v: &mut Vehicle, t: &Track, dt: f64) {
+        let (c, normal) = wheel_contact(t, v, v.x, v.z);
+        let prev = self.suspension.map_or(c, |s| s.contact);
+        self.suspension = Some(Suspension { contact: c });
+        v.ground_normal = Some(normal);
+        // The ground's own vertical speed under the car.
+        let cvy = (c - prev) / dt;
+        let sag = G / SUSP_K;
+        let was = v.on_ground;
+        // Compression past the wheels' rest (the sag at rest).
+        let x = c + sag - v.y;
+        let mut a = -G;
+        if x > 0.0 {
+            // The damper meets the ground's speed through the tyre and the
+            // wheel's own give: a square step's speed (a kerb's 15 cm in a
+            // tick is 18 m/s) is not a kick through it.
+            let wheel = clamp(cvy, -SUSP_WHEEL_VY, SUSP_WHEEL_VY);
+            a += SUSP_K * x - SUSP_D * (v.vy - wheel);
+            // A spring pushes; it does not pull the body down.
+            a = a.max(-G);
+        }
+        v.vy += a * dt;
+        v.y += v.vy * dt;
+        // Bottomed out: the body rides the ground's rise.
+        let floor = c - SUSP_TRAVEL;
+        let mut impact = 0.0;
+        if v.y < floor {
+            impact = js::max(0.0, cvy - v.vy);
+            v.y = floor;
+            v.vy = js::max(v.vy, cvy);
+        }
+        let reach = c + sag + SUSP_HANG;
+        v.on_ground = v.y <= reach;
+        if v.on_ground && !was {
+            let hit = js::max(impact, cvy - v.vy);
+            if hit > 2.5 {
+                self.events.push(PhysEvent::Land {
+                    strength: clamp(hit / 12.0, 0.0, 1.0),
+                    air: self.air_time,
+                });
+            }
+            self.events.push(PhysEvent::Touchdown { impact: hit });
+            self.air_time = 0.0;
+        } else if v.on_ground && impact > 2.5 {
+            self.events.push(PhysEvent::Touchdown { impact });
+        }
+        v.vis_y = Some(v.y);
     }
 
     /// Pushes the car out of the building it has run into, the way a
