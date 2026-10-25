@@ -158,6 +158,18 @@ pub struct Stream {
     /// The base scene's materials, which take the map's first range.
     base_materials: u32,
     t0: Option<Instant>,
+    /// The level's warm-up scene (D1245), spawned once behind the loading
+    /// screen: its stand-ins compile every pipeline the drive will need.
+    warm: Warm,
+}
+
+enum Warm {
+    Off,
+    Spawning {
+        build: Box<loader::Build>,
+        root: Entity,
+    },
+    Done,
 }
 
 impl Default for Stream {
@@ -176,6 +188,7 @@ impl Default for Stream {
             bases: Vec::new(),
             base_materials: 0,
             t0: None,
+            warm: Warm::Off,
         }
     }
 }
@@ -717,6 +730,72 @@ fn drive_inner(
         }
     }
 
+    // The warm-up scene, first and whole behind the loading screen.
+    if matches!(st.warm, Warm::Off) {
+        st.warm = match warm::scene(&o.level) {
+            Some(scene) => {
+                info!(
+                    "stream: the warm-up scene, {} combinations",
+                    scene.nodes.len()
+                );
+                let root = commands
+                    .spawn((
+                        Transform::default(),
+                        Visibility::Hidden,
+                        SceneEntity,
+                        Name::new("stream warm-up"),
+                    ))
+                    .id();
+                let build = loader::Build::new(
+                    scene,
+                    SHARED
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone()
+                        .expect("shared images"),
+                )
+                .under(root)
+                .with_image_cache(st.image_cache.clone());
+                Warm::Spawning {
+                    build: Box::new(build),
+                    root,
+                }
+            }
+            None => Warm::Done,
+        };
+    }
+    if let Warm::Spawning { build, .. } = &mut st.warm {
+        let t0 = Instant::now();
+        let done = loader::step_section(
+            build,
+            commands,
+            meshes,
+            materials,
+            sky_materials,
+            images,
+            SPAWN_LOADING_MS,
+        );
+        work.spawn_ms += t0.elapsed().as_secs_f32() * 1e3;
+        if done && let Warm::Spawning { build, root } = std::mem::replace(&mut st.warm, Warm::Done)
+        {
+            let scene = loader::finish_section(*build, commands, meshes, images);
+            work.event(format!("warm ({} stand-ins)", scene.warm_up.len()));
+            info!(
+                "stream: the warm-up scene up, {} stand-ins",
+                scene.warm_up.len()
+            );
+            for e in scene.warm_up {
+                commands
+                    .entity(e)
+                    .remove::<crate::warmup::WarmUp>()
+                    .insert(StreamWarm);
+            }
+            // Its own entities draw nothing (hidden, of no size): only the
+            // stand-ins are wanted.
+            commands.entity(root).despawn();
+        }
+    }
+
     // Spawning, stepped.
     let budget = if loading {
         SPAWN_LOADING_MS
@@ -793,7 +872,7 @@ fn drive_inner(
             .wanted
             .iter()
             .all(|k| matches!(st.secs.get(k), Some(Sec::Up(_) | Sec::Failed)));
-        if all && !st.wanted.is_empty() {
+        if all && !st.wanted.is_empty() && matches!(st.warm, Warm::Done) {
             st.started = true;
             animate::set_pending(false);
             info!(
@@ -964,6 +1043,8 @@ pub fn plugin(app: &mut App) {
                 .chain(),
         );
 }
+
+mod warm;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod budget;

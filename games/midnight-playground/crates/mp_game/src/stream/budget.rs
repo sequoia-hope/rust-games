@@ -72,12 +72,14 @@ struct Report {
     /// Every texture item, by its pixels' hash (the image cache's key).
     textures: Vec<(u64, Item)>,
     drawn: Vec<Drawn>,
+    /// The nodes that drew a combination first, as the warm-up scene
+    /// takes them (`super::warm::extract`).
+    firsts: mp_scene::Scene,
 }
 
 /// Spawns a section's scene through the loader, one item at a time, into
 /// a world of its own.
-fn spawn(key: Option<i64>, wb: mp_worldgen::world::WorldBuild, packed: usize) -> Report {
-    let scene = wb.scene;
+fn spawn(key: Option<i64>, scene: mp_scene::Scene, packed: usize) -> Report {
     let hashes: Vec<u64> = scene
         .textures
         .iter()
@@ -102,9 +104,10 @@ fn spawn(key: Option<i64>, wb: mp_worldgen::world::WorldBuild, packed: usize) ->
         ..Report::default()
     };
     let mut b = loader::Build::new(scene, shared).under(root);
+    let mut firsts: Vec<usize> = Vec::new();
     loop {
         let what = loader::next_item(&b);
-        let (e0, u0) = (b.entities(), b.uploads());
+        let (e0, u0, d0, node) = (b.entities(), b.uploads(), b.drawn().len(), b.next_node());
         if loader::step_item(
             &mut b,
             &mut commands,
@@ -116,6 +119,11 @@ fn spawn(key: Option<i64>, wb: mp_worldgen::world::WorldBuild, packed: usize) ->
             break;
         }
         let u1 = b.uploads();
+        if let Some(n) = node
+            && b.drawn().len() > d0
+        {
+            firsts.push(n);
+        }
         let it = Item {
             what,
             entities: b.entities() - e0,
@@ -143,7 +151,27 @@ fn spawn(key: Option<i64>, wb: mp_worldgen::world::WorldBuild, packed: usize) ->
     r.entities = b.entities();
     r.total = b.uploads();
     r.drawn = b.drawn().to_vec();
+    super::warm::extract(b.scene(), &firsts, &mut r.firsts);
     r
+}
+
+/// The warm-up scene the sections call for: every report's first nodes,
+/// then of those only the ones that draw a combination none before them
+/// did.
+fn warm_scene(reports: &[Report]) -> mp_scene::Scene {
+    let mut all = mp_scene::Scene::default();
+    for r in reports {
+        let n: Vec<usize> = (0..r.firsts.nodes.len()).collect();
+        super::warm::extract(&r.firsts, &n, &mut all);
+    }
+    let merged = spawn(Some(-1), all, 0);
+    let mut out = mp_scene::Scene {
+        meta: serde_json::json!({ "warmUp": "the stream's budget test (D1245)" }),
+        ..Default::default()
+    };
+    let n: Vec<usize> = (0..merged.firsts.nodes.len()).collect();
+    super::warm::extract(&merged.firsts, &n, &mut out);
+    out
 }
 
 /// Every section's report (the base's key is None), built on a few
@@ -166,7 +194,7 @@ fn reports() -> (std::sync::Arc<mp_worldgen::stream::Planned>, Vec<Report>) {
                     // The worker's hand-over: what the client reads back.
                     let bytes = mp_worldgen::section::pack(&wb, stats).expect("packs");
                     let (wb, _) = mp_worldgen::section::unpack(&bytes).expect("reads back");
-                    let r = spawn(key, wb, bytes.len());
+                    let r = spawn(key, wb.scene, bytes.len());
                     out.lock().unwrap_or_else(|e| e.into_inner()).push(r);
                 }
             });
@@ -309,6 +337,26 @@ fn every_section_streams_within_the_frame_budgets() {
             warm.extend(r.drawn.iter().map(pipe));
         }
     }
+    // And the warm-up scene (D1245): made from the sections, written when
+    // asked, and the committed one spawned as the client spawns it.
+    let made = warm_scene(&reports);
+    let path = super::warm::path("peninsula").expect("the loop has a warm-up scene");
+    if std::env::var("MP_WARMUP_WRITE").is_ok_and(|v| v == "1") {
+        mp_scene::write_file(&path, &made).expect("writes the warm-up scene");
+        eprintln!("warm-up scene written: {}", path.display());
+    }
+    let committed = mp_scene::read_file(&path).unwrap_or_else(|e| {
+        eprintln!("warm-up scene {}: {e}", path.display());
+        mp_scene::Scene::default()
+    });
+    let scene = spawn(None, committed, 0);
+    eprintln!(
+        "warm-up scene: {} nodes, {} pipelines (the sections call for {} nodes)",
+        scene.nodes,
+        scene.drawn.len(),
+        made.nodes.len()
+    );
+    warm.extend(scene.drawn.iter().map(pipe));
     // The textures first met after the start (the image cache has the
     // start's, and each other once it is met).
     let mut met: HashSet<u64> = HashSet::new();
@@ -366,7 +414,8 @@ fn every_section_streams_within_the_frame_budgets() {
     late.sort_by(|a, b| (&a.1, &a.0.material).cmp(&(&b.1, &b.0.material)));
     for (d, ks) in &late {
         let msg = format!(
-            "a pipeline first used after the warm-up: {} in sections {ks:?}",
+            "a pipeline first used after the warm-up: {} in sections {ks:?} \
+             (the warm-up scene is out of date: MP_WARMUP_WRITE=1 writes it)",
             describe(d)
         );
         eprintln!("  {msg}\n    {:?}, layout {:?}", d.key, d.layout);

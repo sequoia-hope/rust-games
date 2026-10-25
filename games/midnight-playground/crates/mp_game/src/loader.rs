@@ -297,6 +297,16 @@ impl Build {
         h
     }
 
+    /// The scene being built.
+    pub fn scene(&self) -> &Scene {
+        &self.scene
+    }
+
+    /// The node [`step_item`] spawns next, once the textures are done.
+    pub fn next_node(&self) -> Option<usize> {
+        matches!(self.step, Step::Nodes).then_some(self.cursor)
+    }
+
     /// Entities spawned so far.
     pub fn entities(&self) -> usize {
         self.out.counts.entities
