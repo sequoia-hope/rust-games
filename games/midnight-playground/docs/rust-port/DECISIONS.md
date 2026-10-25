@@ -11865,3 +11865,62 @@ Stage 6g, and what driving the bay side in the browser showed.
   zones); **the cruise's distance** off the loop is the ground covered,
   not the loop's projection. The city's arterials are `street` (kerbs),
   not `boulevard` (guardrails).
+
+## D1245 (2026-10-24): the stream's work in pieces a frame can take
+
+What D1238's tests found, fixed, with the bay side's own on top. The owner
+drove the bay side in the browser and called the stutter "really bad":
+every section coming up was a frame of 56 to 96 ms, three at a time when
+the car crossed into a new square.
+
+- **The fallback sky noise is made once** (`render::sky::noise_image`): every
+  section without a dome made the 256² terrain detail texture again in
+  `finish_section`, tens of milliseconds of wasm each (the bay side's
+  hitch; D1238 found it on the loop too and stopped the stream's sections
+  asking for it; both stand).
+- **A warm-up scene for the whole level** (`stream::warm`,
+  `assets/warmup/peninsula.mrscene`): one node for every material ×
+  mesh-layout × shadow combination any section draws (49 on the
+  peninsula), on six zero vertices and 4 × 4 textures, 160 kB, compiled
+  in the binary. The stream spawns it behind the loading screen and keeps
+  only its stand-ins until they compile; the start waits for it. The
+  budget test makes it from the sections it builds (each section's nodes
+  that drew a combination first, then one per combination across them),
+  spawns the committed one as the client does and fails when a section
+  draws a combination it lacks; `MP_WARMUP_WRITE=1` writes it again. A
+  manifest from the test rather than every section's materials planned
+  up front: the materials are made by the kits as they build, and building
+  every section at load is a minute and a half.
+- **A texture's pixels go once** (`section::pack_sent`, `unpack_sent`): most
+  of a section's 10 to 18 MB were the terrain's and the kits' textures,
+  the same in every section, and the main thread hashed each again to
+  find it in the image cache. The worker keys each texture
+  (`Scene::texture_key`: FNV-1a over its pixels and sampling, the same in
+  both wasms), sends its pixels with the first section that has it since
+  the plan, and after that packs it as one pixel and its real size. The
+  client finds it in the image cache by the key, or, when the section
+  that brought it has not been converted yet (spawning goes in key order,
+  not arrival order) or was no longer wanted, in a stash of pixels kept by
+  key until they are in the cache. A texture neither has fails the section
+  (logged); it cannot happen while the worker's set is cleared at each plan
+  and every answer of the generation is read.
+- **Textures convert in slices** (`convert::ImageJob`, 768 kB an item):
+  the mip chain was made in one item, 100 to 400 ms for 2048². The
+  loader's texture item goes on with the same texture until it is whole;
+  `build_image` runs the job to its end.
+- **Oversized meshes are split** (`section::split_large`, over 1.5 MB): a
+  streamed section's plain mesh is cut into runs of its triangles beside
+  it, with its material, matrix and flags. Only in the stream's sections:
+  whole builds, which the JS parity tests compare, are untouched.
+- **The hand-over's budget is 32 MB**, from the bay side's figures (17 to 18
+  MB read back in 4 to 5 ms once warm, 0.25 to 0.3 ms a MB; D1238 had
+  0.5 ms a MB from the loop's first sections, cold). With the pixels sent
+  once, only Half Moon Bay's square, which first meets its 2048² texture,
+  is over 20 MB (28 MB).
+- **Measured** (release web build, headless Chrome, WebGPU, El Camino from
+  San Mateo at 30 m/s, after the noise fix alone): no frame over 45 ms in
+  75 s, where there had been three of 56 to 96 ms at each of the ring's
+  moves. On WebGL2 at Lombard and Van Ness, with the car stuck against
+  the corner, frames ran 75 to 110 ms for ten seconds once and not again
+  in two later runs (150 to 400 draws a frame; the machine's load average
+  was 20): not chased further.

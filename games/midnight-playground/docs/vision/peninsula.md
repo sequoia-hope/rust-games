@@ -402,6 +402,13 @@ is the land's colour, not sidewalk; Market Street's end stops 175 m
 short of the Embarcadero; rivals and police are still the loop's; the
 events are all on the loop.
 
+6a's tests (D1238) found the stream's work in one piece where a frame
+could not take it; fixed with the bay side's own hitch (D1245): a
+warm-up scene of every pipeline the level draws, a texture's pixels sent
+once and converted in slices, oversized meshes split. The native budget
+test passes; the browser suite's budgets still want a quiet machine's
+baseline before they are trusted.
+
 ## 3. Decisions
 
 - **The levels stay.** Nothing in the menu changes; the corridor is a
