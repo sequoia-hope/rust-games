@@ -7,21 +7,73 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>RP2350 Groovebox · Music Lab</title>
 <link rel="icon" href="data:,">
+<meta name="description" content="RP2350 Hardware Groovebox controller for the rust-games music engine.">
 <style>
 :root {
-  --chassis: #12151c;
-  --panel: #191d26;
-  --bezel: #0b0d12;
-  --border: #2a3140;
-  --silk: #8d99ae;
-  --silk-hi: #edf2f4;
-  --accent: #ff2e6e;
-  --ok: #1aff7a;
-  --amber: #ffca3a;
-  --cyan: #3aa8ff;
+  --bg: #0d0f14; --card: #161a22; --line: #262c36; --fg: #e6e9ee; --muted: #8b94a3;
+  --accent: #ff3d7f; --ok: #4dff8a; --low: #ffb84d; --high: #6fb7ff;
+  --chassis: #12151c; --panel: #191d26; --bezel: #0b0d12; --border: #2a3140;
+  --silk: #8d99ae; --silk-hi: #edf2f4; --hw-accent: #ff2e6e; --hw-ok: #1aff7a;
+  --amber: #ffca3a; --cyan: #3aa8ff;
 }
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
-html, body {
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; padding: 16px; }
+#labView h1 { font-size: 1.25rem; margin: 0 0 6px; }
+#labView h2 { font-size: 1rem; margin: 0 0 8px; }
+#labView h3 { font-size: 0.9rem; margin: 10px 0 4px; color: var(--muted); font-weight: 600; }
+#labView p { color: var(--muted); margin: 0 0 10px; max-width: 760px; }
+#labView code { color: var(--fg); font-size: 13px; }
+#labView button, #labView select, #labView input[type=number] { background: #222834; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; font: inherit; font-size: 14px; white-space: nowrap; }
+#labView input[type=number] { width: 90px; cursor: text; }
+#labView select { max-width: 100%; }
+#labView button:hover, #labView select:hover { border-color: var(--accent); }
+#labView button:disabled { opacity: 0.4; cursor: default; }
+#labView button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+#labView button.big { padding: 10px 18px; font-size: 16px; }
+#labView button.sm { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#status { position: sticky; top: 0; z-index: 2; margin: 10px -16px 12px; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); color: var(--muted); pointer-events: none; }
+#status.err { color: #ff8a8a; }
+#status b { color: var(--fg); font-weight: 600; }
+.grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); max-width: 1300px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+.card.wide { grid-column: 1 / -1; }
+.card p { font-size: 13px; margin: 4px 0 8px; }
+label.sl { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(90px, 2fr) 60px; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 1px 0; }
+label.sl output { color: var(--fg); text-align: right; font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.knobs { display: grid; gap: 0 18px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.read { display: flex; flex-wrap: wrap; gap: 14px; font-variant-numeric: tabular-nums; font-size: 14px; margin: 6px 0; }
+.read span { color: var(--muted); }
+.read b { color: var(--fg); font-weight: 600; }
+#labView canvas { width: 100%; height: 140px; background: #0a0c10; border: 1px solid var(--line); border-radius: 8px; display: block; }
+textarea { width: 100%; height: 140px; background: #11141b; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12px/1.4 ui-monospace, monospace; }
+table { border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { padding: 3px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+.scroll { overflow-x: auto; max-width: 100%; }
+.sections { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.sections button { padding: 4px 8px; font-size: 12px; }
+.sections button.cur { border-color: var(--ok); color: var(--ok); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.chips button { padding: 3px 8px; font-size: 12px; border-radius: 6px; }
+.parts td button { margin-left: 2px; }
+.keys { position: relative; height: 120px; user-select: none; touch-action: none; margin: 8px 0; }
+.keys div { position: absolute; top: 0; border: 1px solid #000; border-radius: 0 0 5px 5px; }
+.keys .w { background: #e6e9ee; height: 120px; z-index: 0; }
+.keys .b { background: #222; height: 74px; z-index: 1; }
+.keys .down { background: var(--accent) !important; }
+.keys span { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: #667; }
+.pads { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; margin: 8px 0; }
+.pads button { padding: 14px 4px; font-size: 13px; }
+.pads button.sel { border-color: var(--ok); }
+.meter { display: inline-block; width: 90px; height: 8px; background: #0a0c10; border: 1px solid var(--line); border-radius: 4px; vertical-align: middle; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--ok); width: 0; }
+.meter.warn i { background: var(--low); }
+@media (max-width: 600px) { label.sl { grid-template-columns: 1fr 64px; } label.sl input { grid-column: 1 / -1; grid-row: 2; } }
+
+/* ── Seamless RP2350 Groovebox View ── */
+body.groovebox-open {
   margin: 0; padding: 0;
   width: 100%; height: 100dvh;
   overflow: hidden;
@@ -29,7 +81,14 @@ html, body {
   color: var(--silk-hi);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
+body.groovebox-open #labView { display: none !important; }
+body:not(.groovebox-open) #hw,
+body:not(.groovebox-open) #rotateHint { display: none !important; }
+
+#hw, #hw * { -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 #hw {
   width: 100%; height: 100dvh;
   padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
@@ -42,9 +101,7 @@ html, body {
   border: 2px solid #262c3a;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 24px rgba(0,0,0,0.7);
 }
-
-/* ── Top Hardware Bezel Bar ── */
-.topbar {
+#hw .topbar {
   display: flex; align-items: center; justify-content: space-between;
   gap: 6px;
   background: var(--bezel);
@@ -52,28 +109,28 @@ html, body {
   border-radius: 7px;
   padding: 3px 8px;
 }
-.brand {
+#hw .brand {
   display: flex; align-items: center; gap: 6px;
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
   color: var(--silk);
   white-space: nowrap;
 }
-.screw {
+#hw .screw {
   width: 8px; height: 8px; border-radius: 50%;
   background: radial-gradient(circle, #3b4254 30%, #181c24 80%);
   border: 1px solid #090b0f;
   display: inline-block;
 }
-.brand b { color: var(--silk-hi); }
-.brand .chip {
+#hw .brand b { color: var(--silk-hi); }
+#hw .brand .chip {
   font-size: 9px; padding: 1px 5px; border-radius: 4px;
   background: #1d2432; color: var(--cyan); border: 1px solid #2e3b52;
 }
-.top-controls {
+#hw .top-controls {
   display: flex; align-items: center; gap: 5px; flex-wrap: nowrap;
   overflow-x: auto;
 }
-.hw-btn, .hw-sel {
+#hw .hw-btn, #hw .hw-sel {
   background: linear-gradient(180deg, #252b39 0%, #191e28 100%);
   color: var(--silk-hi);
   border: 1px solid #343d50;
@@ -86,32 +143,30 @@ html, body {
   text-decoration: none;
   display: inline-flex; align-items: center; gap: 4px;
 }
-.hw-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #090b0f; }
-.hw-btn.on {
+#hw .hw-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #090b0f; }
+#hw .hw-btn.on {
   background: linear-gradient(180deg, #ff3d7f 0%, #c91c57 100%);
   border-color: #ff7aa8; color: #fff;
   box-shadow: 0 0 10px rgba(255,61,127,0.45), 0 1px 0 #090b0f;
 }
-.hw-btn.ok.on {
+#hw .hw-btn.ok.on {
   background: linear-gradient(180deg, #1ed760 0%, #119942 100%);
   border-color: #6bff9f; color: #051a0c;
   box-shadow: 0 0 10px rgba(26,255,122,0.45), 0 1px 0 #090b0f;
 }
-.hw-btn.amber.on {
+#hw .hw-btn.amber.on {
   background: linear-gradient(180deg, #ffca3a 0%, #d49600 100%);
   border-color: #ffe28a; color: #1b1300;
   box-shadow: 0 0 10px rgba(255,202,58,0.45), 0 1px 0 #090b0f;
 }
-.hw-sel { padding: 3px 6px; }
-
-/* ── Main 3-Column Deck ── */
-.deck {
+#hw .hw-sel { padding: 3px 6px; }
+#hw .deck {
   display: grid;
   grid-template-columns: minmax(215px, 1.05fr) minmax(240px, 1.35fr) minmax(215px, 1.05fr);
   gap: 6px;
   min-height: 0;
 }
-.module {
+#hw .module {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -120,7 +175,7 @@ html, body {
   min-height: 0;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
-.mod-head {
+#hw .mod-head {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em;
   color: var(--silk);
@@ -128,13 +183,11 @@ html, body {
   padding-bottom: 3px; margin-bottom: 4px;
   text-transform: uppercase;
 }
-.mod-head span.badge {
+#hw .mod-head span.badge {
   color: var(--amber); font-weight: 600; letter-spacing: 0.03em; text-transform: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 145px;
 }
-
-/* ── Center RGB LED Matrix Module ── */
-.matrix-wrap {
+#hw .matrix-wrap {
   flex: 1;
   display: flex; flex-direction: column; justify-content: center;
   background: #06070a;
@@ -145,73 +198,69 @@ html, body {
   min-height: 0;
   box-shadow: inset 0 0 18px #000;
 }
-#ledMatrix {
+#hw #ledMatrix {
   width: 100%; height: 100%;
   display: block;
   border-radius: 4px;
   cursor: pointer;
 }
-.matrix-foot {
+#hw .matrix-foot {
   display: flex; align-items: center; justify-content: space-between;
   gap: 4px; margin-top: 5px;
   font-size: 10px; color: var(--silk);
 }
-.matrix-modes { display: flex; gap: 4px; }
-.matrix-modes .hw-btn { padding: 2px 6px; font-size: 9.5px; }
-#lcdLine {
-  font-size: 10px; color: var(--ok);
+#hw .matrix-modes { display: flex; gap: 4px; }
+#hw .matrix-modes .hw-btn { padding: 2px 6px; font-size: 9.5px; }
+#hw #lcdLine {
+  font-size: 10px; color: var(--hw-ok);
   background: #090c10; border: 1px solid #1f2735;
   border-radius: 4px; padding: 2px 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1; text-align: right;
 }
-
-/* ── Stepped Pill Selectors & Micro Switches ── */
-.switch-row {
+#hw .switch-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 3px;
   margin-bottom: 4px;
 }
-.sw-pill {
+#hw .sw-pill {
   background: #12151d; color: var(--silk);
   border: 1px solid #283040; border-radius: 4px;
   padding: 3px 2px; font: inherit; font-size: 9px; font-weight: 700;
   text-align: center; cursor: pointer;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.sw-pill.on {
+#hw .sw-pill.on {
   background: #1f334d; color: #7ce0ff; border-color: #3aa8ff;
   box-shadow: 0 0 6px rgba(58,168,255,0.35);
 }
-.toggle-strip {
+#hw .toggle-strip {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
   margin-bottom: 4px;
 }
-.tog-btn {
+#hw .tog-btn {
   background: #12161f; color: var(--silk);
   border: 1px solid #2a3242; border-radius: 4px;
   padding: 3px 4px; font: inherit; font-size: 9px; font-weight: 700;
   cursor: pointer; text-align: center; white-space: nowrap;
 }
-.tog-btn b { color: var(--silk-hi); }
-.tog-btn.on {
-  border-color: var(--ok); color: var(--ok);
+#hw .tog-btn b { color: var(--silk-hi); }
+#hw .tog-btn.on {
+  border-color: var(--hw-ok); color: var(--hw-ok);
   background: rgba(26,255,122,0.1);
 }
-
-/* ── Rotary Knobs Grid ── */
-.knob-grid {
+#hw .knob-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px 4px;
   flex: 1;
   align-items: center;
 }
-.knob-grid.four {
+#hw .knob-grid.four {
   grid-template-columns: repeat(4, 1fr);
 }
-.knob-cell {
+#hw .knob-cell {
   display: flex; flex-direction: column; align-items: center;
   justify-content: center;
   background: rgba(11,13,18,0.55);
@@ -221,59 +270,57 @@ html, body {
   cursor: ns-resize;
   position: relative;
 }
-.knob-cell:active, .knob-cell.dragging {
+#hw .knob-cell:active, #hw .knob-cell.dragging {
   border-color: var(--cyan);
   background: rgba(58,168,255,0.08);
 }
-.knob-svg {
+#hw .knob-svg {
   width: 42px; height: 42px;
   display: block;
 }
-.knob-label {
+#hw .knob-label {
   font-size: 8.5px; font-weight: 700; letter-spacing: 0.05em;
   color: var(--silk); text-transform: uppercase;
   margin-top: 1px; white-space: nowrap;
 }
-.knob-val {
+#hw .knob-val {
   font-size: 9px; font-weight: 600; color: var(--silk-hi);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-
-/* ── Bottom Performance Strip (Role Mutes + Scale-Locked Jam Pads) ── */
-.bottombar {
+#hw .bottombar {
   display: grid;
   grid-template-columns: 1.15fr 1fr;
   gap: 6px;
   min-height: 0;
 }
-.pad-bank {
+#hw .pad-bank {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px 6px;
   display: flex; flex-direction: column; justify-content: space-between;
 }
-.bank-head {
+#hw .bank-head {
   display: flex; align-items: center; justify-content: space-between;
   font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--silk);
 }
-.bank-head .mini-btns { display: flex; gap: 3px; }
-.bank-head .mini-btns button {
+#hw .bank-head .mini-btns { display: flex; gap: 3px; }
+#hw .bank-head .mini-btns button {
   background: #12151e; color: var(--silk); border: 1px solid #2b3344;
   border-radius: 3px; padding: 1px 5px; font: inherit; font-size: 8.5px; font-weight: 700; cursor: pointer;
 }
-.bank-head .mini-btns button.on {
+#hw .bank-head .mini-btns button.on {
   background: var(--amber); color: #111; border-color: #ffe28a;
 }
-.role-grid, .jam-grid {
+#hw .role-grid, #hw .jam-grid {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   gap: 4px;
   flex: 1;
   margin-top: 3px;
 }
-.role-pad, .jam-pad {
+#hw .role-pad, #hw .jam-pad {
   position: relative;
   background: linear-gradient(180deg, #232938 0%, #161a24 100%);
   border: 1px solid #353f54;
@@ -286,43 +333,41 @@ html, body {
   cursor: pointer;
   box-shadow: 0 2px 0 #080a0e, inset 0 1px 0 rgba(255,255,255,0.08);
 }
-.role-pad .led {
+#hw .role-pad .led {
   width: 14px; height: 4px; border-radius: 2px;
   background: var(--c, #4dff8a);
   box-shadow: 0 0 6px var(--c, #4dff8a);
   transition: opacity 0.06s;
 }
-.role-pad.muted {
+#hw .role-pad.muted {
   opacity: 0.42;
   background: #10131a;
 }
-.role-pad.muted .led {
+#hw .role-pad.muted .led {
   background: #2a303d !important;
   box-shadow: none !important;
 }
-.role-pad.focused {
+#hw .role-pad.focused {
   border-color: #fff;
   box-shadow: 0 0 0 1px #fff, 0 2px 0 #080a0e;
 }
-.role-pad.soloed {
+#hw .role-pad.soloed {
   border-color: var(--amber);
 }
-.role-pad small, .jam-pad small {
+#hw .role-pad small, #hw .jam-pad small {
   font-size: 7.5px; font-weight: 600; color: var(--silk);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
-.jam-pad {
+#hw .jam-pad {
   background: linear-gradient(180deg, #1e2636 0%, #131822 100%);
   border-color: #2f3c56;
 }
-.jam-pad.down {
+#hw .jam-pad.down {
   background: linear-gradient(180deg, #3aa8ff 0%, #1b6ca8 100%);
   border-color: #9be0ff; color: #fff;
   box-shadow: 0 0 12px rgba(58,168,255,0.6);
   transform: translateY(1px);
 }
-
-/* Portrait hint overlay for phones held vertically */
 #rotateHint {
   display: none;
   position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 50;
@@ -331,23 +376,172 @@ html, body {
   font-size: 11px; text-align: center; pointer-events: none;
 }
 @media (orientation: portrait) and (max-width: 600px) {
-  #rotateHint { display: block; }
+  body.groovebox-open #rotateHint { display: block; }
 }
 @media (max-height: 430px) {
   #hw { grid-template-rows: 32px 1fr 56px; gap: 4px; padding: 4px max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left)); }
-  .knob-svg { width: 34px; height: 34px; }
-  .knob-label { font-size: 7.5px; }
-  .knob-val { font-size: 8px; }
+  #hw .knob-svg { width: 34px; height: 34px; }
+  #hw .knob-label { font-size: 7.5px; }
+  #hw .knob-val { font-size: 8px; }
 }
 </style>
 </head>
-<body>
+<body class="groovebox-open">
+<div id="labView" hidden>
+  <h1>Music Lab</h1>
+  <p>The music engine of the <a href="../" style="color:var(--fg)">rust-games</a> (<code>crates/music</code>, Rust): electronic and orchestral tracks made
+  from genre profiles and grammars with a seed, on emulated classic instruments (TB-303, Juno-style pads, Moog-style monos, DX-style FM,
+  plucked and bowed strings, brass, TR-808, TR-909 and concert percussion) with a proper mix. It is the engine the games play.</p>
+  <div id="status">Tap <b>▶ Play</b> to start.</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Song</h2>
+      <div class="row" style="margin-bottom:8px">
+        <select id="song" aria-label="Song"></select>
+      </div>
+      <p id="songNote"></p>
+      <div class="row">
+        <button id="play" class="big">▶ Play</button>
+        <button id="autoplay" class="big" title="Radio lite: automatically make and play a new track from the selected genres when a song ends">🔁 Autoplay</button>
+        <button id="nextSong" class="big" title="Make and play the next track from the selected genres">⏭ Next</button>
+        <button id="openHardware" class="big" title="Open the full-screen landscape RP2350 Hardware Groovebox controller with this exact track playing seamlessly">🎛️ Groovebox</button>
+      </div>
+      <div class="sections" id="sections"></div>
+      <div class="read">
+        <div><span>section </span><b id="rSec">–</b></div>
+        <div><span>bar </span><b id="rBar">–</b></div>
+        <div><span>glue </span><b id="rGr">–</b></div>
+        <div><span>audio thread </span><span class="meter" id="loadM"><i></i></span> <b id="rLoad">–</b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Make a track</h2>
+      <p>A seed and a genre make a whole track: one hook, stated sparse in the breakdown and in full at the drop; bass
+      that picks up the next chord; 8-bar blocks with a turnaround. <b>Déjà vu</b> (after Mutable Instruments' Marbles) is
+      how often a block plays the core pattern rather than one of its variations: high locks into a loop, low keeps
+      moving. The style line names the sub-style, key and progression.</p>
+      <div class="row" style="margin-bottom:6px">
+        <select id="genre" aria-label="Genre"></select>
+        <input type="number" id="seed" value="1" min="1" aria-label="Seed">
+        <button id="dice" title="New seed">🎲</button>
+        <button id="make">Make</button>
+      </div>
+      <label class="sl">Key <select id="key" aria-label="Key">
+        <option value="-1">Auto (by seed)</option>
+        <option value="0">C</option><option value="1">C# / Db</option><option value="2">D</option><option value="3">Eb</option>
+        <option value="4">E</option><option value="5">F</option><option value="6">F# / Gb</option><option value="7">G</option>
+        <option value="8">Ab</option><option value="9">A</option><option value="10">Bb</option><option value="11">B</option>
+      </select><output></output></label>
+      <label class="sl">Tempo <input type="range" id="bpm" min="59" max="190" step="1" value="59"><output></output></label>
+      <label class="sl">Déjà vu <input type="range" id="dejavu" min="0" max="1" step="0.01" value="0.7"><output></output></label>
+      <h3>Autoplay genres <small id="autoCount" style="font-weight:400"></small></h3>
+      <div class="row" style="gap:4px;margin-bottom:4px">
+        <button class="sm" id="selAll" title="Select every genre">All</button>
+        <button class="sm" id="selNew" title="Select all new-generator genres">New</button>
+        <button class="sm" id="selEdm" title="Select all electronic genres">EDM</button>
+        <button class="sm" id="selClassic" title="Select all classic radio genres">Classic</button>
+        <button class="sm" id="selNone" title="Clear multi-genre selection (use the Genre dropdown)">None</button>
+      </div>
+      <div class="chips" id="autoGenres"></div>
+      <h3>Live</h3>
+      <label class="sl">Energy <input type="range" id="energy" min="0" max="1" step="0.01" value="1"><output></output></label>
+      <label class="row" style="gap:6px;color:var(--muted);font-size:13px;margin:2px 0 4px"><input type="checkbox" id="energyAuto"> Energy grows with the song</label>
+      <p>Energy is what a game drives (a pursuit, a final lap, standing still): below full, layers drop out and the mix
+      closes down.</p>
+    </div>
+
+    <div class="card">
+      <h2>Mix and listen</h2>
+      <label class="sl">Tape <input type="range" id="tape" min="0" max="1" step="0.01" value="0.35"><output></output></label>
+      <label class="sl">Glue <input type="range" id="glue" min="0" max="1" step="0.01" value="0.5"><output></output></label>
+      <label class="sl">Reverb <input type="range" id="reverb" min="0" max="2" step="0.01" value="1"><output></output></label>
+      <label class="sl">Reverb time (s) <input type="range" id="revSize" min="0.5" max="6" step="0.1" value="2.4"><output></output></label>
+      <label class="sl">Reverb tone <input type="range" id="revTone" min="0" max="1" step="0.01" value="0.5"><output></output></label>
+      <label class="sl">Drum kit <select id="kit"></select><output></output></label>
+      <label class="sl">Speaker <select id="speaker">
+        <option value="headphones">Headphones (as is)</option>
+        <option value="big">Big speakers</option>
+        <option value="laptop">Laptop (cut below ~170 Hz)</option>
+        <option value="phone">Phone (cut below ~330 Hz, mono)</option>
+      </select><output></output></label>
+      <label class="sl">Volume <input type="range" id="vol" min="0" max="1" step="0.01" value="0.7"><output></output></label>
+    </div>
+
+    <div class="card wide" id="layersCard" hidden>
+      <h2>Layers</h2>
+      <p>Every instrument's own timeline: when it enters, varies (outlined), is filtered or thinned (faint) and leaves, with
+      the sections and their energy above and the risers under them. Click to play from there.</p>
+      <canvas id="layers" style="height:auto"></canvas>
+    </div>
+
+    <div class="card wide" id="notesCard" hidden>
+      <h2>Why it sounds like this</h2>
+      <p>The genre's history and sound, and the choices the generator made, with the research behind them
+      (<code>crates/music/research/</code>; <code>[house#12]</code> is reference 12 of <code>genres/house.md</code>).</p>
+      <ul id="notes" style="color:var(--muted);font-size:13px;max-width:900px"></ul>
+    </div>
+
+    <div class="card wide">
+      <h2>Parts</h2>
+      <p>Each part of the song, the instrument it plays on, and live edits to it. <b>Copy JSON</b> captures a patch for
+      Claude to put back into the engine (<code>crates/music</code>).</p>
+      <div class="scroll"><table class="parts" id="parts"></table></div>
+      <div id="partEdit" hidden>
+        <h3 id="partEditTitle"></h3>
+        <div class="knobs" id="partKnobs"></div>
+        <div class="row" style="margin-top:8px"><button id="partCopy">Copy JSON</button><button id="partReset">Reset</button><span class="note" id="partNote" style="color:var(--muted);font-size:13px"></span></div>
+      </div>
+    </div>
+
+    <div class="card wide">
+      <h2>Instruments</h2>
+      <p>Play any instrument on its own: the keys below, or the computer keyboard when <b>Keys play</b> is on
+      (<code>A W S E D F T G Y H U J K</code>, <code>Z</code> / <code>X</code> octave). <b>Demo</b> plays a short phrase made for it.</p>
+      <div class="row">
+        <select id="inst" aria-label="Instrument"></select>
+        <button id="demo">Demo</button>
+        <button id="oct-">Oct −</button><button id="oct+">Oct +</button>
+        <label class="row" style="gap:4px;color:var(--muted);font-size:13px"><input type="checkbox" id="keysOn"> Keys play</label>
+      </div>
+      <div class="keys" id="keys"></div>
+      <div class="knobs" id="instKnobs"></div>
+      <div class="row" style="margin-top:8px"><button id="instCopy">Copy JSON</button><button id="instReset">Reset</button><span id="instNote" style="color:var(--muted);font-size:13px"></span></div>
+      <textarea id="json" readonly hidden style="margin-top:8px"></textarea>
+    </div>
+
+    <div class="card wide">
+      <h2>Drum machine</h2>
+      <p>Tap a pad to hear it and edit it. The tweaks apply to the song too.</p>
+      <div class="row"><select id="kit2"></select><button id="drumCopy">Copy JSON</button><button id="drumReset">Reset</button><span id="drumNote" style="color:var(--muted);font-size:13px"></span></div>
+      <div class="pads" id="pads"></div>
+      <div class="knobs" id="drumKnobs"></div>
+    </div>
+
+    <div class="card wide">
+      <h2>Spectrum <small style="color:var(--muted);font-weight:400">(what you hear, after the speaker setting)</small></h2>
+      <canvas id="spec" width="1200" height="280"></canvas>
+    </div>
+
+    <div class="card wide">
+      <h2>Measure (offline, no ears)</h2>
+      <p>Renders 12 s from the fullest part of every song made this visit and compares loudness (RMS), peak, crest factor
+      (peak over RMS: low is squashed, high is spiky), stereo width (side over mid) and the balance of the bands against the
+      low band (40–150 Hz).</p>
+      <div class="row"><button id="measure">Measure the songs made</button><span id="mNote" style="color:var(--muted);font-size:13px"></span></div>
+      <div class="scroll"><table id="mTable" style="margin-top:8px"></table></div>
+    </div>
+  </div>
+</div>
+
+<!-- RP2350 HARDWARE GROOVEBOX VIEW (Shares the same live AudioWorklet session) -->
 <div id="hw">
   <!-- TOP BEZEL: BRAND + PRESET GENRE + SEED + TRANSPORT -->
   <header class="topbar">
     <div class="brand">
       <i class="screw"></i>
-      <a id="backLab" href="index.html" class="hw-btn" title="Return to Music Lab">← LAB</a>
+      <a id="backLab" href="index.html" class="hw-btn" title="Return to Music Lab player without interrupting audio">← LAB</a>
       <b>RP2350 GROOVEBOX</b>
       <span class="chip" id="cpuChip">DSP 0%</span>
     </div>
@@ -452,6 +646,6 @@ html, body {
 
 <div id="rotateHint">↻ Rotate iPhone to Landscape for the full RP2350 Hardware Groovebox layout</div>
 
-<script type="module" src="hardware.js?v=20261024a"></script>
+<script type="module" src="main.js?v=20261024b"></script>
 </body>
 </html>
