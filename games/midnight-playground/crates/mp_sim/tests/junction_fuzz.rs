@@ -122,7 +122,9 @@ fn random_driving_around_the_junction_stays_finite() {
         );
         // A sanity bound, in a debug build, while the whole workspace's
         // tests run beside it (under 2 s alone; 5 s was missed by a hair
-        // once the open world's bay side added its tests).
-        assert!(took < 10.0, "case {case} took {took} s for 20 s of race");
+        // once the open world's bay side added its tests, and 10 s on a
+        // machine shared with other projects' builds). It is there to catch
+        // a pathological slowdown, not to time the simulation.
+        assert!(took < 30.0, "case {case} took {took} s for 20 s of race");
     }
 }
