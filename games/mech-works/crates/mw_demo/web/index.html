@@ -115,6 +115,19 @@
   .pbar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #555; }
   #hud { position: absolute; left: calc(var(--sa-l) + 12px); top: calc(var(--sa-t) + 52px); color: var(--fg); text-shadow: 0 1px 3px #000; font-variant-numeric: tabular-nums; }
   #hud b { color: var(--accent); }
+  #objective { position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--sa-t) + 52px);
+               width: min(460px, calc(100vw - var(--sa-l) - var(--sa-r) - 24px)); text-align: center;
+               background: rgba(22,22,23,.78); border: 1px solid #3a3632; border-radius: 10px; padding: 8px 12px; }
+  #objective[hidden], #sound-gate[hidden] { display: none; }
+  #obj-title { font: 700 15px system-ui, sans-serif; color: var(--accent2); }
+  #objective.done #obj-title { color: #8fe08f; }
+  #obj-hint { color: var(--dim); margin-top: 2px; }
+  #obj-bar { margin-top: 6px; } #objective.done #obj-bar i { background: #7fc97f; }
+  #sound-gate { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--sa-b) + 18px);
+                background: rgba(22,22,23,.9); border: 1px solid var(--accent); border-radius: 8px; padding: 6px 14px;
+                color: var(--fg); pointer-events: none; white-space: nowrap; }
+  #sound-gate.err { border-color: #e5603b; color: #ffb39a; }
+  @media (max-width: 760px) { #objective { top: calc(var(--sa-t) + 84px); } }
   @media (max-width: 760px) { #panel { width: auto; left: calc(var(--sa-l) + 10px); top: auto; height: 46vh; }
                               #inspector { width: auto; right: calc(var(--sa-r) + 10px); bottom: calc(var(--sa-b) + 46vh + 20px); max-height: 30vh; }
                               header#bar-top { flex-wrap: wrap; } .brand small { display: none; } }
@@ -140,6 +153,7 @@
       <button data-mode="path">Endless path</button>
       <button data-mode="damage">Damage &amp; limp</button>
       <button data-mode="calibration">Calibration</button>
+      <button data-mode="level">Play: landslide</button>
     </nav>
     <div class="spacer"></div>
     <button id="toggle-sfx" title="Simulation sound effects (M)">Sound</button>
@@ -155,6 +169,14 @@
       <div class="row"><button id="stop">Stop</button><button id="reset">Reset</button><button id="pause">Pause</button><button id="push">Shove</button></div>
       <label>Time <output id="speed-v">1.0×</output><input id="speed" type="range" min="0.1" max="2" step="0.05" value="1"></label>
       <label>Dust &amp; wind <output id="dust-v">0%</output><input id="dust" type="range" min="0" max="1" step="0.05" value="0"></label>
+    </section>
+    <section data-for="level">
+      <h3>Landslide</h3>
+      <p class="note">A slide off the hill has filled the pass east of the base with rubble. Walk out to it and clear the way.</p>
+      <div class="row"><button id="lv-view">First / third person (V)</button><button id="lv-shove">Shove (E)</button><button id="lv-restart">Start over (R)</button></div>
+      <p class="note" id="lv-status"></p>
+      <p class="note"><b>Keys:</b> W/S walk (Shift faster), A/D turn, E or Space shove with the blade, V view, R start over, P pause, M sound, O music.
+        <b>Mouse:</b> click the game to look around (Esc lets go), or drag. <b>Touch:</b> drag to look, pinch to zoom the third-person view; walk with the sliders above.</p>
     </section>
     <section data-for="viewer">
       <h3>Training</h3>
@@ -221,6 +243,8 @@
     <div id="params"></div>
   </div>
   <div id="hud"></div>
+  <div id="objective" hidden><div id="obj-title"></div><div id="obj-hint"></div><div id="obj-bar" class="meter" hidden><i></i></div></div>
+  <div id="sound-gate" hidden></div>
 </div>
 <!-- ===== BRANDING (2 of 3): the screens' words. ===== -->
 <div id="loading" class="screen">

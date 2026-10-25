@@ -6,7 +6,8 @@
 use std::cell::RefCell;
 
 use crate::{
-    AudioFrame, FEET, FootFrame, ImpactEvent, JOINTS, JointFrame, MechAudio, StruckLink, UiEvent,
+    AudioFrame, FEET, FootFrame, ImpactEvent, JOINTS, JointFrame, MechAudio, RockEvent, StruckLink,
+    UiEvent,
 };
 
 struct WorkletState {
@@ -133,11 +134,32 @@ pub extern "C" fn mw_audio_push_ui(kind: u32) {
     let ev = match kind {
         1 => UiEvent::Damage,
         2 => UiEvent::PartSwap,
+        3 => UiEvent::Objective,
         _ => UiEvent::Click,
     };
     STATE.with(|cell| {
         if let Some(st) = cell.borrow_mut().as_mut() {
             st.frame.ui.push(ev);
+        }
+    });
+}
+
+/// A rock knock on this step (the game's rubble).
+#[unsafe(no_mangle)]
+pub extern "C" fn mw_audio_push_rock(impulse: f32, pan: f32) {
+    STATE.with(|cell| {
+        if let Some(st) = cell.borrow_mut().as_mut() {
+            st.frame.rocks.push(RockEvent { impulse, pan });
+        }
+    });
+}
+
+/// How much loose rock is sliding and rolling, t·m/s at the listener.
+#[unsafe(no_mangle)]
+pub extern "C" fn mw_audio_set_rubble(slide: f32) {
+    STATE.with(|cell| {
+        if let Some(st) = cell.borrow_mut().as_mut() {
+            st.frame.rubble_slide = slide;
         }
     });
 }
@@ -149,6 +171,7 @@ pub extern "C" fn mw_audio_commit_step() {
             st.audio.push_frame(st.frame.clone());
             st.frame.impacts.clear();
             st.frame.ui.clear();
+            st.frame.rocks.clear();
         }
     });
 }

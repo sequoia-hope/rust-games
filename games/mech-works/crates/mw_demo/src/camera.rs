@@ -50,7 +50,12 @@ impl Orbit {
 pub fn plugin(app: &mut App) {
     app.init_resource::<Orbit>()
         .add_systems(Startup, (spawn, no_light_clustering))
-        .add_systems(Update, drive.after(crate::lanes::step_lanes));
+        .add_systems(
+            Update,
+            drive
+                .after(crate::lanes::step_lanes)
+                .run_if(|mode: Res<crate::Mode>| *mode != crate::Mode::Level),
+        );
 }
 
 /// No light clustering (as Snowboarding and Midnight Playground): the sun

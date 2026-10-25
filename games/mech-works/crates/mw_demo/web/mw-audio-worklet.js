@@ -1,7 +1,8 @@
 // Simulation-driven sound effects processor for Mech Works (docs/AUDIO.md).
 // Runs `mw_audio.wasm` on the Web Audio rendering thread: the main thread posts
 // per-step telemetry frames (contact forces, slip speeds, 12-joint currents,
-// torques, temperatures, trips/faults, projectile impacts, UI events), and
+// torques, temperatures, trips/faults, projectile impacts, UI events, the
+// level's rock knocks and rubble), and
 // `process()` synthesizes 128-frame stereo blocks at the audio sample rate.
 
 const BLOCK = 128;
@@ -9,6 +10,8 @@ const BLOCK = 128;
 class MwSfxProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
+    // The page compiles mw_audio.wasm and hands the module over here (a
+    // worklet scope cannot fetch).
     const { module, seed } = options.processorOptions;
     this.x = new WebAssembly.Instance(module, {}).exports;
     this.x.mw_audio_init(sampleRate, seed || 0x6d776175);
@@ -64,6 +67,12 @@ class MwSfxProcessor extends AudioWorkletProcessor {
             x.mw_audio_push_ui(u);
           }
         }
+        if (f.rocks) {
+          for (const r of f.rocks) {
+            x.mw_audio_push_rock(r[0], r[1]);
+          }
+        }
+        x.mw_audio_set_rubble(f.slide ?? 0);
         x.mw_audio_commit_step();
       }
     }

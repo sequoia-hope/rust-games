@@ -178,6 +178,8 @@ pub fn walk_trace(duration_s: f32, body_mass_kg: f32, dust_storm: f32) -> Vec<Au
             dust_storm,
             impacts: Vec::new(),
             ui: Vec::new(),
+            rocks: Vec::new(),
+            rubble_slide: 0.0,
         });
     }
     frames
@@ -431,6 +433,8 @@ pub fn combat_and_fall_trace(duration_s: f32) -> Vec<AudioFrame> {
             dust_storm: 0.55,
             impacts,
             ui: Vec::new(),
+            rocks: Vec::new(),
+            rubble_slide: 0.0,
         });
     }
 

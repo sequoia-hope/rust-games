@@ -887,7 +887,7 @@ fn chipped_rock_mesh(seed: u64) -> Mesh {
 }
 
 /// High-frequency mineral & striation detail texture for the eroded hillside.
-fn hillside_detail_texture(n: usize) -> Image {
+pub(crate) fn hillside_detail_texture(n: usize) -> Image {
     let mut rng = Rng::new(31);
     let mut px = vec![0u8; n * n * 4];
     for (i, p) in px.as_chunks_mut::<4>().0.iter_mut().enumerate() {

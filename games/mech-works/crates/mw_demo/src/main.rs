@@ -41,7 +41,7 @@ fn main() -> bevy::app::AppExit {
             }
             other => {
                 eprintln!(
-                    "unknown argument {other} (--mode viewer|path|impact|damage|calibration, --policy <blob>, --estimator <blob>, --stage <json>, --shot <png>, --after <secs>)"
+                    "unknown argument {other} (--mode viewer|path|impact|damage|calibration|level, --policy <blob>, --estimator <blob>, --stage <json>, --shot <png>, --after <secs>)"
                 );
                 std::process::exit(2);
             }

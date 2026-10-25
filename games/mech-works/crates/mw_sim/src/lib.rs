@@ -7,6 +7,7 @@ pub mod actuator;
 pub mod env;
 pub mod mech;
 pub mod rng;
+pub mod rubble;
 pub mod sim;
 pub mod terrain;
 

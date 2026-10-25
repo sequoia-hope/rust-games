@@ -11,6 +11,7 @@ use mw_sim::sim::BodyPose;
 use mw_sim::terrain::Terrain;
 use serde_json::Value;
 
+use crate::level::Level;
 use crate::{COMMANDS, Mode, POLICIES, Status};
 
 /// Lanes are this far apart, m, across the walk.
@@ -71,6 +72,9 @@ pub struct Lane {
     prev_foot_pos: [[f32; 3]; LEGS],
     /// Foot tangential slip speed `m/s` on the last policy step.
     pub foot_slip: [f32; LEGS],
+    /// Counts the mech's worlds: each reset builds a new one, which a
+    /// level then fills with its walls and rubble again.
+    pub generation: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -101,6 +105,7 @@ impl Lane {
             action: [0.0; JOINTS],
             prev_foot_pos: [[0.0; 3]; LEGS],
             foot_slip: [0.0; LEGS],
+            generation: 0,
         };
         lane.place(index, path_cfg);
         lane
@@ -113,6 +118,21 @@ impl Lane {
     }
 
     fn reset_body(&mut self, index: usize, params: BodyParams, path_cfg: &PathConfig) {
+        // Each lane on its own line across the walk.
+        self.reset_at(index, params, 0.0, index as f32 * LANE_GAP, 0.0, path_cfg);
+    }
+
+    /// Restarts lane `index`'s mech standing at (x, z), facing `heading`
+    /// (rad about the vertical, 0 along +X), with this body.
+    pub fn reset_at(
+        &mut self,
+        index: usize,
+        params: BodyParams,
+        x: f32,
+        z: f32,
+        heading: f32,
+        path_cfg: &PathConfig,
+    ) {
         let command = self.env.command;
         self.env.terrain = if path_cfg.enabled {
             Terrain::path(
@@ -127,11 +147,15 @@ impl Lane {
         };
         self.env.reset_with(params);
         self.env.command = command;
-        // Each lane on its own line across the walk.
-        let z = index as f32 * LANE_GAP;
+        self.generation = self.generation.wrapping_add(1);
         let t = self.env.sim.torso_mut();
         let mut pose = *t.position();
+        pose.translation.x += x;
         pose.translation.z += z;
+        if heading != 0.0 {
+            pose.rotation =
+                mw_sim::rapier3d::prelude::Rotation::from_rotation_y(heading) * pose.rotation;
+        }
         t.set_position(pose, true);
         self.env.sim.refresh_kinematics();
         self.cur = self.env.sim.link_poses();
@@ -156,7 +180,8 @@ impl Lane {
         }
     }
 
-    fn step(&mut self, mid_walk_damage: bool) -> bool {
+    /// One policy step; true if the mech just fell.
+    pub fn step(&mut self, mid_walk_damage: bool) -> bool {
         if let Some(c) = &mut self.calibrating {
             c.elapsed += POLICY_DT;
             let t = (c.elapsed / c.secs.max(1e-3)).min(1.0);
@@ -229,6 +254,8 @@ pub struct Lanes {
     pub dust_storm: f32,
     /// Projectile impacts `[impulse_ns, link_kind, pan]` since the last audio step.
     pub pending_impacts: Vec<[f32; 3]>,
+    /// The level being played (`Mode::Level`): its walls, rubble and objective.
+    pub level: Option<Level>,
     acc: f32,
     /// Fraction of the way from the previous policy step to the current one.
     pub blend: f32,
@@ -249,6 +276,7 @@ impl Default for Lanes {
             path_cfg,
             dust_storm: 0.0,
             pending_impacts: Vec::new(),
+            level: None,
             acc: 0.0,
             blend: 1.0,
             telemetry_in: 0.0,
@@ -271,10 +299,33 @@ impl Lanes {
     }
 
     pub fn reset_all(&mut self) {
+        if self.level.is_some() {
+            self.start_level();
+            return;
+        }
         let cfg = self.path_cfg.clone();
         for (i, l) in self.lanes.iter_mut().enumerate() {
             l.place(i, &cfg);
         }
+    }
+
+    /// Starts the level over: one mech at the base, fresh rubble.
+    pub fn start_level(&mut self) {
+        self.set_count(1);
+        self.selected = 0;
+        self.path_cfg.enabled = false;
+        // A light desert wind.
+        self.dust_storm = crate::level::WIND;
+        let serial = self.level.as_ref().map_or(1, |l| l.serial + 1);
+        self.level = Some(Level::new(serial));
+        let cfg = self.path_cfg.clone();
+        let (x, z, heading) = crate::level::START;
+        let lane = &mut self.lanes[0];
+        let params = lane.env.sim.params.clone();
+        lane.reset_at(0, params, x, z, heading, &cfg);
+        lane.env.command = Command::default();
+        self.command = Command::default();
+        lane.falls = 0;
     }
 
     /// Where the lanes are, on average (the camera follows it).
@@ -296,6 +347,9 @@ pub fn plugin(app: &mut App) {
 }
 
 fn init_mode(mode: Res<Mode>, mut lanes: ResMut<Lanes>) {
+    if *mode == Mode::Level {
+        lanes.start_level();
+    }
     if *mode == Mode::Path {
         lanes.path_cfg.enabled = true;
         lanes.command = Command {
@@ -331,10 +385,13 @@ fn take_policies(mut lanes: ResMut<Lanes>) {
                     p.parameter_count()
                 );
                 let cfg = lanes.path_cfg.clone();
+                let level = lanes.level.is_some();
                 let l = &mut lanes.lanes[lane];
                 l.policy = Some(p);
                 l.label = label;
-                l.place(lane, &cfg);
+                if !level {
+                    l.place(lane, &cfg);
+                }
             }
             Err(e) => warn!("lane {lane}: policy {label}: {e}"),
         }
@@ -373,6 +430,17 @@ pub fn apply(lanes: &mut Lanes, v: &Value) {
     match cmd {
         "mode" => {
             let m = Mode::parse(v.get("mode").and_then(Value::as_str).unwrap_or(""));
+            if m == Mode::Level {
+                if lanes.level.is_none() {
+                    lanes.start_level();
+                }
+                return;
+            }
+            if lanes.level.take().is_some() {
+                lanes.dust_storm = 0.0;
+                lanes.path_cfg.enabled = m == Mode::Path;
+                lanes.reset_all();
+            }
             let want_path = m == Mode::Path;
             if lanes.path_cfg.enabled != want_path {
                 lanes.path_cfg.enabled = want_path;
@@ -409,7 +477,13 @@ pub fn apply(lanes: &mut Lanes, v: &Value) {
                 lanes.dust_storm = d.clamp(0.0, 1.0);
             }
         }
+        "lanes" if lanes.level.is_some() => {}
         "lanes" => lanes.set_count(v.get("n").and_then(Value::as_u64).unwrap_or(1) as usize),
+        "shove" => {
+            if let Some(level) = &mut lanes.level {
+                level.want_shove = true;
+            }
+        }
         "walk" => {
             lanes.command = Command {
                 forward: num(v, "forward").unwrap_or(lanes.command.forward),
@@ -508,7 +582,11 @@ pub fn apply(lanes: &mut Lanes, v: &Value) {
     }
 }
 
-fn keys(keys: Res<ButtonInput<KeyCode>>, mut lanes: ResMut<Lanes>) {
+/// The demos' keys (the level has its own, `player::keys`).
+fn keys(keys: Res<ButtonInput<KeyCode>>, mode: Res<Mode>, mut lanes: ResMut<Lanes>) {
+    if *mode == Mode::Level {
+        return;
+    }
     let mut c = lanes.command;
     let mut changed = false;
     if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
@@ -557,6 +635,8 @@ pub fn step_lanes(time: Res<Time>, mut lanes: ResMut<Lanes>, mut status: ResMut<
     let dust = lanes.dust_storm;
     let cfg = lanes.path_cfg.clone();
     let wrap_dist = if cfg.enabled { 185.0 } else { WRAP };
+    // A level's mech walks where it likes: the level's walls keep it in.
+    let wrap = lanes.level.is_none();
     if !lanes.paused {
         lanes.acc += dt * lanes.speed;
         // At most a few steps a frame: a slow frame slows the mech down
@@ -566,21 +646,42 @@ pub fn step_lanes(time: Res<Time>, mut lanes: ResMut<Lanes>, mut status: ResMut<
             lanes.acc -= POLICY_DT;
             n += 1;
             let mut sel_step = None;
-            for (i, l) in lanes.lanes.iter_mut().enumerate() {
+            let Lanes {
+                lanes: list, level, ..
+            } = &mut *lanes;
+            for (i, l) in list.iter_mut().enumerate() {
+                if i == 0
+                    && let Some(level) = level.as_mut()
+                {
+                    level.attach(l);
+                    level.before_step(l);
+                }
                 let just_fell = l.step(cfg.enabled && cfg.mid_walk_damage);
                 if i == sel {
                     sel_step = Some(just_fell);
                 }
                 let fallen = l.fallen_for.map(|t| t + POLICY_DT);
                 l.fallen_for = fallen;
-                let far = l.env.sim.torso().translation().x.abs() > wrap_dist;
+                if i == 0
+                    && let Some(level) = level.as_mut()
+                {
+                    level.after_step(l);
+                    if fallen.is_some_and(|t| t > RESET_AFTER) {
+                        level.stand_up(l, &cfg);
+                    }
+                    continue;
+                }
+                let far = wrap && l.env.sim.torso().translation().x.abs() > wrap_dist;
                 if fallen.is_some_and(|t| t > RESET_AFTER) || far {
                     l.place(i, &cfg);
                 }
             }
             if let Some(just_fell) = sel_step {
                 let impacts = std::mem::take(&mut lanes.pending_impacts);
-                let step_val = audio_step(&lanes.lanes[sel], dust, just_fell, &impacts);
+                let mut step_val = audio_step(&lanes.lanes[sel], dust, just_fell, &impacts);
+                if let Some(level) = &mut lanes.level {
+                    level.audio_into(&mut step_val);
+                }
                 lanes.audio_steps.push(step_val);
             }
         }
@@ -608,6 +709,11 @@ pub fn step_lanes(time: Res<Time>, mut lanes: ResMut<Lanes>, mut status: ResMut<
     if lanes.telemetry_in <= 0.0 {
         lanes.telemetry_in = 0.1;
         status.telemetry = telemetry(&lanes).to_string();
+        status.level = lanes
+            .level
+            .as_ref()
+            .map(|l| l.status(&lanes.lanes[0]).to_string())
+            .unwrap_or_default();
     }
 }
 

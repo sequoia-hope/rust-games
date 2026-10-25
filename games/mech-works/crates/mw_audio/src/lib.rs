@@ -129,6 +129,18 @@ pub enum UiEvent {
     Damage,
     /// Swapping a torso/limb part in Demo 4 (calibration).
     PartSwap,
+    /// An objective reached in a level: a short, warm two-note chime.
+    Objective,
+}
+
+/// A loose rock striking the ground, another rock or the mech (the game's
+/// rubble, `mw_sim::rubble`): a stone knock, sized by the impulse.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RockEvent {
+    /// Impulse magnitude at the listener, N·s (the caller folds distance in).
+    pub impulse: f32,
+    /// Stereo pan in `-1.0..=1.0`.
+    pub pan: f32,
 }
 
 /// One step of telemetry and discrete events from the simulation (`mw_sim`).
@@ -152,6 +164,12 @@ pub struct AudioFrame {
     pub impacts: Vec<ImpactEvent>,
     /// UI control events occurring on this step.
     pub ui: Vec<UiEvent>,
+    /// Rock knocks on this step.
+    pub rocks: Vec<RockEvent>,
+    /// Loose rock sliding and rolling, t·m/s at the listener (each moving
+    /// rock's mass times its speed, the caller folding distance in): a
+    /// grinding gravel bed.
+    pub rubble_slide: f32,
 }
 
 impl Default for AudioFrame {
@@ -175,6 +193,8 @@ impl Default for AudioFrame {
             dust_storm: 0.0,
             impacts: Vec::new(),
             ui: Vec::new(),
+            rocks: Vec::new(),
+            rubble_slide: 0.0,
         }
     }
 }
@@ -502,6 +522,63 @@ impl ImpactVoice {
     }
 }
 
+/// A stone knock: a dull low thud through the ground, a short crack of
+/// stone on stone, and a trickle of grit after it.
+#[derive(Clone, Debug)]
+struct RockVoice {
+    t: usize,
+    dur: usize,
+    amp: f64,
+    pan: f64,
+    thud_hz: f64,
+    thud_ph: f64,
+    crack_bp: Svf,
+    grit_bp: Svf,
+    sr: f64,
+}
+
+impl RockVoice {
+    fn new(ev: RockEvent, r: &mut Rng, sr: f64) -> Self {
+        // 30 N·s: a pebble's tick; 600 N·s and up: a block landing.
+        let norm = ((ev.impulse as f64) / 400.0).clamp(0.04, 1.6);
+        Self {
+            t: 0,
+            dur: ((0.16 + 0.25 * norm) * sr) as usize,
+            amp: norm.sqrt() * 0.5,
+            pan: (ev.pan as f64).clamp(-0.9, 0.9),
+            // Bigger rocks knock lower.
+            thud_hz: 120.0 - 45.0 * norm.min(1.0) + 20.0 * r.f(),
+            thud_ph: 0.0,
+            crack_bp: Svf::new(900.0 + 900.0 * r.f(), 1.6, sr),
+            grit_bp: Svf::new(2600.0, 1.0, sr),
+            sr,
+        }
+    }
+
+    fn run(&mut self, r: &mut Rng) -> [f64; 2] {
+        if self.t >= self.dur {
+            return [0.0, 0.0];
+        }
+        let s = self.t as f64 / self.sr;
+        self.t += 1;
+        self.thud_ph = (self.thud_ph + self.thud_hz / self.sr).fract();
+        let thud = (TAU * self.thud_ph).sin() * (-s / 0.045).exp();
+        let nz = r.white();
+        self.crack_bp.run(nz);
+        let crack = self.crack_bp.bp * (-s / 0.012).exp() * 2.2;
+        // Grit: sparse grains falling off after the knock.
+        let grain = if r.f() < 0.02 { r.white() * 3.0 } else { 0.0 };
+        self.grit_bp.run(grain);
+        let grit = self.grit_bp.bp * (-s / 0.12).exp() * 0.5;
+        let y = (thud * 0.9 + crack + grit).tanh() * self.amp;
+        stereo_pan(y, self.pan)
+    }
+
+    fn done(&self) -> bool {
+        self.t >= self.dur
+    }
+}
+
 /// Relay clack on overcurrent fault, or heavy breaker clunk + alarm on thermal trip.
 #[derive(Clone, Debug)]
 enum FaultVoice {
@@ -579,6 +656,7 @@ impl FaultVoice {
             UiEvent::Click => 0.025,
             UiEvent::Damage => 0.085,
             UiEvent::PartSwap => 0.12,
+            UiEvent::Objective => 1.1,
         };
         Self::UiClick {
             t: 0,
@@ -716,6 +794,18 @@ impl FaultVoice {
                         };
                         (c1 + c2) * 0.22
                     }
+                    UiEvent::Objective => {
+                        // Two soft bell-like notes, a fifth apart.
+                        let note = |hz: f64, at: f64| {
+                            if s < at {
+                                return 0.0;
+                            }
+                            let u = s - at;
+                            let env = (u / 0.01).min(1.0) * (-u / 0.35).exp();
+                            ((TAU * hz * u).sin() + 0.3 * (TAU * 2.0 * hz * u).sin()) * env
+                        };
+                        (note(523.25, 0.0) + note(783.99, 0.16)) * 0.16
+                    }
                 };
                 [y, y]
             }
@@ -760,7 +850,13 @@ pub struct MechAudio {
     // Active discrete voices
     footsteps: Vec<FootstepVoice>,
     impacts: Vec<ImpactVoice>,
+    rocks: Vec<RockVoice>,
     faults: Vec<FaultVoice>,
+
+    // Loose rubble grinding and rolling
+    rubble_bp: Svf,
+    rubble_lp: Svf,
+    rubble_amp: f64,
 
     // Continuous servo & hydraulic beds (12 joints mixed to 1 hydraulic manifold
     // bed + top 3 individual joint servo voices + stall strain groan)
@@ -822,7 +918,12 @@ impl MechAudio {
 
             footsteps: Vec::with_capacity(8),
             impacts: Vec::with_capacity(8),
+            rocks: Vec::with_capacity(16),
             faults: Vec::with_capacity(8),
+
+            rubble_bp: Svf::new(700.0, 0.9, sr),
+            rubble_lp: Svf::new(160.0, 0.8, sr),
+            rubble_amp: 0.0,
 
             pump_ph: 0.0,
             pump_env: 0.0,
@@ -919,6 +1020,13 @@ impl MechAudio {
         for &ev in &frame.impacts {
             if ev.impulse > 1.0 {
                 self.impacts.push(ImpactVoice::new(ev, self.sr));
+            }
+        }
+
+        // Rock knocks (a few at most: a heap settling knocks many times a step).
+        for &ev in frame.rocks.iter().take(4) {
+            if ev.impulse > 5.0 && self.rocks.len() < 12 {
+                self.rocks.push(RockVoice::new(ev, &mut self.r, self.sr));
             }
         }
 
@@ -1055,6 +1163,11 @@ impl MechAudio {
         let ang_spd = ((w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt() as f64).min(6.0);
         let creak_t = ((ang_spd * (total_torque / 2500.0)) - 0.15).clamp(0.0, 1.0);
         self.creak_drive += (creak_t * 0.16 - self.creak_drive) * 0.12;
+
+        // 6. Loose rubble grinding: louder with more rock moving.
+        let slide = (fr.rubble_slide as f64).max(0.0);
+        let rubble_t = (slide / 2.5).min(1.0).sqrt();
+        self.rubble_amp += (rubble_t * 0.22 - self.rubble_amp) * 0.1;
     }
 
     /// Renders `l.len()` stereo samples into `l` and `r` (overwritten).
@@ -1188,6 +1301,18 @@ impl MechAudio {
                 out_r += creak;
             }
 
+            // 6b. Loose rubble grinding and rolling: gritty noise, gated in
+            // grains, over a low rumble.
+            if self.rubble_amp > 1e-4 {
+                let nz = self.r.white();
+                let gate = if self.r.f() < 0.3 { 1.6 } else { 0.4 };
+                self.rubble_bp.run(nz * gate);
+                self.rubble_lp.run(nz);
+                let g = (self.rubble_bp.bp * 0.9 + self.rubble_lp.lp * 1.4) * self.rubble_amp;
+                out_l += g;
+                out_r += g;
+            }
+
             // 7. Active discrete voices: footsteps, projectile impacts, faults/trips/falls/UI.
             let mut k = 0;
             while k < self.footsteps.len() {
@@ -1207,6 +1332,17 @@ impl MechAudio {
                 out_r += vr;
                 if self.impacts[k].done() {
                     self.impacts.swap_remove(k);
+                } else {
+                    k += 1;
+                }
+            }
+            let mut k = 0;
+            while k < self.rocks.len() {
+                let [vl, vr] = self.rocks[k].run(&mut self.r);
+                out_l += vl;
+                out_r += vr;
+                if self.rocks[k].done() {
+                    self.rocks.swap_remove(k);
                 } else {
                     k += 1;
                 }
@@ -1358,6 +1494,51 @@ mod tests {
             rms_fall > 0.08,
             "fall crash is big and heavy: {rms_fall:.4}"
         );
+    }
+
+    #[test]
+    fn rocks_knock_and_rubble_grinds() {
+        let mut quiet = MechAudio::new(5, 44100.0);
+        quiet.push_frame(AudioFrame::default());
+        let base = render_rms(&mut quiet, 0.3);
+
+        let mut knock = MechAudio::new(5, 44100.0);
+        knock.push_frame(AudioFrame {
+            rocks: vec![RockEvent {
+                impulse: 500.0,
+                pan: 0.3,
+            }],
+            ..Default::default()
+        });
+        let rms_knock = render_rms(&mut knock, 0.3);
+        assert!(
+            rms_knock > 4.0 * base,
+            "knock {rms_knock:.4} vs quiet {base:.4}"
+        );
+
+        let mut grind = MechAudio::new(5, 44100.0);
+        for _ in 0..20 {
+            grind.push_frame(AudioFrame {
+                rubble_slide: 2.0,
+                ..Default::default()
+            });
+        }
+        let rms_grind = render_rms(&mut grind, 0.5);
+        assert!(
+            rms_grind > 3.0 * base,
+            "grind {rms_grind:.4} vs quiet {base:.4}"
+        );
+    }
+
+    #[test]
+    fn an_objective_chimes() {
+        let mut a = MechAudio::new(8, 44100.0);
+        a.push_frame(AudioFrame {
+            ui: vec![UiEvent::Objective],
+            ..Default::default()
+        });
+        let rms = render_rms(&mut a, 0.6);
+        assert!(rms > 0.02 && rms.is_finite(), "chime {rms:.4}");
     }
 
     #[test]
