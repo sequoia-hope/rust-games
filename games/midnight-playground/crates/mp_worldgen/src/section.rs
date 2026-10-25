@@ -788,7 +788,80 @@ pub fn clear_branch_tarmac(w: &mut World) {
 pub fn finish(b: crate::world::Build) -> (crate::world::WorldBuild, CutStats) {
     let mut w = b.world;
     let stats = cut(&mut w);
+    split_large(&mut w);
     (w.finish(), stats)
+}
+
+/// The bytes of one mesh a streamed section's scene holds at most (D1245):
+/// the client converts a node's mesh in one item, and a megabyte or two of
+/// it is one frame's slice on the web (D1238). Half Moon Bay's merged
+/// stucco was 3.5 and 5 MB.
+pub const SPLIT_BYTES: usize = 3 << 19;
+
+/// Splits every plain mesh of a section whose geometry is over
+/// [`SPLIT_BYTES`] into meshes of runs of its triangles under it, beside
+/// it under the same parent, with its material, matrix and flags: the same
+/// drawing in pieces that each fit a frame. Nothing for the base (behind
+/// the loading screen) or a level.
+pub fn split_large(w: &mut World) {
+    if w.section.as_ref().is_none_or(|s| s.base) {
+        return;
+    }
+    let g = &w.graph;
+    let mut big: Vec<NodeId> = Vec::new();
+    let mut stack: Vec<NodeId> = g.roots.clone();
+    while let Some(id) = stack.pop() {
+        let o = g.get(id);
+        stack.extend(o.children.iter().copied());
+        let Some(geo) = o.geometry else { continue };
+        let geo = &g.geometries[geo.0 as usize];
+        if o.ty == mp_scene::NodeType::Mesh
+            && o.instances.is_none()
+            && !o.multi_material
+            && geo.groups.is_empty()
+            && geo.instanced.is_none()
+            && geo.draw_range.start == 0
+            && geo.draw_range.count.is_none()
+            && geo.byte_len() > SPLIT_BYTES
+        {
+            big.push(id);
+        }
+    }
+    for id in big {
+        let o = w.graph.get(id).clone();
+        let Some(gid) = o.geometry else { continue };
+        let geo = w.graph.geometries[gid.0 as usize].clone();
+        let pieces = geo.byte_len().div_ceil(SPLIT_BYTES);
+        let tris = geo.triangle_count();
+        let per = tris.div_ceil(pieces).max(1);
+        for p in 0..pieces {
+            let (from, to) = (p * per, ((p + 1) * per).min(tris));
+            if from >= to {
+                break;
+            }
+            let mut part = geo.triangle_range(from, to);
+            part.compute_bounding_sphere();
+            let part = w.graph.add_geometry(part);
+            if p == 0 {
+                w.graph.get_mut(id).geometry = Some(part);
+                continue;
+            }
+            let n = w.graph.object(crate::object::Object3D {
+                parent: None,
+                children: Vec::new(),
+                geometry: Some(part),
+                ..o.clone()
+            });
+            match o.parent {
+                Some(parent) => w.graph.add(parent, n),
+                None => w.graph.add_root(n),
+            }
+        }
+        // The whole geometry is drawn by nothing now.
+        if !w.graph.objects.iter().any(|x| x.geometry == Some(gid)) {
+            w.graph.geometries[gid.0 as usize] = crate::three_geom::BufferGeometry::new();
+        }
+    }
 }
 
 /// The packed form's magic.
@@ -802,6 +875,32 @@ struct Packed {
     log: Vec<String>,
     kept: usize,
     cut: usize,
+    /// Each texture's key (`Scene::texture_key`), when packed by
+    /// [`pack_sent`].
+    #[serde(default)]
+    keys: Vec<u64>,
+    /// The textures whose pixels were left out, already sent.
+    #[serde(default)]
+    stripped: Vec<Stripped>,
+}
+
+/// A texture packed without its pixels (D1245): the builder sent them with
+/// an earlier section, and the client has them by its key. The scene holds
+/// it as one pixel; this is its real size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Stripped {
+    pub texture: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A packed section read back ([`unpack_sent`]).
+pub struct Unpacked {
+    pub wb: WorldBuild,
+    pub stats: CutStats,
+    /// Each texture's key, when packed by [`pack_sent`] (else empty).
+    pub keys: Vec<u64>,
+    pub stripped: Vec<Stripped>,
 }
 
 /// A built section as bytes, for a worker to hand to the client (stage
@@ -810,6 +909,74 @@ struct Packed {
 /// animator that is a closure cannot be packed; the log says how many
 /// were lost. The sim data is not carried: the plan's base has it.
 pub fn pack(wb: &WorldBuild, stats: CutStats) -> Result<Vec<u8>, String> {
+    pack_with(wb, stats, Vec::new(), Vec::new(), &wb.scene)
+}
+
+/// [`pack`], leaving out the pixels of every texture whose key is in
+/// `sent` and adding the others' keys to it (D1245): most of a section's
+/// bytes are the terrain's and the kits' textures, the same in every
+/// section, which the client keeps by key once it has them. Each
+/// texture's key is packed.
+pub fn pack_sent(
+    wb: &WorldBuild,
+    stats: CutStats,
+    sent: &mut std::collections::BTreeSet<u64>,
+) -> Result<Vec<u8>, String> {
+    let keys: Vec<u64> = wb
+        .scene
+        .textures
+        .iter()
+        .map(|t| wb.scene.texture_key(t))
+        .collect();
+    let mut stripped = Vec::new();
+    let mut scene = std::borrow::Cow::Borrowed(&wb.scene);
+    for (i, &k) in keys.iter().enumerate() {
+        if !sent.contains(&k) {
+            continue;
+        }
+        let s = scene.to_mut();
+        let t = &s.textures[i];
+        stripped.push(Stripped {
+            texture: i as u32,
+            width: t.width,
+            height: t.height,
+        });
+        let channels = t.channels.max(1);
+        s.buffers.push(mp_scene::Buffer {
+            item_size: channels,
+            normalized: false,
+            data: mp_scene::BufferData::U8(vec![0; channels as usize]),
+        });
+        let one = s.buffers.len() as u32 - 1;
+        let t = &mut s.textures[i];
+        (t.width, t.height, t.pixels) = (1, 1, one);
+    }
+    if let std::borrow::Cow::Owned(s) = &mut scene {
+        // The pixels no texture names any more, emptied.
+        let used: std::collections::BTreeSet<u32> = s.textures.iter().map(|t| t.pixels).collect();
+        for &st in &stripped {
+            let p = wb.scene.textures[st.texture as usize].pixels;
+            if !used.contains(&p)
+                && let Some(b) = s.buffers.get_mut(p as usize)
+            {
+                b.item_size = 1;
+                b.data = mp_scene::BufferData::U8(Vec::new());
+            }
+        }
+    }
+    let all = keys.clone();
+    let out = pack_with(wb, stats, keys, stripped, &scene)?;
+    sent.extend(all);
+    Ok(out)
+}
+
+fn pack_with(
+    wb: &WorldBuild,
+    stats: CutStats,
+    keys: Vec<u64>,
+    stripped: Vec<Stripped>,
+    scene: &mp_scene::Scene,
+) -> Result<Vec<u8>, String> {
     let mut log = wb.log.clone();
     let lost = wb.animators.len().saturating_sub(wb.descs.len());
     if lost > 0 {
@@ -821,9 +988,11 @@ pub fn pack(wb: &WorldBuild, stats: CutStats) -> Result<Vec<u8>, String> {
         log,
         kept: stats.kept,
         cut: stats.cut,
+        keys,
+        stripped,
     })
     .map_err(|e| format!("packing a section: {e}"))?;
-    let scene = mp_scene::write(&wb.scene)?;
+    let scene = mp_scene::write(scene)?;
     let mut out = Vec::with_capacity(16 + extra.len() + scene.len());
     out.extend_from_slice(PACK_MAGIC);
     out.extend_from_slice(&(extra.len() as u32).to_le_bytes());
@@ -836,6 +1005,12 @@ pub fn pack(wb: &WorldBuild, stats: CutStats) -> Result<Vec<u8>, String> {
 /// A packed section read back: its scene, its animators made from their
 /// descriptions, and the cut's counts.
 pub fn unpack(bytes: &[u8]) -> Result<(WorldBuild, CutStats), String> {
+    unpack_sent(bytes).map(|u| (u.wb, u.stats))
+}
+
+/// [`unpack`], with the textures' keys and the ones packed without their
+/// pixels ([`pack_sent`]).
+pub fn unpack_sent(bytes: &[u8]) -> Result<Unpacked, String> {
     if bytes.len() < 16 || &bytes[..8] != PACK_MAGIC {
         return Err("not a packed section (bad magic)".into());
     }
@@ -855,8 +1030,8 @@ pub fn unpack(bytes: &[u8]) -> Result<(WorldBuild, CutStats), String> {
         .cloned()
         .map(AnimatorDesc::into_animator)
         .collect();
-    Ok((
-        WorldBuild {
+    Ok(Unpacked {
+        wb: WorldBuild {
             scene,
             animators,
             descs: p.descs,
@@ -869,9 +1044,11 @@ pub fn unpack(bytes: &[u8]) -> Result<(WorldBuild, CutStats), String> {
             sky: None,
             on_countdown: None,
         },
-        CutStats {
+        stats: CutStats {
             kept: p.kept,
             cut: p.cut,
         },
-    ))
+        keys: p.keys,
+        stripped: p.stripped,
+    })
 }

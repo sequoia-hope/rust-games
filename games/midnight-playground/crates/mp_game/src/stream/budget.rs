@@ -44,9 +44,12 @@ const ITEM_MESH_BYTES: u64 = 2 << 20;
 const ITEM_IMAGE_BYTES: u64 = 1 << 20;
 const ITEM_INSTANCE_BYTES: u64 = 2 << 20;
 /// A section's packed bytes, read back whole in one frame on the main
-/// thread: measured about 0.5 ms a MB (43 MB in 10 to 21 ms), so 16 MB is
-/// about 8 ms.
-const PACKED_BYTES: usize = 16 << 20;
+/// thread: measured about 0.5 ms a MB on the loop's first sections (43 MB
+/// in 10 to 21 ms, D1238), and 0.25 to 0.3 ms a MB once warm on the bay
+/// side (17 to 18 MB in 4 to 5 ms on WebGPU, D1245), so 32 MB is about 8
+/// to 10 ms. The worker sends a texture's pixels once (`pack_sent`), so
+/// only a section that first meets big textures comes near it.
+const PACKED_BYTES: usize = 32 << 20;
 
 /// One item's work.
 #[derive(Clone, Debug, Default)]
@@ -71,6 +74,8 @@ struct Report {
     most_instance: Item,
     /// Every texture item, by its pixels' hash (the image cache's key).
     textures: Vec<(u64, Item)>,
+    /// Every texture's key and its pixels' bytes as packed.
+    raw: Vec<(u64, u64)>,
     drawn: Vec<Drawn>,
     /// The nodes that drew a combination first, as the warm-up scene
     /// takes them (`super::warm::extract`).
@@ -101,13 +106,25 @@ fn spawn(key: Option<i64>, scene: mp_scene::Scene, packed: usize) -> Report {
         key,
         nodes: scene.nodes.len(),
         packed,
+        raw: scene
+            .textures
+            .iter()
+            .zip(&hashes)
+            .map(|(t, &h)| (h, u64::from(t.width * t.height * t.channels)))
+            .collect(),
         ..Report::default()
     };
     let mut b = loader::Build::new(scene, shared).under(root);
     let mut firsts: Vec<usize> = Vec::new();
     loop {
         let what = loader::next_item(&b);
-        let (e0, u0, d0, node) = (b.entities(), b.uploads(), b.drawn().len(), b.next_node());
+        let (e0, u0, d0, node, tex) = (
+            b.entities(),
+            b.uploads(),
+            b.drawn().len(),
+            b.next_node(),
+            b.next_texture(),
+        );
         if loader::step_item(
             &mut b,
             &mut commands,
@@ -134,9 +151,15 @@ fn spawn(key: Option<i64>, scene: mp_scene::Scene, packed: usize) -> Report {
             },
         };
         r.items += 1;
-        if it.what.starts_with("texture ") {
-            let h = hashes.get(r.textures.len()).copied().unwrap_or(0);
-            r.textures.push((h, it.clone()));
+        // A texture converts over several items (D1245): its heaviest.
+        if let Some(ti) = tex {
+            if ti == r.textures.len() {
+                r.textures.push((hashes[ti], it.clone()));
+            } else if let Some(e) = r.textures.get_mut(ti)
+                && it.up.image_bytes > e.1.up.image_bytes
+            {
+                e.1 = it.clone();
+            }
         }
         if it.entities > r.most_entities.entities {
             r.most_entities = it.clone();
@@ -252,6 +275,31 @@ fn every_section_streams_within_the_frame_budgets() {
     );
     let mut failures: Vec<String> = Vec::new();
 
+    // The hand-over as the worker packs it (`section::pack_sent`, D1245):
+    // a texture's pixels go with the first section that has it, the
+    // start's ring first and then along the roads; later ones leave them
+    // out.
+    let start = p.section_at(p.track.start_s);
+    let ring: BTreeSet<i64> = p.ring(start, BEHIND, AHEAD).into_iter().collect();
+    let mut order: Vec<&Report> = reports.iter().filter(|r| r.key.is_some()).collect();
+    order.sort_by_key(|r| (!r.key.is_some_and(|k| ring.contains(&k)), r.key));
+    let mut sent: HashSet<u64> = HashSet::new();
+    let mut handed: HashMap<i64, usize> = HashMap::new();
+    for r in order {
+        let mut left = 0u64;
+        let mut here: HashSet<u64> = HashSet::new();
+        for &(h, n) in &r.raw {
+            if sent.contains(&h) && here.insert(h) {
+                left += n;
+            }
+        }
+        sent.extend(r.raw.iter().map(|&(h, _)| h));
+        handed.insert(
+            r.key.unwrap_or_default(),
+            r.packed.saturating_sub(left as usize),
+        );
+    }
+
     // The figures, section by section.
     for r in &reports {
         let name = r.key.map_or_else(
@@ -319,9 +367,15 @@ fn every_section_streams_within_the_frame_budgets() {
             r.most_instance.up.instance_bytes,
             ITEM_INSTANCE_BYTES,
         ));
-        if r.packed > PACKED_BYTES {
+        let packed = handed
+            .get(&r.key.unwrap_or_default())
+            .copied()
+            .unwrap_or(r.packed);
+        if packed > PACKED_BYTES {
             failures.push(format!(
-                "section {name}: packed {} for the worker's hand-over, read back in one frame (budget {})",
+                "section {name}: packed {} for the worker's hand-over ({} with every texture), \
+                 read back in one frame (budget {})",
+                kb(packed as u64),
                 kb(r.packed as u64),
                 kb(PACKED_BYTES as u64)
             ));
@@ -329,8 +383,6 @@ fn every_section_streams_within_the_frame_budgets() {
     }
 
     // The warm-up: the base and the start's ring.
-    let start = p.section_at(p.track.start_s);
-    let ring: BTreeSet<i64> = p.ring(start, BEHIND, AHEAD).into_iter().collect();
     let mut warm: HashSet<Pipe> = HashSet::new();
     for r in &reports {
         if r.key.is_none_or(|k| ring.contains(&k)) {

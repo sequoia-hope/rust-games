@@ -12,6 +12,9 @@ use std::sync::Mutex;
 use mp_worldgen::stream::Planned;
 
 static PLAN: Mutex<Option<Planned>> = Mutex::new(None);
+/// The textures' keys whose pixels went with a section since the plan
+/// (`crate::build`): the client has them.
+static SENT: Mutex<std::collections::BTreeSet<u64>> = Mutex::new(std::collections::BTreeSet::new());
 static OUT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 #[link(wasm_import_module = "env")]
@@ -59,6 +62,7 @@ pub unsafe extern "C" fn mpb_plan(p: *const u8, len: u32) -> u32 {
     match crate::plan(&id) {
         Ok(plan) => {
             *PLAN.lock().unwrap_or_else(|e| e.into_inner()) = Some(plan);
+            SENT.lock().unwrap_or_else(|e| e.into_inner()).clear();
             set_out(Vec::new());
             1
         }
@@ -78,7 +82,8 @@ pub extern "C" fn mpb_build(k: i32) -> u32 {
         set_out(b"no level planned".to_vec());
         return 0;
     };
-    match crate::build(p, i64::from(k)) {
+    let mut sent = SENT.lock().unwrap_or_else(|e| e.into_inner());
+    match crate::build(p, i64::from(k), &mut sent) {
         Ok(bytes) => {
             set_out(bytes);
             1

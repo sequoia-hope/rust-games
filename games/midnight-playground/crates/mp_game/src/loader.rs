@@ -120,6 +120,11 @@ pub struct Build {
     /// pixels' hash: a section's textures are the level's own generated
     /// ones, the same in every section (D1214).
     image_cache: Option<ImageCache>,
+    /// The texture being converted, a slice an item (D1245).
+    job: Option<convert::ImageJob>,
+    /// The textures' keys, where the builder sent them (D1245): the cache
+    /// is looked in by these rather than by hashing the pixels here.
+    texture_keys: Vec<u64>,
     /// What the build has handed the GPU so far (the frame's work, D1238).
     uploads: Uploads,
     /// The combinations drawn, named (the work-budget tests, D1238).
@@ -156,20 +161,13 @@ pub struct Drawn {
 /// scenes.
 pub type ImageCache = Arc<Mutex<HashMap<u64, Handle<Image>>>>;
 
-/// A texture's identity: its pixels, size, channels and flip.
+/// The bytes of image one item converts at most (D1245): a megabyte is
+/// about 5 to 7 ms of the web's main thread (D1238).
+const IMAGE_SLICE: usize = 768 << 10;
+
+/// A texture's identity ([`Scene::texture_key`]): the image cache's key.
 pub fn texture_hash(scene: &Scene, t: &mp_scene::TextureDesc) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    if let Some(b) = scene.buffers.get(t.pixels as usize)
-        && let mp_scene::BufferData::U8(px) = &b.data
-    {
-        px.hash(&mut h);
-    }
-    (
-        t.width, t.height, t.channels, t.flip_y, t.format, t.wrap_s, t.wrap_t,
-    )
-        .hash(&mut h);
-    h.finish()
+    scene.texture_key(t)
 }
 
 impl Build {
@@ -220,6 +218,8 @@ impl Build {
             converted: Vec::new(),
             material_base: 0,
             image_cache: None,
+            job: None,
+            texture_keys: Vec::new(),
             uploads: Uploads::default(),
             drawn: Vec::new(),
             step: Step::Textures,
@@ -268,26 +268,62 @@ impl Build {
         self
     }
 
+    /// The textures' keys as the builder computed them (`mp_worldgen::
+    /// section::unpack_sent`); a texture packed without its pixels is
+    /// found in the image cache by its key.
+    pub fn with_texture_keys(mut self, keys: Vec<u64>) -> Build {
+        if keys.len() == self.scene.textures.len() {
+            self.texture_keys = keys;
+        }
+        self
+    }
+
     /// A texture's image: from the cache by its pixels, else converted
-    /// (and kept, when there is a cache).
-    fn image(&mut self, k: usize, images: &mut Assets<Image>) -> Option<Handle<Image>> {
-        let t = self.scene.textures.get(k)?;
-        let key = self
-            .image_cache
-            .as_ref()
-            .map(|_| texture_hash(&self.scene, t));
-        if let (Some(c), Some(key)) = (&self.image_cache, key)
-            && let Some(h) = c.lock().ok().and_then(|m| m.get(&key).cloned())
-        {
-            return Some(h);
-        }
-        let img = match self.converted.get_mut(k) {
-            Some(img) => img.take(),
-            None => convert::build_image(&self.scene, t),
+    /// (and kept, when there is a cache), [`IMAGE_SLICE`] bytes a call
+    /// (D1245): None until it is whole.
+    fn image(&mut self, k: usize, images: &mut Assets<Image>) -> Option<Option<Handle<Image>>> {
+        let Some(t) = self.scene.textures.get(k) else {
+            return Some(None);
         };
-        if let Some(d) = img.as_ref().and_then(|i| i.data.as_ref()) {
-            self.uploads.image_bytes += d.len() as u64;
+        let key = self.image_cache.as_ref().map(|_| {
+            self.texture_keys
+                .get(k)
+                .copied()
+                .unwrap_or_else(|| texture_hash(&self.scene, t))
+        });
+        if self.job.is_none() {
+            if let (Some(c), Some(key)) = (&self.image_cache, key)
+                && let Some(h) = c.lock().ok().and_then(|m| m.get(&key).cloned())
+            {
+                return Some(Some(h));
+            }
+            if let Some(img) = self.converted.get_mut(k) {
+                let img = img.take();
+                return Some(self.keep(key, img, images));
+            }
+            match convert::ImageJob::new(&self.scene, t) {
+                Some(job) => self.job = Some(job),
+                None => return Some(None),
+            }
         }
+        let job = self.job.as_mut()?;
+        let before = job.made();
+        let done = job.step(&self.scene, IMAGE_SLICE);
+        self.uploads.image_bytes += (job.made() - before) as u64;
+        if !done {
+            return None;
+        }
+        let img = self.job.take().map(convert::ImageJob::finish);
+        Some(self.keep(key, img, images))
+    }
+
+    /// An image made: added, and kept in the cache by `key`.
+    fn keep(
+        &mut self,
+        key: Option<u64>,
+        img: Option<Image>,
+        images: &mut Assets<Image>,
+    ) -> Option<Handle<Image>> {
         let h = img.map(|i| images.add(i));
         if let (Some(c), Some(key), Some(h)) = (&self.image_cache, key, &h)
             && let Ok(mut m) = c.lock()
@@ -300,6 +336,12 @@ impl Build {
     /// The scene being built.
     pub fn scene(&self) -> &Scene {
         &self.scene
+    }
+
+    /// The texture [`step_item`] converts next (or goes on converting).
+    pub fn next_texture(&self) -> Option<usize> {
+        (matches!(self.step, Step::Textures) && self.cursor < self.scene.textures.len())
+            .then_some(self.cursor)
     }
 
     /// The node [`step_item`] spawns next, once the textures are done.
@@ -883,9 +925,10 @@ pub fn build_step(
         match b.step {
             Step::Textures => {
                 if b.cursor < b.scene.textures.len() {
-                    let img = b.image(b.cursor, &mut images);
-                    b.images.push(img);
-                    b.cursor += 1;
+                    if let Some(img) = b.image(b.cursor, &mut images) {
+                        b.images.push(img);
+                        b.cursor += 1;
+                    }
                 } else {
                     b.step = Step::Nodes;
                     b.cursor = 0;
@@ -1022,9 +1065,10 @@ pub fn step_item(
     match b.step {
         Step::Textures => {
             if b.cursor < b.scene.textures.len() {
-                let img = b.image(b.cursor, images);
-                b.images.push(img);
-                b.cursor += 1;
+                if let Some(img) = b.image(b.cursor, images) {
+                    b.images.push(img);
+                    b.cursor += 1;
+                }
             } else {
                 b.step = Step::Nodes;
                 b.cursor = 0;

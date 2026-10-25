@@ -158,6 +158,11 @@ pub struct Stream {
     /// The base scene's materials, which take the map's first range.
     base_materials: u32,
     t0: Option<Instant>,
+    /// Textures' pixels a section from the worker brought, by key, until
+    /// they are in the image cache: a later section packed without them
+    /// (D1245) may come up first.
+    #[cfg(target_arch = "wasm32")]
+    stash: std::collections::HashMap<u64, mp_scene::Buffer>,
     /// The level's warm-up scene (D1245), spawned once behind the loading
     /// screen: its stand-ins compile every pipeline the drive will need.
     warm: Warm,
@@ -188,6 +193,8 @@ impl Default for Stream {
             bases: Vec::new(),
             base_materials: 0,
             t0: None,
+            #[cfg(target_arch = "wasm32")]
+            stash: Default::default(),
             warm: Warm::Off,
         }
     }
@@ -507,7 +514,7 @@ fn drive_inner(
                     inbox().scene = Some(Err(format!("stream: base: {e}")));
                     st.phase = Phase::Running;
                 }
-                (Some(k), r) => section_built(st, commands, k, r, work),
+                (Some(k), r) => section_built(st, commands, k, r, Vec::new(), work),
             }
         }
     }
@@ -607,18 +614,27 @@ fn drive_inner(
                     ms,
                     bytes,
                 } if generation == st.generation => {
+                    // Read back even when no longer wanted: its textures'
+                    // pixels go with no other section.
+                    let t0 = Instant::now();
+                    let r = section::unpack_sent(&bytes).and_then(|mut u| {
+                        resolve(&mut u, &st.image_cache, &mut st.stash)?;
+                        Ok(u)
+                    });
+                    work.unpack_ms += t0.elapsed().as_secs_f32() * 1e3;
                     if !matches!(st.secs.get(&k), Some(Sec::Worker)) {
                         continue;
                     }
-                    let t0 = Instant::now();
-                    let r = section::unpack(&bytes);
-                    work.unpack_ms += t0.elapsed().as_secs_f32() * 1e3;
+                    let (r, keys) = match r {
+                        Ok(u) => (Ok((u.wb, u.stats)), u.keys),
+                        Err(e) => (Err(e), Vec::new()),
+                    };
                     info!(
                         "stream: section {k} from the worker ({ms:.0} ms there, {:.1} MB, read in {:.1} ms)",
                         bytes.len() as f64 / 1048576.0,
                         t0.elapsed().as_secs_f64() * 1e3
                     );
-                    section_built(st, commands, k, r, work);
+                    section_built(st, commands, k, r, keys, work);
                 }
                 crate::worker::Msg::Failed {
                     generation,
@@ -726,7 +742,7 @@ fn drive_inner(
             }
         }
         for (k, r) in finished {
-            section_built(st, commands, k, r, work);
+            section_built(st, commands, k, r, Vec::new(), work);
         }
     }
 
@@ -902,12 +918,53 @@ fn base_up(st: &mut Stream, wg: &mut WorldGen, mut wb: WorldBuild) {
     inbox().scene = Some(Ok(animate::drawable_scene(scene)));
 }
 
+/// A section from the worker made whole (D1245): the pixels it brings are
+/// kept by key until converted, and each texture packed without its
+/// pixels is either in the image cache (the loader finds it by key) or
+/// has them back from the stash.
+#[cfg(target_arch = "wasm32")]
+fn resolve(
+    u: &mut section::Unpacked,
+    cache: &ImageCache,
+    stash: &mut std::collections::HashMap<u64, mp_scene::Buffer>,
+) -> Result<(), String> {
+    let have = cache.lock().unwrap_or_else(|e| e.into_inner());
+    stash.retain(|k, _| !have.contains_key(k));
+    let scene = &mut u.wb.scene;
+    let stripped: std::collections::HashSet<u32> = u.stripped.iter().map(|s| s.texture).collect();
+    for (i, t) in scene.textures.iter().enumerate() {
+        let Some(&k) = u.keys.get(i) else { break };
+        if stripped.contains(&(i as u32)) || have.contains_key(&k) || stash.contains_key(&k) {
+            continue;
+        }
+        if let Some(b) = scene.buffers.get(t.pixels as usize) {
+            stash.insert(k, b.clone());
+        }
+    }
+    for s in &u.stripped {
+        let k = u.keys.get(s.texture as usize).copied().unwrap_or_default();
+        if have.contains_key(&k) {
+            continue;
+        }
+        let px = stash
+            .get(&k)
+            .ok_or_else(|| format!("texture {} ({k:016x}) came with no section here", s.texture))?
+            .clone();
+        scene.buffers.push(px);
+        let at = scene.buffers.len() as u32 - 1;
+        let t = &mut scene.textures[s.texture as usize];
+        (t.width, t.height, t.pixels) = (s.width, s.height, at);
+    }
+    Ok(())
+}
+
 /// A section built: its scene goes to the loader under a root of its own.
 fn section_built(
     st: &mut Stream,
     commands: &mut Commands,
     k: i64,
     r: Result<(WorldBuild, CutStats), String>,
+    keys: Vec<u64>,
     work: &mut FrameWork,
 ) {
     // Not wanted any more while it built.
@@ -950,7 +1007,8 @@ fn section_built(
             )
             .under(root)
             .with_material_base(base.0)
-            .with_image_cache(st.image_cache.clone());
+            .with_image_cache(st.image_cache.clone())
+            .with_texture_keys(keys);
             st.secs.insert(
                 k,
                 Sec::Spawning {
