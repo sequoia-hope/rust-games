@@ -120,7 +120,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(First, begin)
         .add_systems(Last, count_assets);
     #[cfg(target_arch = "wasm32")]
-    app.add_systems(Last, web::publish.after(count_assets));
+    app.add_systems(Last, (web::publish.after(count_assets), web::census));
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -136,6 +136,56 @@ mod web {
 
     fn set(o: &Object, k: &str, v: impl Into<JsValue>) {
         let _ = Reflect::set(o, &JsValue::from_str(k), &v.into());
+    }
+
+    /// Every 60 frames, what the world holds as `__mp.census`: entities,
+    /// the mesh, image and material assets, the stream's image cache and
+    /// stash (textures, kB), its sections and block-map ranges, and the
+    /// animation blocks in use and free. A long drive reads it to see
+    /// what grows (D1252).
+    pub fn census(world: &World, mut n: Local<u32>) {
+        *n += 1;
+        if *n % 60 != 1 {
+            return;
+        }
+        let o = Object::new();
+        set(&o, "entities", world.entities().count_spawned() as f64);
+        let len = |l: Option<usize>| l.map_or(-1.0, |l| l as f64);
+        set(
+            &o,
+            "meshes",
+            len(world.get_resource::<Assets<Mesh>>().map(|a| a.len())),
+        );
+        set(
+            &o,
+            "images",
+            len(world.get_resource::<Assets<Image>>().map(|a| a.len())),
+        );
+        set(
+            &o,
+            "materials",
+            len(world
+                .get_resource::<Assets<crate::render::ThreeMaterial>>()
+                .map(|a| a.len())),
+        );
+        if let Some(st) = world.get_resource::<crate::stream::Stream>() {
+            let [cache, stash, stash_bytes, secs, bases] = st.held();
+            set(&o, "imageCache", cache as f64);
+            set(&o, "stash", stash as f64);
+            set(&o, "stashKB", (stash_bytes as f64 / 1024.0).round());
+            set(&o, "sections", secs as f64);
+            set(&o, "bases", bases as f64);
+        }
+        if let Some(b) = world.get_resource::<crate::animate::AnimBlocks>() {
+            set(
+                &o,
+                "blocks",
+                (b.texels.len() / crate::render::lighting::BLOCK_TEXELS) as f64,
+            );
+            set(&o, "freeBlocks", b.free.len() as f64);
+            set(&o, "blockMap", b.map.len() as f64);
+        }
+        bridge::set("census", o);
     }
 
     /// Appends the frame's entry to `__mp.frameWork` when it did anything

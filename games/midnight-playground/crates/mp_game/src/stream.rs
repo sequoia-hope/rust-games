@@ -51,6 +51,10 @@ const BUILD_LOADING_MS: u128 = 30;
 const BUILD_RUNNING_MS: u128 = 6;
 const SPAWN_LOADING_MS: u128 = 40;
 const SPAWN_RUNNING_MS: u128 = 5;
+/// Bytes a frame's spawning may make for the GPU while running (D1252):
+/// what the render world uploads that frame, about 5 ms of a frame at 2
+/// MB of meshes (D1238's figures).
+const SPAWN_RUNNING_BYTES: u64 = 2 << 20;
 
 /// Whether the level is streamed: an open level the client builds, unless
 /// `?stream=0` asks for it whole (the whole loop is 223 MB of buffers).
@@ -250,6 +254,21 @@ impl Stream {
     /// Whether the start's sections were up once (the level's `ready`).
     pub fn started(&self) -> bool {
         self.started
+    }
+
+    /// What the stream holds, for a long drive's census (`__mp.census`):
+    /// the image cache's textures, the stash's textures and bytes, the
+    /// sections in any state, and the block map's ranges in use.
+    pub fn held(&self) -> [usize; 5] {
+        let cache = self.image_cache.lock().map_or(0, |c| c.len());
+        #[cfg(target_arch = "wasm32")]
+        let (stash, stash_bytes) = (
+            self.stash.len(),
+            self.stash.values().map(|b| b.data.len()).sum::<usize>(),
+        );
+        #[cfg(not(target_arch = "wasm32"))]
+        let (stash, stash_bytes) = (0, 0);
+        [cache, stash, stash_bytes, self.secs.len(), self.bases.len()]
     }
 
     /// The level planned, once it is.
@@ -813,10 +832,10 @@ fn drive_inner(
     }
 
     // Spawning, stepped.
-    let budget = if loading {
-        SPAWN_LOADING_MS
+    let (budget, bytes) = if loading {
+        (SPAWN_LOADING_MS, u64::MAX)
     } else {
-        SPAWN_RUNNING_MS
+        (SPAWN_RUNNING_MS, SPAWN_RUNNING_BYTES)
     };
     let mut up: Vec<i64> = Vec::new();
     for (k, s) in st.secs.iter_mut() {
@@ -824,7 +843,7 @@ fn drive_inner(
             continue;
         };
         let (t0, before, up0) = (Instant::now(), build.entities(), build.uploads());
-        let done = loader::step_section(
+        let done = loader::step_section_within(
             build,
             commands,
             meshes,
@@ -832,6 +851,7 @@ fn drive_inner(
             sky_materials,
             images,
             budget,
+            bytes,
         );
         work.spawn_ms += t0.elapsed().as_secs_f32() * 1e3;
         work.spawned += (build.entities() - before) as u32;

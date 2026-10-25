@@ -11924,3 +11924,70 @@ the car crossed into a new square.
   the corner, frames ran 75 to 110 ms for ten seconds once and not again
   in two later runs (150 to 400 draws a frame; the machine's load average
   was 20): not chased further.
+
+## D1252 (2026-10-24): a long drive, measured; the uploads a frame bounded
+
+The owner, on the bay side after D1245: smoother, "but if I drive for a
+while it stutters again, probably tiles loading". Looked for what grows
+or falls behind over a long drive (release web build, headless Chrome on
+the owner's machine, El Camino from San Mateo to San Francisco and back at
+30 m/s, 101 from Redwood City at 55 m/s started from the menu, the car
+parked; 5 to 10 minutes each, WebGPU and WebGL2).
+
+- **Nothing grows.** Over ten minutes and some 25 squares: meshes 1200 to
+  1500, materials 200 to 260, images 62 to 65, entities 2700 to 3000 (all
+  following the squares round the car, back to the start's figures in the
+  same places), the image cache 14 to 16 textures, the stash 0 to 6 (2.7
+  MB, sections read back but no longer wanted), the stream's sections 14
+  to 16, the block map's ranges plateauing at 173 of 512, the animation
+  blocks reused (free list 0 to 12), the wasm memory flat (427 to 496 MB
+  by backend), the GPU process's memory flat (432 MB), the JS heap a
+  sawtooth of 8 to 44 MB.
+- **Nothing gets slower**, at the display's rate: every 30 s window of a
+  ten-minute drive p50 16.7 ms and p95 16.7 to 16.8 ms, no frame over 50
+  ms, the frames with the stream's work in them at most 33 ms (one missed
+  vsync, a few a minute), WebGPU and WebGL2 alike; 101 at 55 m/s from the
+  menu the same. With the CPU throttled 4× the frame rate follows the
+  place (p50 16.7 to 33 ms in the city), not the time driven.
+- **Uncapped frames are not a player's.** With `--disable-frame-rate-limit`
+  (the perf tools' default) at 400 fps, frames of 100 to 300 ms came every
+  2 s after two or three minutes and grew with time, with no stream work
+  around them and identically with the car parked and nothing streaming.
+  The CPU profile has them in `writeBuffer` and `createCommandEncoder`
+  (53 % and 5 % of their samples), and a Chrome trace in the GPU process:
+  one WebGPU `CommandBuffer::Flush` of 130 to 166 ms handling a backlog
+  of commands. The page outruns the GPU process and is held when its
+  transfer buffer fills; at the display's rate it never happens. A full
+  GC every 250 ms (`--gc`) took most of them away, which was the clue that
+  the rhythm was the page's, not the world's. (Asking `nvidia-smi` for the
+  GPU's memory stalls a frame or two by itself: `--gpu-mem` is off unless
+  asked.) The stutter suite runs at the display's rate, as it should.
+- **Fixed: a section's spawning slice is bounded in bytes too**
+  (`loader::step_section_within`, `SPAWN_RUNNING_BYTES` 2 MB while
+  running). The 5 ms slice spawned a whole square's meshes at once,
+  because making a mesh is quick on the main thread; the render world then
+  uploaded them in the same frame: 3.3 to 6.8 MB a frame (a 56 ms frame
+  uncapped, 6.6 MB in it). Now 2.1 to 2.7 MB (2 MB and the item that
+  crossed it); the square is up a few frames later. Behind the loading
+  screen there is no bound.
+- **What a drive holds is published** (`__mp.census`, every 60 frames:
+  entities, meshes, images, materials, the image cache, the stash and its
+  kB, the sections, the block map's ranges, the animation blocks and their
+  free list), and `tools/parity/long-drive.mjs` drives a corridor for
+  minutes and reports each window's frame times, memory and census, every
+  long frame with the stream's work and the GPU calls round it (`--capped`,
+  `--menu`, `--throttle`, `--prof`, `--trace`, `--gc`, `--gpu-mem`).
+- **Regression check:** the stutter suite's `long` scenario
+  (`MP_STUTTER_ONLY=long`, 480 s, not in the default set): El Camino north
+  from San Mateo held to the cruise's budgets, the last third no worse
+  than the first (p95 within 3 ms, frames over 33 ms at most twice the
+  rate and 5 more), and the census not growing (entities, meshes,
+  materials and images in the second half at most 1.6× the first half's
+  and 50, the wasm memory 128 MB, the image cache 64 textures, the stash 64
+  MB, 25 sections, the block map short of full). Passed: 28 801 frames in
+  480 s, p95 16.7 ms, the longest 16.8 ms.
+- **Not found:** the owner's stutter itself. On this machine a long drive
+  is as smooth at ten minutes as at one; what the owner saw may be the
+  machine's load (load averages of 20 to 40 during these runs from other
+  sessions' builds and a model server on the same GPU), another device,
+  or what came onto the bay side after D1245.

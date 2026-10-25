@@ -1042,8 +1042,36 @@ pub fn step_section(
     images: &mut Assets<Image>,
     budget_ms: u128,
 ) -> bool {
-    let t0 = Instant::now();
-    while t0.elapsed().as_millis() < budget_ms {
+    step_section_within(
+        b,
+        commands,
+        meshes,
+        materials,
+        sky_materials,
+        images,
+        budget_ms,
+        u64::MAX,
+    )
+}
+
+/// [`step_section`], stopping too once the slice has made `max_bytes` for
+/// the GPU ([`Build::uploads`]: meshes, images, instance streams), which
+/// the render world uploads in the same frame: a streamed section's
+/// meshes went up 6.6 MB in one frame of 56 ms (D1252). An item is never
+/// split, so a slice makes at most `max_bytes` and one item.
+#[allow(clippy::too_many_arguments)]
+pub fn step_section_within(
+    b: &mut Build,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ThreeMaterial>,
+    sky_materials: &mut Assets<SkyMaterial>,
+    images: &mut Assets<Image>,
+    budget_ms: u128,
+    max_bytes: u64,
+) -> bool {
+    let (t0, made0) = (Instant::now(), b.uploads().total());
+    while t0.elapsed().as_millis() < budget_ms && b.uploads().total() - made0 < max_bytes {
         if step_item(b, commands, meshes, materials, sky_materials, images) {
             return true;
         }

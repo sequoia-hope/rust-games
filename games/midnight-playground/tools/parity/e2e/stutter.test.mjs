@@ -10,12 +10,16 @@
 // and then flying (D1237); a cruise on the loop on autodrive across
 // section boundaries; a turn off Highway 1 onto Tunitas Creek Road (the
 // ring crossing a junction), steered with the keyboard along the
-// corridors; an event started from the cruise (hold gas and brake).
+// corridors; an event started from the cruise (hold gas and brake); and,
+// only when asked for (`MP_STUTTER_ONLY=long`, eight minutes), a long
+// drive up El Camino from San Mateo through the squares to San Francisco,
+// held to the same budgets and to not getting worse as it goes (D1252).
 //
 //   cargo xtask web --release && node --test tools/parity/e2e/stutter.test.mjs
 //   (MP_BACKEND=webgl2 for the WebGL2 build, MP_DEVICE=phone for phone
 //    emulation, MP_STUTTER_SECS=<s> for the cruise's length (default 120),
-//    MP_STUTTER_ONLY=menu,cruise,branch,event to pick scenarios)
+//    MP_STUTTER_LONG_SECS=<s> for the long drive's (default 480),
+//    MP_STUTTER_ONLY=menu,cruise,branch,event,long to pick scenarios)
 //
 // The budgets are per backend and device, from baselines measured on the
 // owner's machine (D1238); the load average is printed with each, since
@@ -33,6 +37,7 @@ import { launch, openGame, sleep } from './harness.mjs';
 const BACKEND = process.env.MP_BACKEND || 'webgpu';
 const DEVICE = process.env.MP_DEVICE || 'desktop';
 const SECS = Number(process.env.MP_STUTTER_SECS || 120);
+const LONG_SECS = Number(process.env.MP_STUTTER_LONG_SECS || 480);
 const ONLY = process.env.MP_STUTTER_ONLY ? process.env.MP_STUTTER_ONLY.split(',') : null;
 const backendQ = process.env.MP_BACKEND ? `backend=${process.env.MP_BACKEND}&` : '';
 const SPIKE_MS = 50;
@@ -47,8 +52,8 @@ const SPIKE_MS = 50;
 // `null`: reported, not held. Measured on the owner's machine (D1238).
 const HARD = { p95: 20, over33PerMin: 10, work: 50, other: 150, other50PerMin: 2 };
 const BUDGETS = {
-  'webgpu/desktop': { menuHolding: null, menuFlying: HARD, cruise: HARD, branch: HARD, event: HARD },
-  'webgl2/desktop': { menuHolding: null, menuFlying: HARD, cruise: HARD, branch: HARD, event: HARD },
+  'webgpu/desktop': { menuHolding: null, menuFlying: HARD, cruise: HARD, branch: HARD, event: HARD, long: HARD },
+  'webgl2/desktop': { menuHolding: null, menuFlying: HARD, cruise: HARD, branch: HARD, event: HARD, long: HARD },
 };
 BUDGETS['webgpu/phone'] = BUDGETS['webgpu/desktop'];
 BUDGETS['webgl2/phone'] = BUDGETS['webgl2/desktop'];
@@ -411,6 +416,68 @@ test('an event started from the cruise: hold gas and brake, the countdown, the r
     }, c.s);
     await follow(game, tape, route, { speed: () => 25, done: (_, i) => i > route.length - 10, secs: 20 });
     judge('an event from the cruise (hold, countdown, 20 s of racing)', tape, budgets.event);
+    assert.deepEqual(game.errors, []);
+  } finally { await game.close(); }
+});
+
+test('a long drive up El Camino: the stream keeps up and nothing grows', { skip: !ONLY?.includes('long') }, async () => {
+  const game = await openCruise('&start=san-mateo');
+  try {
+    await settle(game);
+    // El Camino north from the car (the corridor runs south to north).
+    const road = corridor('el-camino');
+    const c0 = await car(game);
+    let from = 0, best = Infinity;
+    road.forEach(([x, z], i) => { const d = (x - c0.x) ** 2 + (z - c0.z) ** 2; if (d < best) { best = d; from = i; } });
+    const route = road.slice(from);
+    // What the world holds (`__mp.census`) and the wasm memory, a sample
+    // every 30 s.
+    const census = [];
+    const sample = async (t) => census.push({ t, ...(await game.eval(() => ({
+      ...(window.__mp.census || {}), wasmMB: Math.round((window.__mp.wasmMemoryBytes?.() || 0) / 1048576),
+    }))) });
+    const tape = new Tape();
+    await record(game);
+    await sample(0);
+    const t0 = Date.now();
+    // Driven 30 s at a time, each part's frames kept for the trend.
+    const parts = [];
+    let at = 0;
+    while ((Date.now() - t0) / 1000 < LONG_SECS - 1 && at < route.length - 10) {
+      const n0 = tape.s.length;
+      const left = LONG_SECS - (Date.now() - t0) / 1000;
+      const rest = route.slice(at);
+      const r = await follow(game, tape, rest, { speed: () => 30, done: (_, i) => i >= rest.length - 10, secs: Math.min(30, left), log: 30 });
+      at += r.at;
+      parts.push(tape.s.slice(n0));
+      await sample(Math.round((Date.now() - t0) / 1000));
+    }
+    const c1 = await car(game);
+    console.log(`long drive: ${(Math.hypot(c1.x - c0.x, c1.z - c0.z) / 1000).toFixed(1)} km from (${c0.x.toFixed(0)}, ${c0.z.toFixed(0)}) to (${c1.x.toFixed(0)}, ${c1.z.toFixed(0)}) in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+    for (const c of census) console.log(`    t ${c.t} s: ${Object.entries(c).filter(([k]) => k !== 't').map(([k, v]) => `${k} ${v}`).join(' ')}`);
+    const res = judge(`a long drive, ${LONG_SECS} s up El Camino`, tape, budgets.long);
+    // Not worse at the end: the last third's frames against the first's.
+    const third = Math.max(1, Math.floor(parts.length / 3));
+    const stats = (ps) => analyse(Object.assign(new Tape(), { s: ps.flat(), w: tape.w })).stats;
+    const a = stats(parts.slice(0, third)), b = stats(parts.slice(-third));
+    console.log(`long drive: first third p95 ${a.p95} ms, ${a.over33} over 33 ms in ${a.secs} s; last third p95 ${b.p95} ms, ${b.over33} over 33 ms in ${b.secs} s`);
+    if (b.p95 > a.p95 + 3) failures.push(`long drive: p95 ${a.p95} ms in the first third, ${b.p95} ms in the last`);
+    if (b.over33 / b.secs > (a.over33 + 5) / a.secs * 2) failures.push(`long drive: ${a.over33} frames over 33 ms in the first third, ${b.over33} in the last`);
+    // Nothing the world holds grows without bound: what the second half
+    // holds at most against the first half's (the squares differ, so a
+    // margin), and the stream's own caches against fixed bounds.
+    const half = census.slice(Math.floor(census.length / 2));
+    const most = (list, k) => Math.max(0, ...list.map((c) => c[k] ?? 0));
+    const first = census.slice(0, Math.floor(census.length / 2) || 1);
+    for (const k of ['entities', 'meshes', 'materials', 'images']) {
+      if (most(half, k) > most(first, k) * 1.6 + 50) failures.push(`long drive: ${k} grew from at most ${most(first, k)} to ${most(half, k)}`);
+    }
+    if (most(half, 'wasmMB') > most(first, 'wasmMB') + 128) failures.push(`long drive: the wasm memory grew from ${most(first, 'wasmMB')} MB to ${most(half, 'wasmMB')} MB`);
+    if (most(census, 'imageCache') > 64) failures.push(`long drive: the image cache holds ${most(census, 'imageCache')} textures`);
+    if (most(census, 'stashKB') > 64 << 10) failures.push(`long drive: the texture stash holds ${most(census, 'stashKB')} kB`);
+    if (most(census, 'sections') > 25) failures.push(`long drive: the stream holds ${most(census, 'sections')} sections`);
+    if (most(census, 'blockMap') >= 512) failures.push(`long drive: the block map is full (${most(census, 'blockMap')})`);
+    assert.ok(res.stats.n > 0);
     assert.deepEqual(game.errors, []);
   } finally { await game.close(); }
 });
