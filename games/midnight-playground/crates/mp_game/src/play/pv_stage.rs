@@ -440,8 +440,8 @@ fn run(
         let extras = [Extras::default()];
         m.fx.fx.update(dt, night, &ins, &extras);
         // The pools on the road (D1042).
-        let mut hints = vec![player.s];
-        hints.extend((0..n).map(|i| pu.police(i).k.v.s));
+        let mut hints = vec![(0, player.s)];
+        hints.extend((0..n).map(|i| (0, pu.police(i).k.v.s)));
         m.fx.fx.lay_pools(track, &hints);
     }
     m.view.sync_spikes(

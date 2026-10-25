@@ -208,9 +208,14 @@ fn stage(
         }
         fx.fx.update(dt, night, &ins, &extras);
         // The pools on the road (D1042), each car's s the hint.
-        let hints: Vec<f64> = cars
+        let hints: Vec<(usize, f64)> = cars
             .iter()
-            .map(|c| num(c, "s", 0.0) + num(c, "speed", 0.0) * f64::from(k) * dt)
+            .map(|c| {
+                (
+                    0,
+                    num(c, "s", 0.0) + num(c, "speed", 0.0) * f64::from(k) * dt,
+                )
+            })
             .collect();
         fx.fx.lay_pools(track, &hints);
     }

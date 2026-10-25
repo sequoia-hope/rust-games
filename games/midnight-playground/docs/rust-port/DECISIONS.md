@@ -12196,7 +12196,7 @@ open world's 20 roads.
   the minimap zoomed out (pictures, tests); `tools/parity/atlas-shots.mjs`
   takes the pictures on a desktop window and a phone.
 
-## D1252 (2026-10-24): a long drive, measured; the uploads a frame bounded
+## D1252 (2026-10-24): a long drive, measured; the uploads a frame bounded, the pools on their road
 
 The owner, on the bay side after D1245: smoother, "but if I drive for a
 while it stutters again, probably tiles loading". Looked for what grows
@@ -12241,6 +12241,17 @@ parked; 5 to 10 minutes each, WebGPU and WebGL2).
   uncapped, 6.6 MB in it). Now 2.1 to 2.7 MB (2 MB and the item that
   crossed it); the square is up a few frames later. Behind the loading
   screen there is no bound.
+- **Fixed: the headlight pools are laid on the car's own road**
+  (`Effects::lay_pools` takes each car's road and its place on it). Off
+  the level's road a car's `s` is its progress, so every pool was looked
+  for on road 0 kilometres away: the window widened to 768 samples, 5 µs
+  a car natively (26 ns now), and the pool took the coast road's height
+  there. In a profile of the merged bay side (WebGL2, CPU throttled 4×,
+  El Camino) it was 2.9 % of the main thread, more than the whole
+  simulation's step (2.5 %); now 0.3 %. The simulation's new per-tick
+  work in that profile is small: the barriers 0.12 %, the props 0.09 %,
+  the garages 0.08 %, the ground under the wheels 0.07 %; the HUD's atlas
+  is 3.2 %.
 - **What a drive holds is published** (`__mp.census`, every 60 frames:
   entities, meshes, images, materials, the image cache, the stash and its
   kB, the sections, the block map's ranges, the animation blocks and their
