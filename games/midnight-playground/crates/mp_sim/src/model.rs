@@ -407,7 +407,7 @@ impl SimCar {
         for w in self.car.wheels.iter_mut() {
             w.tyre.set_grip(grip);
         }
-        let ground = TrackGround::new(t, v.road, v.road_hint());
+        let ground = TrackGround::at(t, v.road, v.road_hint(), v.y);
         self.car.step(&self.def, &ctl, &ground);
         if ctl.boost > 0.0 {
             phys.nitro = (phys.nitro - dt / NITRO_SECS).max(0.0);

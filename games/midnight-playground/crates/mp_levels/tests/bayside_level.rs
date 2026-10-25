@@ -69,13 +69,18 @@ fn the_bay_side_is_one_network_with_the_loop() {
         assert_eq!(start(id), "us-101", "{id}");
         assert!(end(id).is_some(), "{id} meets another road");
     }
-    // The city's streets cross one another.
+    // The city's streets cross one another, and the freeways pass over
+    // the roads they cross (stage 8a).
     let crossings = t
         .junctions
         .iter()
         .filter(|j| j.kind == JunctionKind::Cross)
         .count();
-    assert!(crossings >= 10, "{crossings} crossings");
+    assert!(
+        crossings + t.overpasses.len() >= 10,
+        "{crossings} crossings and {} overpasses",
+        t.overpasses.len()
+    );
     assert_eq!(BAYSIDE.len() + FIRST_BAYSIDE, t.roads().count());
 }
 

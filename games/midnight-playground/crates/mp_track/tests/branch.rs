@@ -69,6 +69,7 @@ fn level() -> Level {
             road: "mountain",
             zone: 0,
             elevation_smooth: None,
+            lift: None,
         }],
         stream_cell: None,
         buildings: None,

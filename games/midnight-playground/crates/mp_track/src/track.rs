@@ -165,6 +165,13 @@ pub const OPEN_BAND: f64 = 30.0;
 pub const OPEN_POW: f64 = 0.7;
 pub const OPEN_DROP: f64 = 0.3;
 
+/// How far above a car a road's surface may be, and below it, and still
+/// hold it ([`Track::project_road_at`], stage 8b): a kerb or a ramp's lip
+/// up, a fall from a jump down; not a deck 7 m over the street or the
+/// street under it.
+pub const REACH_UP: f64 = 1.5;
+pub const REACH_DOWN: f64 = 4.0;
+
 /// An open level's roadside, sloped rather than stepped (stage 7b, D1246):
 /// past a road's shoulder the ground eases down to the land over
 /// `EDGE_RUN` metres; a town's street has a kerb `KERB` high that rises
@@ -265,6 +272,9 @@ pub struct Track {
     /// [`crate::barriers`]): what the simulation stops a car against.
     /// Empty on a closed level, whose walls are the road's.
     pub edges: Vec<crate::barriers::Edges>,
+    /// Where a freeway passes over a road it crosses, with no junction
+    /// (stage 8a): `road` and `s` as a crossing junction's.
+    pub overpasses: Vec<Junction>,
     /// Every road's samples in one index ([`NetIndex`]); road 0's Track
     /// holds it, the branches' are empty.
     pub net: NetIndex,
@@ -433,6 +443,77 @@ impl Track {
     /// shoulder still holds the car, else the road whose shoulder does,
     /// else the one the car is least far off. A level without branches is
     /// its one road.
+    /// [`Track::project_road`] for a car at height `y` (stage 8b, D1248):
+    /// a road whose surface there is more than `REACH_UP` above the car or
+    /// `REACH_DOWN` below it cannot hold it (the street under a viaduct,
+    /// the deck over a street), and of the roads that hold it the one
+    /// whose surface is nearest under it does.
+    pub fn project_road_at(
+        &self,
+        x: f64,
+        z: f64,
+        y: f64,
+        road: usize,
+        hint: f64,
+    ) -> (usize, Projection) {
+        if self.branches.is_empty() {
+            return self.project_road(x, z, road, hint);
+        }
+        let surface = |t: &Track, p: &Projection| {
+            let f = t.frame(p.s.clamp(0.0, t.length));
+            let e = f.hw + f.margin;
+            t.surface_y(p.s, clamp(p.lat, -e, e))
+        };
+        let over = |t: &Track, p: &Projection| {
+            let mut o = p.lat.abs() - f64::from(t.hw[p.i]) - f64::from(t.margin[p.i]);
+            if t.open_end && p.s >= t.n as f64 - 1.5 {
+                let e = t.frame(p.s);
+                o = o.max((x - e.x) * e.fx + (z - e.z) * e.fz);
+            }
+            o
+        };
+        let reach = |h: f64| h <= y + REACH_UP && h >= y - REACH_DOWN;
+        let cur = self.road(road);
+        let p = cur.project(x, z, hint);
+        let (o, h) = (over(cur, &p), surface(cur, &p));
+        if o <= 0.0 && reach(h) {
+            return (road, p);
+        }
+        // (road, projection, over, height); the current road first.
+        let mut cands = vec![(road, p, o, h)];
+        for k in self.net.roads_near(x, z, 96.0) {
+            if k == road {
+                continue;
+            }
+            let t = self.road(k);
+            let d = t.distance_to_road(x, z, 96.0);
+            let Some(s) = d.s else {
+                continue;
+            };
+            let q = Projection {
+                s,
+                lat: d.lat,
+                i: d.i as usize,
+            };
+            cands.push((k, q, over(t, &q), surface(t, &q)));
+        }
+        // Held and in reach: the surface nearest under the car.
+        let held = cands
+            .iter()
+            .filter(|c| c.2 <= 0.0 && reach(c.3))
+            .min_by(|a, b| (y - a.3).abs().total_cmp(&(y - b.3).abs()));
+        if let Some(c) = held {
+            return (c.0, c.1);
+        }
+        // Else the least past a shoulder, of those in reach, or of all.
+        let least = |it: &mut dyn Iterator<Item = &(usize, Projection, f64, f64)>| {
+            it.min_by(|a, b| a.2.total_cmp(&b.2)).map(|c| (c.0, c.1))
+        };
+        least(&mut cands.iter().filter(|c| reach(c.3)))
+            .or_else(|| least(&mut cands.iter()))
+            .unwrap_or((road, p))
+    }
+
     pub fn project_road(&self, x: f64, z: f64, road: usize, hint: f64) -> (usize, Projection) {
         let cur = self.road(road);
         let p = cur.project(x, z, hint);
@@ -652,6 +733,11 @@ impl Track {
         let a = lat.abs();
         if a <= edge {
             return self.surface_y(s, lat);
+        }
+        // Off an elevated road's edge (a viaduct, stage 8a) the land is
+        // its own: the terrain is not raised to the deck.
+        if self.elevated[i] != 0 || self.elevated[j] != 0 {
+            return g(x, z);
         }
         // The terrain's near field: the road's plane (less the drop the
         // road stands above the land) out to the shoulder, then the ground
@@ -1254,6 +1340,11 @@ fn build_branch(net: &Track, level: &Level, b: &Branch) -> Result<BranchTrack, S
             t.py[k] = (f64::from(t.py[k]) + delta * w) as f32;
         }
     }
+    // On a viaduct where the level lifts it (stage 8a): up and down at an
+    // overpass's grade, and down to nothing by its ends.
+    if let Some(lift) = &b.lift {
+        lift_road(&mut t, lift, clear);
+    }
     // The far end on another road of the network (within its pavement):
     // the heights fitted to it the same way, and the end left open.
     let last = t.n - 1;
@@ -1300,6 +1391,37 @@ fn build_branch(net: &Track, level: &Level, b: &Branch) -> Result<BranchTrack, S
         clear,
         under: jf.hw,
     })
+}
+
+/// Raises a branch onto its viaduct (stage 8a): `lift` at each sample,
+/// spread into ramps no steeper than `OVERPASS_GRADE`, and nothing within
+/// 25 m of either end (past the start's fitted metres `clear`), where it
+/// meets other roads at grade. Where it is raised past `ELEVATED_LIFT` it
+/// is elevated.
+fn lift_road(t: &mut Track, lift: &crate::level::LiftFn, clear: f64) {
+    use crate::network::{ELEVATED_LIFT, OVERPASS_GRADE};
+    let n = t.n;
+    let mut e: Vec<f64> = (0..n)
+        .map(|k| lift(f64::from(t.px[k]), f64::from(t.pz[k])).max(0.0))
+        .collect();
+    for k in 1..n {
+        e[k] = e[k].max(e[k - 1] - OVERPASS_GRADE);
+    }
+    for k in (0..n.saturating_sub(1)).rev() {
+        e[k] = e[k].max(e[k + 1] - OVERPASS_GRADE);
+    }
+    for (k, v) in e.iter_mut().enumerate() {
+        let s = k as f64;
+        let start = (s - clear - 25.0).max(0.0) * OVERPASS_GRADE;
+        let end = (t.length - s - 25.0).max(0.0) * OVERPASS_GRADE;
+        *v = v.min(start).min(end);
+    }
+    for k in 0..n {
+        t.py[k] = (f64::from(t.py[k]) + e[k]) as f32;
+        if e[k] > ELEVATED_LIFT {
+            t.elevated[k] = 1;
+        }
+    }
 }
 
 /// The fog where the car is: a zone with fog of its own replaces the sky
@@ -1544,6 +1666,7 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
         open_end: false,
         junctions: Vec::new(),
         edges: Vec::new(),
+        overpasses: Vec::new(),
         net: NetIndex::default(),
         buildings: Default::default(),
         elevated: elev_raw,
@@ -1570,7 +1693,7 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
 
 /// The rise per metre at each sample, centred (one-sided at an open
 /// road's ends).
-fn grade_of(py: &[f32], wrap: bool) -> Vec<f32> {
+pub(crate) fn grade_of(py: &[f32], wrap: bool) -> Vec<f32> {
     let n = py.len();
     let mut grade = vec![0f32; n];
     for k in 0..n {

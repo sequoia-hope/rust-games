@@ -27,16 +27,40 @@ pub struct TrackGround<'a> {
     pub track: &'a Track,
     pub road: usize,
     pub hint: f64,
+    /// The car's height, where known: a road over or under it cannot hold
+    /// it ([`Track::project_road_at`], stage 8b).
+    pub y: Option<f64>,
 }
 
 impl<'a> TrackGround<'a> {
     pub fn new(track: &'a Track, road: usize, hint: f64) -> TrackGround<'a> {
-        TrackGround { track, road, hint }
+        TrackGround {
+            track,
+            road,
+            hint,
+            y: None,
+        }
+    }
+
+    /// [`TrackGround::new`] for a car at height `y`.
+    pub fn at(track: &'a Track, road: usize, hint: f64, y: f64) -> TrackGround<'a> {
+        TrackGround {
+            y: Some(y),
+            ..TrackGround::new(track, road, hint)
+        }
+    }
+
+    /// The road under (x, z) and the projection onto it.
+    fn project(&self, x: f64, z: f64) -> (usize, mp_track::Projection) {
+        match self.y {
+            Some(y) => self.track.project_road_at(x, z, y, self.road, self.hint),
+            None => self.track.project_road(x, z, self.road, self.hint),
+        }
     }
 
     /// The road under (x, z) and the projection onto it.
     fn on(&self, x: f64, z: f64) -> (&'a Track, mp_track::Projection) {
-        let (k, p) = self.track.project_road(x, z, self.road, self.hint);
+        let (k, p) = self.project(x, z);
         (self.track.road(k), p)
     }
 
@@ -64,7 +88,7 @@ impl<'a> TrackGround<'a> {
 
 impl Ground for TrackGround<'_> {
     fn height(&self, x: f64, z: f64) -> GroundSample {
-        let (k, p) = self.track.project_road(x, z, self.road, self.hint);
+        let (k, p) = self.project(x, z);
         let y = self.track.ground_at(k, x, z, p.s, p.lat);
         let t = self.track.road(k);
         let f = t.frame(p.s);

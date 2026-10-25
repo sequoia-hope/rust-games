@@ -155,7 +155,7 @@ impl Vehicle {
     /// (`road`, `road_s`, `road_lat`; [`Track::project_road`]) and its
     /// place on the level's road (`s`, `lat`). Returns the road it is on.
     pub fn project_onto<'a>(&mut self, t: &'a Track) -> &'a Track {
-        let (road, p) = t.project_road(self.x, self.z, self.road, self.road_hint());
+        let (road, p) = t.project_road_at(self.x, self.z, self.y, self.road, self.road_hint());
         self.road = road;
         self.road_s = p.s;
         self.road_lat = p.lat;

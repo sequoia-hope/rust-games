@@ -321,7 +321,7 @@ pub fn wheel_contact(t: &Track, v: &Vehicle, x: f64, z: f64) -> (f64, [f64; 3]) 
     let (al, aw) = (v.half_l * WHEEL_L, v.half_w * WHEEL_W);
     let at = |l: f64, w: f64| {
         let (px, pz) = (x + c * l - s * w, z + s * l + c * w);
-        let (k, p) = t.project_road(px, pz, v.road, v.road_s);
+        let (k, p) = t.project_road_at(px, pz, v.y, v.road, v.road_s);
         t.ground_at(k, px, pz, p.s, p.lat)
     };
     let (fl, fr, bl, br) = (at(al, -aw), at(al, aw), at(-al, -aw), at(-al, aw));
@@ -985,7 +985,8 @@ impl CarPhysics {
                 v.half_l * (b.nx * c + b.nz * s).abs() + v.half_w * (b.nx * -s + b.nz * c).abs();
             let d = (v.x - b.x) * b.nx + (v.z - b.z) * b.nz;
             let depth = ext - d;
-            if depth > 0.0 && v.y < b.top {
+            // Level with it: not a deck's barrier overhead, nor one below.
+            if depth > 0.0 && v.y < b.top && v.y > b.top - BARRIER_TOP - 1.0 {
                 self.meet_face(v, b.nx, b.nz, depth, dt);
                 moved = true;
             }
