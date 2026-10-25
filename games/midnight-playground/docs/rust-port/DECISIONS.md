@@ -11992,3 +11992,75 @@ stopped a car on an open one.
   off the road and now clear the barriers; the junction race turns its car
   round (no room for a U-turn between the coast road's rails) and steers
   round a crashed car in its lane.
+
+## D1248 (2026-10-25): the open world's trees, fences and houses stand
+
+Stage 7d. The owner: the land off the road should be more solid, but for
+street signs and small things. On an open level the car passed through
+everything but the city's buildings and (D1247) the roadside barriers.
+
+- **What stands off the road is mp_track's** (`props`, `planting`,
+  `seabright`), placed from the level's ground and cover and the road
+  network alone, so every peer of a race meets the same and what is
+  drawn is what stands. `Track::props` holds the fixed solids (indexed in
+  32 m cells) and the planting, which plants a 64 m tile the first time a
+  car comes near it and keeps it (a memo: a tile's planting is a
+  function of the tile, so when it is planted changes nothing; at most
+  4096 kept). A solid is a circle (a trunk, a rock's foot) or a box (a
+  fence's rails between two posts, a building's block), the ground under
+  it and its height.
+- **The planting** is the Land kit's rules (D1212: by cover and distance
+  from the road, clear of the roads, off the sea and the steepest
+  ground), the Coast kit's cypress and pines and its landward outcrops,
+  and the crop land's post-and-rail fences, moved out of world
+  generation. The terrain's far field, ground and zone weights are world
+  generation's, so the planting asks the level's ground, the nearest
+  road sample (and its zone) and the roads themselves; the clumps are
+  the terrain's second noise, made again from its seed. Candidates stand
+  on a lattice fixed in the world, 8 m apart (the kits' odds for their 7
+  and 12 m walks scaled), each drawn from its own seed instead of a
+  cell's one stream, so any tile plants alone; a fence's post belongs to
+  where it stands and a rail to where its middle is, so any box of land
+  finds the same ones. The Land kit draws every plant, rock, post and
+  rail of its cells from it, on the terrain's ground, its looks (tilt,
+  tint) from the plant's seed; the Coast kit no longer plants its trees
+  or outcrops on an open level.
+- **The beach town** (`seabright`): the Beach kit's layout of Seabright
+  (the frontage lots block by block, the houses behind main street, the
+  hill houses, the palms) on its own streams, since on a closed level
+  the kit draws layout and looks from one stream only it can follow;
+  nothing on another road of the network. On an open level the kit draws
+  the layout's lots, houses and palms, with its own stream for the looks,
+  and starts from the layout's occupied ground. Each lot's blocks are its
+  parts' bodies (a shop's box, the motel's rooms and office, the gas
+  station's shop and canopy columns); a parking lot and the forecourts
+  are open. The cross streets' gaps in the kerb railing, which only the
+  kit's plan made (so the simulation had a railing there and the road kit
+  drew a gap), are the track's now.
+- **What collides:** trunks of conifers, oaks, cypress, pines and palms
+  (their templates' radius at the foot, scaled, at least 25 cm; 8 m
+  high), the coast's outcrops (0.7 of their radius), the crop fences
+  (16 cm thick, 2 m over the land's own ground, which near a road lies
+  under the ground the car rides), and the town's storefronts, houses,
+  motel, hotel and gas station. **Passable:** scrub and grass, signs,
+  lamps, poles, delineators, benches and the like, parked cars, the
+  pier and the marina, the promenade's rail, the boulders at the foot of
+  rock walls and the crags in the cut faces (both behind the road's
+  barriers), canopies over the car.
+- The arcade meets a solid as it meets a building (`collide_props`,
+  `meet_face`: the shortest way out of the box, a trunk by the car's
+  nearest point), twice a tick for a car wedged between two; the sim car
+  gets the face toward its box as a plane collider (a trunk's tangent).
+- Closed levels are untouched: none is open, and the kits' open-level
+  paths are new branches.
+- Cost (native release): the load adds only the town's layout, 0.1 ms
+  (the peninsula's `Track::new` was 0.56 to 0.9 s on a busy machine,
+  as before); a tile is planted in 0.14 ms (1 ms unoptimised), and a car
+  at speed meets a new one about every second. The Land kit plants its
+  cells from the same tiles; the section timing and stream budget tests
+  pass unchanged.
+- Tests: mp_sim tests/props.rs (a car at a tree stops, arcade and sim
+  car; a crop fence stops it; scrub does not), mp_levels tests/planting.rs
+  (the same every build, a cell's fences are its tiles', the town clear
+  of every road, the cost), mp_worldgen tests/land.rs (what is drawn is
+  what is planted) and tests/beach_open.rs.
