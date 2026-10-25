@@ -11924,3 +11924,71 @@ the car crossed into a new square.
   the corner, frames ran 75 to 110 ms for ten seconds once and not again
   in two later runs (150 to 400 draws a frame; the machine's load average
   was 20): not chased further.
+
+## D1246 (2026-10-25): the open world's car rides a suspension over a sloped roadside
+
+Stage 7a and 7b of docs/vision/peninsula.md. The owner, after driving the
+bay side: the car should deal with bumps without flying, kerbs behave
+like slopes, pavements not be fallen through.
+
+- **7a, the suspension** (`physics::CarPhysics::suspension`, open levels
+  only). The arcade's vertical was the JS's: the car followed the ground
+  under its middle and took the ground's vertical speed whole each tick,
+  so a crest, a kerb or the road's edge threw it. Now the body rides a
+  spring (320 /s², a 3 cm sag taken up so a car at rest sits on the
+  ground) and damper (22 /s) over the mean of the ground under its four
+  wheels (`wheel_contact`, at 72 % of the half length and 82 % of the half
+  width): 16 cm of travel past the sag before the body takes the ground's
+  rise whole, 22 cm of hang before it is in the air, and the damper meets
+  at most 2.5 m/s of the ground's speed (the tyre's and the wheel's give:
+  a square kerb is not a kick). Measured (tests/suspension.rs): a 15 cm
+  hump over 3 m is never left up to 45 m/s; 30 cm over 8 m not at 25 m/s,
+  a hop of 0.1 s at 35; half a metre over ten jumps at speed. The client
+  tilts the body to the ground's normal under the wheels
+  (`Vehicle::ground_normal`, `Pose::normal`) instead of the road's frame.
+  Closed levels keep the JS's step (their traces and races unchanged);
+  the suspension's contact joins the state hash only when present.
+- **7b, the roadside's profile** (`mp_track`: `EDGE_RUN` 2 m, `KERB` 0.15,
+  `KERB_RUN` 0.6, `WALK` 4, `WALK_RUN` 2; `Track::walks`, `walk_y`,
+  `ground_y_walk`, the network's `ground_at` and `on_other_tarmac`). Off a
+  road's shoulder the simulation's ground stepped to the land over a
+  metre; now it eases over 2 m (2.5 tried first: the optional sim-car
+  model then missed the turn onto 84 at its mouth, where 1.5 and 2 did
+  not; the arcade was unaffected). A town's street (Town scenery, not a
+  freeway) has a gutter, a kerb ramp, the pavement level across to 4 m,
+  and a 2 m slope to the land, except where it would lie on another
+  road's tarmac. The Town kit draws its pavements on this profile (the
+  gutter covers the 25 cm of land streets showed between the asphalt and
+  the old floating pavement), and on an open level the road kit's
+  shoulder skirt eases out `EDGE_RUN` to just under the near field's drop
+  instead of diving 1.6 m. The sim car's ground (`TrackGround`) takes its
+  normal on an open level from the ground itself.
+
+## D1247 (2026-10-25): the open world's fences, barriers and railings stand
+
+Stage 7c. On an open level the car drove through everything the road kit
+stands at a road's edge: walls are a closed level's, and only buildings
+stopped a car on an open one.
+
+- **What stands where is mp_track's** (`barriers`: per sample and side,
+  the road type's edge code, cleared across junction mouths, crossings and
+  a road's metres on a greater road's tarmac, by the road kit's own rules,
+  moved here; `Track::edges` for an open level, `barrier_at` with the
+  fence gaps). The road kit draws from it, still choosing rock face or
+  guardrail for a terrain edge by the land beside it (either way solid),
+  so a drawn barrier and a simulated one are the same by construction.
+- **The car meets each barrier near it** (`physics::barrier_planes`): the
+  face toward the side its centre is on (the wall line toward the road,
+  or 0.45 m out toward the land for a car behind it, come in by a gap),
+  up to 1.2 m over the road (a car flying higher clears it). The arcade
+  meets a face as it meets a building (`meet_face`, shared); the sim car
+  gets the faces as colliders.
+- **The open world plays differently:** the coast loop and the mountain
+  roads keep the car on them but at their junctions and gaps, as their
+  guardrails and rock faces always said; valley roads have their wooden
+  fences and the farm gates (`fence_gaps`); the city's kerbed streets let
+  the car onto the pavements and between the buildings.
+- Tests: tests/barriers.rs. Two of tests/open_ground.rs are of the land
+  off the road and now clear the barriers; the junction race turns its car
+  round (no room for a U-turn between the coast road's rails) and steers
+  round a crashed car in its lane.
