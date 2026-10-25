@@ -69,6 +69,8 @@ and carry on with the option that best preserves parity.
 | Web build into `dist/next/` | `cargo xtask web` (add `--release` for the optimised build) |
 | Wasm size report | `cargo xtask size` (after a release web build) |
 | Frame times of the Rust client, desktop, phone or throttled (BASELINE; the JS game's: `perf-baseline.mjs`) | `node tools/parity/rust-perf.mjs --level sierra --race [--backend webgl2] [--phone] [--throttle 4]` (on a laptop over ssh: `--headed --angle gl --size WxH --dpr N`, see BASELINE "The laptop itself") |
+| Frame stutter in the open world: frame times held to budgets on the GPU, each long frame explained by the stream's work around it (menu, cruise, a branch, an event; D1238) | `cargo xtask web --release && node --test tools/parity/e2e/stutter.test.mjs` (`MP_BACKEND=webgl2`, `MP_DEVICE=phone`, `MP_STUTTER_SECS=<s>`, `MP_STUTTER_ONLY=menu,cruise,branch,event`) |
+| The stream's work budgets without a GPU: every section's items, bytes and pipelines against the warm-up (D1238) | `cargo nextest run -p mp_game -E 'test(every_section_streams)' --no-capture` |
 | CPU profile by Bevy system (needs the names-kept build: `cargo xtask prof`) | `node tools/parity/rust-prof.mjs --level sierra --backend webgl2 --throttle 4` (`--from <.cpuprofile> --callers <regex>` to dig) |
 | WebGL2 calls a frame, and the GPU's time by pass and shader program (the JS game's figures are in BASELINE) | `node tools/parity/gl-calls.mjs` (`--by-program`, `--angle gl`, `--headed`, `--sub-frag 're=>to'` for what-if shader edits, `PK_DUMPIO=1 INTEL_DEBUG=perf` for Mesa's compile notes) |
 | Two builds of the Rust client compared pixel for pixel (WebGL2, four levels; `dist/prof/` is the usual before) | `node tools/parity/build-diff.mjs --a prof --b next` |
