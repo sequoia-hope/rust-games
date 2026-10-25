@@ -76,11 +76,7 @@ pub fn build(
     for (r, t) in ends {
         // A section builds only a road end that reaches its stretch.
         if let Some(sec) = section {
-            let keep = if sec.partition {
-                sec.road == r && sec.holds_on(t, t.length - BACK)
-            } else {
-                sec.road == r && sec.holds_within(t, t.length - BACK, sec.scenery_radius)
-            };
+            let keep = sec.holds_road(r, t, t.length - BACK, sec.scenery_radius);
             if !keep {
                 continue;
             }

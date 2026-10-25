@@ -256,7 +256,16 @@ fn loop_specs_fit_their_lap_and_zones() {
         }
         match &spec.zones {
             Some(z) => {
-                assert_eq!(z.len(), l.zones.len(), "{id}: a start per zone");
+                // An open level's other roads may have zones of their
+                // own, after the loop's (the bay side's, stage 6): only its
+                // branches enter them.
+                assert!(z.len() <= l.zones.len(), "{id}: a start per zone");
+                for k in z.len()..l.zones.len() {
+                    assert!(
+                        l.branches.iter().any(|b| b.zone as usize == k),
+                        "{id}: zone {k} has no start and no branch"
+                    );
+                }
                 assert_eq!(z[0], 0.0, "{id}: the first zone starts the lap");
                 assert!(z.windows(2).all(|w| w[0] < w[1]), "{id}: {z:?}");
                 assert!(*z.last().unwrap() < t.length, "{id}: {z:?}");

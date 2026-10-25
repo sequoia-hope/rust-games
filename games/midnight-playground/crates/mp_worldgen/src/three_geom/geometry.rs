@@ -332,6 +332,70 @@ impl BufferGeometry {
         geometry2
     }
 
+    /// Triangles `from..to` of a triangle mesh (no groups, no instanced
+    /// attributes) as a geometry of their own: the attributes' items they
+    /// use, in order, and for an indexed one an index over those (D1245:
+    /// a streamed section's oversized meshes are split so that each fits a
+    /// frame's conversion).
+    pub fn triangle_range(&self, from: usize, to: usize) -> BufferGeometry {
+        // The vertices taken, in the order first used.
+        let order: Vec<usize> = match &self.index {
+            None => (from * 3..to * 3).collect(),
+            Some(index) => {
+                let mut seen = vec![u32::MAX; self.vertex_count()];
+                let mut order = Vec::new();
+                for i in from * 3..to * 3 {
+                    let v = index.array.get(i) as usize;
+                    if seen[v] == u32::MAX {
+                        seen[v] = order.len() as u32;
+                        order.push(v);
+                    }
+                }
+                order
+            }
+        };
+        let mut out = BufferGeometry::new();
+        for (name, a) in &self.attributes {
+            let n = a.item_size;
+            let mut array = a.zeroed_like(order.len() * n);
+            for (j, &v) in order.iter().enumerate() {
+                for c in 0..n {
+                    copy_element(&mut array, j * n + c, &a.array, v * n + c);
+                }
+            }
+            out.set_attribute(name, BufferAttribute::new(array, n, a.normalized));
+        }
+        if let Some(index) = &self.index {
+            let mut at = std::collections::BTreeMap::new();
+            for (j, &v) in order.iter().enumerate() {
+                at.insert(v, j as u32);
+            }
+            let ix: Vec<u32> = (from * 3..to * 3)
+                .map(|i| at[&(index.array.get(i) as usize)])
+                .collect();
+            out.set_index(&ix);
+        }
+        out
+    }
+
+    /// The triangles drawn (`index.count / 3`, else `position.count / 3`).
+    pub fn triangle_count(&self) -> usize {
+        self.index
+            .as_ref()
+            .map_or(self.vertex_count(), |i| i.array.len())
+            / 3
+    }
+
+    /// The bytes of its attributes and index.
+    pub fn byte_len(&self) -> usize {
+        let bytes = |d: &BufferData| d.len() * d.component().size();
+        self.attributes
+            .iter()
+            .map(|(_, a)| bytes(&a.array))
+            .sum::<usize>()
+            + self.index.as_ref().map_or(0, |i| bytes(&i.array))
+    }
+
     /// The vertex count (`position.count`).
     pub fn vertex_count(&self) -> usize {
         self.get_attribute("position")

@@ -332,12 +332,14 @@ pub struct Terrain {
     /// restricts `build_fields` and `resolve_flattens` to the region the
     /// section's tiles can sample while keeping full-level grid coordinates.
     pub clip_bounds: Option<[f64; 4]>,
-    far: FarField,
-    near_tiles: Vec<NearTile>,
+    // The fields are shared by the terrain's clones (every streamed
+    // section clones the planned terrain) and copied only if changed.
+    far: Arc<FarField>,
+    near_tiles: Arc<Vec<NearTile>>,
     /// "tx,tz" → index in `near_tiles` (only looked up, never iterated).
-    near_index: BTreeMap<(i64, i64), usize>,
+    near_index: Arc<BTreeMap<(i64, i64), usize>>,
     /// The same as a dense grid over the tiles' range, for `height_at`.
-    near_grid: NearGrid,
+    near_grid: Arc<NearGrid>,
     open: Option<Vec<Open>>,
     cw: Option<CanyonWidths>,
 }
@@ -446,10 +448,10 @@ impl Terrain {
             open_level: level.open,
             ground_color: None,
             clip_bounds: None,
-            far: FarField::default(),
-            near_tiles: Vec::new(),
-            near_index: BTreeMap::new(),
-            near_grid: NearGrid::default(),
+            far: Arc::default(),
+            near_tiles: Arc::default(),
+            near_index: Arc::default(),
+            near_grid: Arc::default(),
             open: None,
             cw: None,
         })
@@ -628,6 +630,139 @@ impl Terrain {
 
     // ── Field construction ─────────────────────────────────────────
 
+    /// The far field of an open level's whole network (stage 6d): the
+    /// nearest of every road's samples (every 12th, as the stamps take
+    /// them) to each cell, found by propagating each cell's nearest
+    /// candidate to its neighbours in four sweeps over the grid (a vector
+    /// distance transform), once for every road and once for the level's
+    /// road alone. The distance, height and zone are the nearest road's,
+    /// so a street's land takes its own zone; the s, side and lateral
+    /// distance stay the level's road's. Cells further than `r` from every
+    /// road are left as the stamps leave them.
+    #[allow(clippy::too_many_arguments)]
+    fn far_by_propagation(
+        t: &Track,
+        min_x: f64,
+        min_z: f64,
+        fw: usize,
+        fh: usize,
+        r: f64,
+        fd: &mut [f32],
+        fy: &mut [f32],
+        fs: &mut [f32],
+        fl: &mut [f32],
+        flat: &mut [f32],
+        fzone: &mut [u8],
+    ) {
+        // The seeds: (road, sample, x, z).
+        let mut seeds: Vec<(usize, usize, f64, f64)> = Vec::new();
+        for (ri, rt) in t.roads().enumerate() {
+            let mut i = 0;
+            while i < rt.n {
+                seeds.push((ri, i, f64::from(rt.px[i]), f64::from(rt.pz[i])));
+                i += 12;
+            }
+        }
+        let n = fw * fh;
+        let centre = |k: usize| (min_x + (k % fw) as f64 * FAR, min_z + (k / fw) as f64 * FAR);
+        let nearest = |only_main: bool| -> (Vec<u32>, Vec<f64>) {
+            let mut best = vec![u32::MAX; n];
+            let mut d2 = vec![f64::INFINITY; n];
+            for (si, &(ri, _, x, z)) in seeds.iter().enumerate() {
+                if only_main && ri != 0 {
+                    continue;
+                }
+                let ci = ((x - min_x) / FAR).round() as i64;
+                let cj = ((z - min_z) / FAR).round() as i64;
+                for j in cj - 1..=cj + 1 {
+                    for i in ci - 1..=ci + 1 {
+                        if i < 0 || j < 0 || i >= fw as i64 || j >= fh as i64 {
+                            continue;
+                        }
+                        let k = j as usize * fw + i as usize;
+                        let (cx, cz) = centre(k);
+                        let d = (cx - x) * (cx - x) + (cz - z) * (cz - z);
+                        if d < d2[k] {
+                            d2[k] = d;
+                            best[k] = si as u32;
+                        }
+                    }
+                }
+            }
+            let offer = |k: usize, from: usize, best: &mut Vec<u32>, d2: &mut Vec<f64>| {
+                let s = best[from];
+                if s == u32::MAX {
+                    return;
+                }
+                let (_, _, x, z) = seeds[s as usize];
+                let (cx, cz) = centre(k);
+                let d = (cx - x) * (cx - x) + (cz - z) * (cz - z);
+                if d < d2[k] {
+                    d2[k] = d;
+                    best[k] = s;
+                }
+            };
+            let (w, h) = (fw as i64, fh as i64);
+            let at =
+                |i: i64, j: i64| (i >= 0 && j >= 0 && i < w && j < h).then(|| (j * w + i) as usize);
+            for j in 0..h {
+                for i in 0..w {
+                    let k = (j * w + i) as usize;
+                    for (a, b) in [(-1, 0), (-1, -1), (0, -1), (1, -1)] {
+                        if let Some(q) = at(i + a, j + b) {
+                            offer(k, q, &mut best, &mut d2);
+                        }
+                    }
+                }
+                for i in (0..w).rev() {
+                    if let Some(q) = at(i + 1, j) {
+                        offer((j * w + i) as usize, q, &mut best, &mut d2);
+                    }
+                }
+            }
+            for j in (0..h).rev() {
+                for i in (0..w).rev() {
+                    let k = (j * w + i) as usize;
+                    for (a, b) in [(1, 0), (1, 1), (0, 1), (-1, 1)] {
+                        if let Some(q) = at(i + a, j + b) {
+                            offer(k, q, &mut best, &mut d2);
+                        }
+                    }
+                }
+                for i in 0..w {
+                    if let Some(q) = at(i - 1, j) {
+                        offer((j * w + i) as usize, q, &mut best, &mut d2);
+                    }
+                }
+            }
+            (best, d2)
+        };
+        let r2 = r * r;
+        let (any, any_d2) = nearest(false);
+        for k in 0..n {
+            if any[k] == u32::MAX || any_d2[k] > r2 {
+                continue;
+            }
+            let (ri, i, _, _) = seeds[any[k] as usize];
+            let rt = t.road(ri);
+            fd[k] = any_d2[k] as f32;
+            fy[k] = rt.py[i];
+            fzone[k] = rt.zone[i];
+        }
+        let (main, main_d2) = nearest(true);
+        for k in 0..n {
+            if main[k] == u32::MAX || main_d2[k] > r2 {
+                continue;
+            }
+            let (_, i, x, z) = seeds[main[k] as usize];
+            let (cx, cz) = centre(k);
+            let lat = (cx - x) * f64::from(t.rx[i]) + (cz - z) * f64::from(t.rz[i]);
+            fs[k] = i as f32;
+            fl[k] = if lat >= 0.0 { 1.0 } else { -1.0 };
+            flat[k] = lat as f32;
+        }
+    }
+
     /// `buildFields()`.
     pub fn build_fields(&mut self, t: &Track) {
         // Far field.
@@ -649,11 +784,21 @@ impl Terrain {
             ),
             None => (0, (fw - 1) as i64, 0, (fh - 1) as i64),
         };
+        // An open level's network, whole: the nearest road found by
+        // propagation over the grid, its cost by area rather than by
+        // length of road (stage 6d).
+        let open_whole = self.open_level && self.clip_bounds.is_none();
+        if open_whole {
+            Self::far_by_propagation(
+                t, self.min_x, self.min_z, fw, fh, R, &mut fd, &mut fy, &mut fs, &mut fl,
+                &mut flat, &mut fzone,
+            );
+        }
         // The level's road sets every field; its branches (an open level's
         // network) only the distance and height of the nearest road, which
         // the land's shaping, the mesh's detail and scenery placement read.
         // The field's s, side and zone stay the level's road's.
-        for (ri, t) in t.roads().enumerate() {
+        for (ri, t) in t.roads().enumerate().filter(|_| !open_whole) {
             let main = ri == 0;
             let mut i = 0;
             while i < t.n {
@@ -697,7 +842,7 @@ impl Terrain {
                 fd[k] = f64::from(fd[k]).sqrt() as f32;
             }
         }
-        self.far = FarField {
+        self.far = Arc::new(FarField {
             fw,
             fh,
             fd,
@@ -707,7 +852,7 @@ impl Terrain {
             flat,
             fopen: None,
             fzone,
-        };
+        });
         if self.forms.contains(&Form::Mountain) {
             self.open_field(t);
         }
@@ -716,8 +861,8 @@ impl Terrain {
         }
 
         // Near field: sparse 256 m tiles of 4 m nodes.
-        self.near_tiles.clear();
-        self.near_index.clear();
+        self.near_tiles = Arc::default();
+        self.near_index = Arc::default();
         // Circuits: the flat run-off reaches the barriers on each side.
         let corridor = self.lf.iter().all(|f| f.corridor);
         for road in t.roads() {
@@ -802,7 +947,7 @@ impl Terrain {
                     continue;
                 }
                 let ti = self.near_tile_for(nx, nz);
-                let tile = &mut self.near_tiles[ti];
+                let tile = &mut Arc::make_mut(&mut self.near_tiles)[ti];
                 let li = ((nz - tile.oz) * (NT + 1) + (nx - tile.ox)) as usize;
                 let k = 1.0 - kernel::pow(smoothstep(rs, rs + band, d), k_pow);
                 // Run-off: the track's own surface out to the barriers. Where the
@@ -857,7 +1002,7 @@ impl Terrain {
             return k;
         }
         let n = ((NT + 1) * (NT + 1)) as usize;
-        self.near_tiles.push(NearTile {
+        Arc::make_mut(&mut self.near_tiles).push(NearTile {
             tx,
             tz,
             ox: tx * NT,
@@ -869,7 +1014,7 @@ impl Terrain {
             s: vec![0.0; n],
         });
         let k = self.near_tiles.len() - 1;
-        self.near_index.insert((tx, tz), k);
+        Arc::make_mut(&mut self.near_index).insert((tx, tz), k);
         k
     }
 
@@ -889,7 +1034,7 @@ impl Terrain {
                 g.cells[((t.tz - tz0) * g.w + (t.tx - tx0)) as usize] = k as u32 + 1;
             }
         }
-        self.near_grid = g;
+        self.near_grid = Arc::new(g);
     }
 
     /// The near tiles in the order they were made.
@@ -1010,7 +1155,7 @@ impl Terrain {
                 self.open_bias(s, side),
             ) as f32;
         }
-        self.far.fopen = Some(fopen);
+        Arc::make_mut(&mut self.far).fopen = Some(fopen);
     }
 
     pub fn form_mountain(&self, x: f64, z: f64, f: &FarSample, detail: f64) -> f64 {

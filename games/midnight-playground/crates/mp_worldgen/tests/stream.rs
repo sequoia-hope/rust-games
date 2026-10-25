@@ -21,7 +21,16 @@ fn planned() -> Planned {
         road: None,
     };
     Planned::new(
-        common::level("peninsula"),
+        {
+            // The loop and its two branches streamed by road, as before the
+            // bay side joined them (stage 6 streams the whole by place):
+            // the road's sections are what these tests are about.
+            let mut l = common::level("peninsula");
+            l.stream_cell = None;
+            l.branches.truncate(mp_levels::peninsula::FIRST_BAYSIDE - 1);
+            l.buildings = None;
+            l
+        },
         None,
         setup,
         Arc::new(mp_worldgen::scenery::ported),

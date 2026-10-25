@@ -15,6 +15,9 @@ pub type GroundFn = Arc<dyn Fn(f64, f64) -> f64 + Send + Sync>;
 /// The land cover at (x, z) on an open level ([`Cover`] as a byte), from
 /// the atlas (docs/vision/peninsula.md, stage 4a).
 pub type CoverFn = Arc<dyn Fn(f64, f64) -> u8 + Send + Sync>;
+/// An open level's buildings, placed from its built road network
+/// (docs/vision/peninsula.md, stage 6e).
+pub type BuildingsFn = Arc<dyn Fn(&crate::Track) -> Vec<crate::buildings::Footprint> + Send + Sync>;
 
 /// A land cover class of the atlas's planning grid (`tools/atlas/build.py`
 /// and `mp_atlas::Cover` number them the same): what grows where on an
@@ -201,7 +204,15 @@ pub struct Branch {
     pub zone: u8,
     /// The branch's own elevation smoothing; the level's when `None`.
     pub elevation_smooth: Option<f64>,
+    /// How high the road stands over its own ground at a point, where it
+    /// runs on a viaduct (stage 8a, D1248): `None` for none. The Track
+    /// ramps up to it no steeper than an overpass's grade and comes down to
+    /// meet the roads at its ends.
+    pub lift: Option<LiftFn>,
 }
+
+/// A branch's lift over its ground at (x, z) ([`Branch::lift`]).
+pub type LiftFn = Arc<dyn Fn(f64, f64) -> f64 + Send + Sync>;
 
 impl fmt::Debug for Branch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -317,6 +328,19 @@ pub enum EventKind {
     Delivery,
 }
 
+/// A place a cruise of an open level can start (docs/vision/peninsula.md,
+/// stage 6f): on road `road` (a branch's id; empty for the level's own
+/// road), `s` metres along it (from its far end when negative).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StartSpot {
+    pub id: &'static str,
+    pub name: &'static str,
+    /// What the card says under the name.
+    pub place: &'static str,
+    pub road: &'static str,
+    pub s: f64,
+}
+
 /// An event at a place on an open level: a marked start on the level's
 /// road where a cruising car that stops and holds gas and brake begins it
 /// (docs/vision/peninsula.md, stage 5).
@@ -375,6 +399,19 @@ pub struct Level {
     /// Roads leaving this one at junctions (an open level's road network,
     /// docs/vision/peninsula.md, stage 3).
     pub branches: Vec<Branch>,
+    /// Stream the level by place, in squares this many metres on a side,
+    /// rather than by stretches of each road (docs/vision/peninsula.md,
+    /// stage 6d): a city's crossing streets are near each other wherever
+    /// they run. `None` streams by road.
+    pub stream_cell: Option<f64>,
+    /// The buildings of its towns and cities, which the simulation
+    /// collides cars with and world generation draws (stage 6e); the
+    /// Track places them once its network is built.
+    pub buildings: Option<BuildingsFn>,
+    /// Where a cruise of an open level may start (stage 6f), and the one
+    /// chosen (a start's `id`; `None` is the level's own start).
+    pub starts: Vec<StartSpot>,
+    pub start: Option<&'static str>,
     pub sea_y: Option<f64>,
     pub zones: Vec<Zone>,
     pub sky: Vec<SkyKey>,

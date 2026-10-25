@@ -70,7 +70,7 @@ fn traffic_spawns_ahead_keeps_to_the_road_and_to_its_rules() {
                     .filter(|(_, c)| c.active)
                     .map(|(i, _)| Agent::Traffic(i)),
             );
-            traffic.update(&t, DT, p.s, &agents, 0.0, p.s, p.s, &mut rng);
+            traffic.update(&t, DT, p.s, &agents, 0.0, p.s, p.s, (0, 0.0, 0.0), &mut rng);
             let active: Vec<usize> = (0..traffic.cars.len())
                 .filter(|&i| traffic.cars[i].active)
                 .collect();
@@ -219,6 +219,7 @@ fn a_traffic_car_slows_for_a_slower_car_ahead_in_its_lane() {
             0.0,
             500.0,
             500.0,
+            (0, 0.0, 0.0),
             &mut rng,
         );
     }

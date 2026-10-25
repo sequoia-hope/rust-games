@@ -58,6 +58,47 @@ pub struct Scene {
     pub environment: Option<Environment>,
 }
 
+impl Scene {
+    /// A texture's identity: its pixels, size, channels, flip, format and
+    /// wrapping, as a 64-bit FNV-1a over them. The same everywhere it is
+    /// computed (the section builder's worker and the client agree on it:
+    /// a streamed level's image cache is keyed by it, D1214, D1245).
+    pub fn texture_key(&self, t: &TextureDesc) -> u64 {
+        const PRIME: u64 = 0x0000_0100_0000_01b3;
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |x: u64| {
+            h ^= x;
+            h = h.wrapping_mul(PRIME);
+        };
+        if let Some(Buffer {
+            data: BufferData::U8(px),
+            ..
+        }) = self.buffers.get(t.pixels as usize)
+        {
+            let (words, rest) = px.as_chunks::<8>();
+            for w in words {
+                eat(u64::from_le_bytes(*w));
+            }
+            for &b in rest {
+                eat(u64::from(b));
+            }
+            eat(px.len() as u64);
+        }
+        for x in [
+            t.width,
+            t.height,
+            t.channels,
+            u32::from(t.flip_y),
+            t.format,
+            t.wrap_s,
+            t.wrap_t,
+        ] {
+            eat(u64::from(x));
+        }
+        h
+    }
+}
+
 /// A typed array.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Buffer {

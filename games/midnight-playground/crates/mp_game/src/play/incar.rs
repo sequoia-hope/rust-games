@@ -409,7 +409,7 @@ mod tests {
                 }
                 fx.update(1.0 / 60.0, 1.0, &ins, &[]);
                 let level_pools: Vec<_> = fx.cars.iter().map(|c| c.pool).collect();
-                let hints: Vec<f64> = racers.iter().map(|v| v.s).collect();
+                let hints: Vec<(usize, f64)> = racers.iter().map(|v| (0, v.s)).collect();
                 fx.lay_pools(t, &hints);
                 for (k, &w) in wheels.iter().enumerate() {
                     let low = triangles_under(&scene, w)

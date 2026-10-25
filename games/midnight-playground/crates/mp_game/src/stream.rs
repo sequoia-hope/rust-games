@@ -30,6 +30,7 @@ use mp_worldgen::terrain_mesh::TerrainSetup;
 use mp_worldgen::world::{Build, WorldBuild};
 
 use crate::animate::{self, NodeRef, SceneIndex, WorldGen};
+use crate::frame_work::FrameWork;
 use crate::loader::{self, AppState, ImageCache, SceneEntity};
 use crate::render::material::SharedImages;
 use crate::render::{SkyMaterial, ThreeMaterial};
@@ -50,6 +51,10 @@ const BUILD_LOADING_MS: u128 = 30;
 const BUILD_RUNNING_MS: u128 = 6;
 const SPAWN_LOADING_MS: u128 = 40;
 const SPAWN_RUNNING_MS: u128 = 5;
+/// Bytes a frame's spawning may make for the GPU while running (D1252):
+/// what the render world uploads that frame, about 5 ms of a frame at 2
+/// MB of meshes (D1238's figures).
+const SPAWN_RUNNING_BYTES: u64 = 2 << 20;
 
 /// Whether the level is streamed: an open level the client builds, unless
 /// `?stream=0` asks for it whole (the whole loop is 223 MB of buffers).
@@ -92,6 +97,8 @@ pub struct Up {
     gathered: bool,
     /// Its materials' range in the block map.
     base: (u32, u32),
+    /// Its entities, for the frame's work when it is dropped.
+    entities: usize,
 }
 
 enum Sec {
@@ -155,6 +162,23 @@ pub struct Stream {
     /// The base scene's materials, which take the map's first range.
     base_materials: u32,
     t0: Option<Instant>,
+    /// Textures' pixels a section from the worker brought, by key, until
+    /// they are in the image cache: a later section packed without them
+    /// (D1245) may come up first.
+    #[cfg(target_arch = "wasm32")]
+    stash: std::collections::HashMap<u64, mp_scene::Buffer>,
+    /// The level's warm-up scene (D1245), spawned once behind the loading
+    /// screen: its stand-ins compile every pipeline the drive will need.
+    warm: Warm,
+}
+
+enum Warm {
+    Off,
+    Spawning {
+        build: Box<loader::Build>,
+        root: Entity,
+    },
+    Done,
 }
 
 impl Default for Stream {
@@ -173,6 +197,9 @@ impl Default for Stream {
             bases: Vec::new(),
             base_materials: 0,
             t0: None,
+            #[cfg(target_arch = "wasm32")]
+            stash: Default::default(),
+            warm: Warm::Off,
         }
     }
 }
@@ -197,6 +224,56 @@ impl Stream {
             .iter()
             .filter_map(|(k, s)| matches!(s, Sec::Up(_)).then_some(*k))
             .collect()
+    }
+
+    /// The section the ring is round, and each section's state (`thread`,
+    /// `worker`, `stepping`, `spawning`, `up`, `failed`), for the frame's
+    /// work (`crate::frame_work`) and the tests.
+    pub fn states(&self) -> (Option<i64>, Vec<(i64, &'static str)>) {
+        let list = self
+            .secs
+            .iter()
+            .map(|(k, s)| {
+                let name = match s {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    Sec::Thread => "thread",
+                    #[cfg(target_arch = "wasm32")]
+                    Sec::Worker => "worker",
+                    #[cfg(target_arch = "wasm32")]
+                    Sec::Stepping(_) => "stepping",
+                    Sec::Spawning { .. } => "spawning",
+                    Sec::Up(_) => "up",
+                    Sec::Failed => "failed",
+                };
+                (*k, name)
+            })
+            .collect();
+        (self.at, list)
+    }
+
+    /// Whether the start's sections were up once (the level's `ready`).
+    pub fn started(&self) -> bool {
+        self.started
+    }
+
+    /// What the stream holds, for a long drive's census (`__mp.census`):
+    /// the image cache's textures, the stash's textures and bytes, the
+    /// sections in any state, and the block map's ranges in use.
+    pub fn held(&self) -> [usize; 5] {
+        let cache = self.image_cache.lock().map_or(0, |c| c.len());
+        #[cfg(target_arch = "wasm32")]
+        let (stash, stash_bytes) = (
+            self.stash.len(),
+            self.stash.values().map(|b| b.data.len()).sum::<usize>(),
+        );
+        #[cfg(not(target_arch = "wasm32"))]
+        let (stash, stash_bytes) = (0, 0);
+        [cache, stash, stash_bytes, self.secs.len(), self.bases.len()]
+    }
+
+    /// The level planned, once it is.
+    pub fn planned(&self) -> Option<&Arc<Planned>> {
+        self.planned.as_ref()
     }
 
     /// A range of the block map for `n` materials: the first gap.
@@ -295,12 +372,46 @@ pub fn drive(
     mut materials: ResMut<Assets<ThreeMaterial>>,
     mut sky_materials: ResMut<Assets<SkyMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut work: ResMut<FrameWork>,
 ) {
     let o = &opts.o;
     if !streamed(o) {
         return;
     }
-    let st = &mut *st;
+    let t_drive = Instant::now();
+    let work = &mut *work;
+    drive_inner(
+        &mut commands,
+        &mut st,
+        &mut wg,
+        o,
+        &state,
+        play.as_deref(),
+        (&mut meshes, &mut materials, &mut sky_materials, &mut images),
+        work,
+    );
+    work.stream_ms += t_drive.elapsed().as_secs_f32() * 1e3;
+    let _ = (&cs, &status);
+}
+
+type StreamAssets<'a> = (
+    &'a mut Assets<Mesh>,
+    &'a mut Assets<ThreeMaterial>,
+    &'a mut Assets<SkyMaterial>,
+    &'a mut Assets<Image>,
+);
+
+#[allow(clippy::too_many_arguments)]
+fn drive_inner(
+    commands: &mut Commands,
+    st: &mut Stream,
+    wg: &mut WorldGen,
+    o: &crate::options::Options,
+    state: &State<AppState>,
+    play: Option<&crate::play::Play>,
+    (meshes, materials, sky_materials, images): StreamAssets,
+    work: &mut FrameWork,
+) {
     let loading = !st.started;
     match &mut st.phase {
         Phase::Off => {
@@ -393,7 +504,7 @@ pub fn drive(
                     {
                         let b = b.into_inner().unwrap_or_else(|e| e.into_inner());
                         let (wb, _) = section::finish(b);
-                        base_up(st, &mut wg, wb);
+                        base_up(st, wg, wb);
                     }
                 }
                 Ok(()) => {}
@@ -416,13 +527,13 @@ pub fn drive(
             match (k, r) {
                 (None, Ok((wb, _))) => {
                     st.phase = Phase::Running;
-                    base_up(st, &mut wg, wb);
+                    base_up(st, wg, wb);
                 }
                 (None, Err(e)) => {
                     inbox().scene = Some(Err(format!("stream: base: {e}")));
                     st.phase = Phase::Running;
                 }
-                (Some(k), r) => section_built(st, &mut commands, k, r),
+                (Some(k), r) => section_built(st, commands, k, r, Vec::new(), work),
             }
         }
     }
@@ -434,10 +545,16 @@ pub fn drive(
     // The ring round the player's car once the race is on (the camera
     // cuts about before and at the start); round the start until then. An
     // event's countdown, wherever it begins, is round the car.
-    let car = play.as_ref().and_then(|pl| {
+    let car = play.and_then(|pl| {
         let r = pl.race.as_ref()?;
         let st = &r.session.curr;
-        if st.race.state == mp_sim::race::RaceStateKind::Countdown && st.race.event.is_none() {
+        // A cruise begun at a chosen start (stage 6f) is round the car
+        // from the first frame: the level's start may be far off.
+        let elsewhere = r.session.lr.track.chosen_start().is_some();
+        if st.race.state == mp_sim::race::RaceStateKind::Countdown
+            && st.race.event.is_none()
+            && !elsewhere
+        {
             return None;
         }
         st.players.first().map(|pl| (pl.v.x, pl.v.z))
@@ -446,7 +563,7 @@ pub fn drive(
         Some((x, z)) => p.section_under(x, z),
         None => Some(p.section_at(p.track.start_s)),
     };
-    let _ = (&cs, section_under);
+    let _ = section_under;
     if let Some(k) = under {
         if st.at != Some(k) {
             info!(
@@ -456,6 +573,7 @@ pub fn drive(
             );
             st.at = Some(k);
             st.wanted = ring(&p, k, BEHIND, AHEAD);
+            work.event(format!("ring {k}"));
         }
     } else if st.at.is_none() {
         st.at = Some(p.section_at(p.track.start_s));
@@ -477,6 +595,8 @@ pub fn drive(
         match s {
             Sec::Up(u) => {
                 commands.entity(u.root).despawn();
+                work.despawned += u.entities as u32;
+                work.event(format!("drop {k}"));
                 st.free_base(u.base);
                 // Its animation blocks: handed back by `release` below.
                 RELEASE
@@ -484,8 +604,12 @@ pub fn drive(
                     .unwrap_or_else(|e| e.into_inner())
                     .push(u.index);
             }
-            Sec::Spawning { root, base, .. } => {
+            Sec::Spawning {
+                root, base, build, ..
+            } => {
                 commands.entity(root).despawn();
+                work.despawned += build.entities() as u32;
+                work.event(format!("drop {k}"));
                 st.free_base(base);
             }
             _ => {}
@@ -509,17 +633,27 @@ pub fn drive(
                     ms,
                     bytes,
                 } if generation == st.generation => {
+                    // Read back even when no longer wanted: its textures'
+                    // pixels go with no other section.
+                    let t0 = Instant::now();
+                    let r = section::unpack_sent(&bytes).and_then(|mut u| {
+                        resolve(&mut u, &st.image_cache, &mut st.stash)?;
+                        Ok(u)
+                    });
+                    work.unpack_ms += t0.elapsed().as_secs_f32() * 1e3;
                     if !matches!(st.secs.get(&k), Some(Sec::Worker)) {
                         continue;
                     }
-                    let t0 = Instant::now();
-                    let r = section::unpack(&bytes);
+                    let (r, keys) = match r {
+                        Ok(u) => (Ok((u.wb, u.stats)), u.keys),
+                        Err(e) => (Err(e), Vec::new()),
+                    };
                     info!(
                         "stream: section {k} from the worker ({ms:.0} ms there, {:.1} MB, read in {:.1} ms)",
                         bytes.len() as f64 / 1048576.0,
                         t0.elapsed().as_secs_f64() * 1e3
                     );
-                    section_built(st, &mut commands, k, r);
+                    section_built(st, commands, k, r, keys, work);
                 }
                 crate::worker::Msg::Failed {
                     generation,
@@ -563,6 +697,7 @@ pub fn drive(
         let wanted = st.wanted.clone();
         if let Some(&k) = wanted.iter().find(|k| !st.secs.contains_key(k)) {
             let sec = p.section(k);
+            work.event(format!("ask {k}"));
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let (g, t, p2) = (st.generation, o.t, p.clone());
@@ -612,6 +747,7 @@ pub fn drive(
             while !b.is_done() && r.is_ok() && t0.elapsed().as_millis() < budget {
                 r = animate::section_step(b, o.t);
             }
+            work.step_ms += t0.elapsed().as_secs_f32() * 1e3;
             let done = b.is_done();
             match r {
                 Err(e) => finished.push((*k, Err(e))),
@@ -625,30 +761,101 @@ pub fn drive(
             }
         }
         for (k, r) in finished {
-            section_built(st, &mut commands, k, r);
+            section_built(st, commands, k, r, Vec::new(), work);
+        }
+    }
+
+    // The warm-up scene, first and whole behind the loading screen.
+    if matches!(st.warm, Warm::Off) {
+        st.warm = match warm::scene(&o.level) {
+            Some(scene) => {
+                info!(
+                    "stream: the warm-up scene, {} combinations",
+                    scene.nodes.len()
+                );
+                let root = commands
+                    .spawn((
+                        Transform::default(),
+                        Visibility::Hidden,
+                        SceneEntity,
+                        Name::new("stream warm-up"),
+                    ))
+                    .id();
+                let build = loader::Build::new(
+                    scene,
+                    SHARED
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone()
+                        .expect("shared images"),
+                )
+                .under(root)
+                .with_image_cache(st.image_cache.clone());
+                Warm::Spawning {
+                    build: Box::new(build),
+                    root,
+                }
+            }
+            None => Warm::Done,
+        };
+    }
+    if let Warm::Spawning { build, .. } = &mut st.warm {
+        let t0 = Instant::now();
+        let done = loader::step_section(
+            build,
+            commands,
+            meshes,
+            materials,
+            sky_materials,
+            images,
+            SPAWN_LOADING_MS,
+        );
+        work.spawn_ms += t0.elapsed().as_secs_f32() * 1e3;
+        if done && let Warm::Spawning { build, root } = std::mem::replace(&mut st.warm, Warm::Done)
+        {
+            let scene = loader::finish_section(*build, commands, meshes, images);
+            work.event(format!("warm ({} stand-ins)", scene.warm_up.len()));
+            info!(
+                "stream: the warm-up scene up, {} stand-ins",
+                scene.warm_up.len()
+            );
+            for e in scene.warm_up {
+                commands
+                    .entity(e)
+                    .remove::<crate::warmup::WarmUp>()
+                    .insert(StreamWarm);
+            }
+            // Its own entities draw nothing (hidden, of no size): only the
+            // stand-ins are wanted.
+            commands.entity(root).despawn();
         }
     }
 
     // Spawning, stepped.
-    let budget = if loading {
-        SPAWN_LOADING_MS
+    let (budget, bytes) = if loading {
+        (SPAWN_LOADING_MS, u64::MAX)
     } else {
-        SPAWN_RUNNING_MS
+        (SPAWN_RUNNING_MS, SPAWN_RUNNING_BYTES)
     };
     let mut up: Vec<i64> = Vec::new();
     for (k, s) in st.secs.iter_mut() {
         let Sec::Spawning { build, .. } = s else {
             continue;
         };
-        let done = loader::step_section(
+        let (t0, before, up0) = (Instant::now(), build.entities(), build.uploads());
+        let done = loader::step_section_within(
             build,
-            &mut commands,
-            &mut meshes,
-            &mut materials,
-            &mut sky_materials,
-            &mut images,
+            commands,
+            meshes,
+            materials,
+            sky_materials,
+            images,
             budget,
+            bytes,
         );
+        work.spawn_ms += t0.elapsed().as_secs_f32() * 1e3;
+        work.spawned += (build.entities() - before) as u32;
+        work.instance_bytes += build.uploads().instance_bytes - up0.instance_bytes;
         if done {
             up.push(*k);
         }
@@ -664,7 +871,14 @@ pub fn drive(
         else {
             continue;
         };
-        let scene = loader::finish_section(*build, &mut commands, &mut meshes, &mut images);
+        let t0 = Instant::now();
+        let scene = loader::finish_section(*build, commands, meshes, images);
+        work.spawn_ms += t0.elapsed().as_secs_f32() * 1e3;
+        work.event(format!(
+            "up {k} ({} entities, {} stand-ins)",
+            scene.loaded.counts.entities,
+            scene.warm_up.len()
+        ));
         for e in scene.warm_up {
             commands
                 .entity(e)
@@ -683,6 +897,7 @@ pub fn drive(
                 index: scene.index,
                 gathered: false,
                 base,
+                entities: scene.loaded.counts.entities,
             })),
         );
     }
@@ -693,7 +908,7 @@ pub fn drive(
             .wanted
             .iter()
             .all(|k| matches!(st.secs.get(k), Some(Sec::Up(_) | Sec::Failed)));
-        if all && !st.wanted.is_empty() {
+        if all && !st.wanted.is_empty() && matches!(st.warm, Warm::Done) {
             st.started = true;
             animate::set_pending(false);
             info!(
@@ -702,7 +917,6 @@ pub fn drive(
             );
         }
     }
-    let _ = &status;
 }
 
 /// Indexes released with their sections, whose animation blocks go back
@@ -724,12 +938,54 @@ fn base_up(st: &mut Stream, wg: &mut WorldGen, mut wb: WorldBuild) {
     inbox().scene = Some(Ok(animate::drawable_scene(scene)));
 }
 
+/// A section from the worker made whole (D1245): the pixels it brings are
+/// kept by key until converted, and each texture packed without its
+/// pixels is either in the image cache (the loader finds it by key) or
+/// has them back from the stash.
+#[cfg(target_arch = "wasm32")]
+fn resolve(
+    u: &mut section::Unpacked,
+    cache: &ImageCache,
+    stash: &mut std::collections::HashMap<u64, mp_scene::Buffer>,
+) -> Result<(), String> {
+    let have = cache.lock().unwrap_or_else(|e| e.into_inner());
+    stash.retain(|k, _| !have.contains_key(k));
+    let scene = &mut u.wb.scene;
+    let stripped: std::collections::HashSet<u32> = u.stripped.iter().map(|s| s.texture).collect();
+    for (i, t) in scene.textures.iter().enumerate() {
+        let Some(&k) = u.keys.get(i) else { break };
+        if stripped.contains(&(i as u32)) || have.contains_key(&k) || stash.contains_key(&k) {
+            continue;
+        }
+        if let Some(b) = scene.buffers.get(t.pixels as usize) {
+            stash.insert(k, b.clone());
+        }
+    }
+    for s in &u.stripped {
+        let k = u.keys.get(s.texture as usize).copied().unwrap_or_default();
+        if have.contains_key(&k) {
+            continue;
+        }
+        let px = stash
+            .get(&k)
+            .ok_or_else(|| format!("texture {} ({k:016x}) came with no section here", s.texture))?
+            .clone();
+        scene.buffers.push(px);
+        let at = scene.buffers.len() as u32 - 1;
+        let t = &mut scene.textures[s.texture as usize];
+        (t.width, t.height, t.pixels) = (s.width, s.height, at);
+    }
+    Ok(())
+}
+
 /// A section built: its scene goes to the loader under a root of its own.
 fn section_built(
     st: &mut Stream,
     commands: &mut Commands,
     k: i64,
     r: Result<(WorldBuild, CutStats), String>,
+    keys: Vec<u64>,
+    work: &mut FrameWork,
 ) {
     // Not wanted any more while it built.
     if !st.wanted.contains(&k) && !st.secs.contains_key(&k) {
@@ -738,10 +994,12 @@ fn section_built(
     match r {
         Err(e) => {
             warn!("stream: section {k}: {e}");
+            work.event(format!("failed {k}"));
             st.secs.insert(k, Sec::Failed);
         }
         Ok((mut wb, stats)) => {
             let scene = std::mem::take(&mut wb.scene);
+            work.event(format!("built {k} ({} nodes)", scene.nodes.len()));
             let base = st.take_base(scene.materials.len() as u32);
             let root = commands
                 .spawn((
@@ -769,7 +1027,8 @@ fn section_built(
             )
             .under(root)
             .with_material_base(base.0)
-            .with_image_cache(st.image_cache.clone());
+            .with_image_cache(st.image_cache.clone())
+            .with_texture_keys(keys);
             st.secs.insert(
                 k,
                 Sec::Spawning {
@@ -823,6 +1082,7 @@ fn end_warm_up(
     status: Res<Status>,
     q: Query<Entity, With<StreamWarm>>,
     mut quiet: Local<u32>,
+    mut work: ResMut<FrameWork>,
 ) {
     if q.is_empty() {
         *quiet = 0;
@@ -837,6 +1097,7 @@ fn end_warm_up(
         for e in &q {
             commands.entity(e).despawn();
         }
+        work.event(format!("warm ({} stand-ins)", q.iter().len()));
         *quiet = 0;
     }
 }
@@ -860,6 +1121,11 @@ pub fn plugin(app: &mut App) {
                 .chain(),
         );
 }
+
+mod warm;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod budget;
 
 #[cfg(test)]
 mod tests {
@@ -886,7 +1152,10 @@ mod tests {
     /// The ring round a section wraps on the loop.
     #[test]
     fn the_ring_wraps_round_the_loop() {
-        let p = plan(mp_levels::level_by_id("peninsula")).unwrap();
+        // Streamed by road (the peninsula streams by place since stage 6d).
+        let mut l = mp_levels::level_by_id("peninsula");
+        l.stream_cell = None;
+        let p = plan(l).unwrap();
         let (_, n) = p.road_sections()[0];
         assert!(n >= 34);
         assert_eq!(ring(&p, 0, 1, 2)[..4], [n - 1, 0, 1, 2]);

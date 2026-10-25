@@ -65,6 +65,10 @@ pub struct Vehicle {
     /// present and its own pitch and roll springs otherwise. Derived each
     /// tick; not part of the state hash.
     pub pose: Option<Box<SimPose>>,
+    /// The ground's up normal under the four wheels, on an open level's
+    /// suspension (stage 7a): the client tilts the body to it rather than
+    /// to the road's frame. Derived each tick; not part of the state hash.
+    pub ground_normal: Option<[f64; 3]>,
 }
 
 /// What the client draws for a simulated chassis (SPEC 8.3).
@@ -132,6 +136,7 @@ impl Vehicle {
             vis_y: None,
             prog: None,
             pose: None,
+            ground_normal: None,
         }
     }
 
@@ -150,7 +155,7 @@ impl Vehicle {
     /// (`road`, `road_s`, `road_lat`; [`Track::project_road`]) and its
     /// place on the level's road (`s`, `lat`). Returns the road it is on.
     pub fn project_onto<'a>(&mut self, t: &'a Track) -> &'a Track {
-        let (road, p) = t.project_road(self.x, self.z, self.road, self.road_hint());
+        let (road, p) = t.project_road_at(self.x, self.z, self.y, self.road, self.road_hint());
         self.road = road;
         self.road_s = p.s;
         self.road_lat = p.lat;
@@ -167,6 +172,33 @@ impl Vehicle {
 
     pub fn fz(&self) -> f64 {
         kernel::sin(self.yaw)
+    }
+
+    /// [`Vehicle::place`] on road `road` of the network, `s` metres along
+    /// it (stage 6f): its place on the level's road is the nearest
+    /// point of it to the start.
+    pub fn place_on(&mut self, track: &Track, road: usize, s: f64, lat: f64, yaw_offset: f64) {
+        if road == 0 {
+            return self.place(track, s, lat, yaw_offset);
+        }
+        let rt = track.road(road);
+        let p = rt.point_at(s, lat);
+        let f = rt.frame(s);
+        self.x = p.x;
+        self.y = p.y;
+        self.z = p.z;
+        let q = track.project(p.x, p.z, track.start_s);
+        self.s = q.s;
+        self.lat = q.lat;
+        self.road = road;
+        self.road_s = s;
+        self.road_lat = lat;
+        self.yaw = kernel::atan2(f.fz, f.fx) + yaw_offset;
+        self.vx = 0.0;
+        self.vz = 0.0;
+        self.vy = 0.0;
+        self.yaw_rate = 0.0;
+        self.speed = 0.0;
     }
 
     pub fn place(&mut self, track: &Track, s: f64, lat: f64, yaw_offset: f64) {

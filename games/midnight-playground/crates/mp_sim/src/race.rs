@@ -135,6 +135,10 @@ pub struct PlayerRules {
     pub pass_lat: Option<f64>,
     pub park: Option<Park>,
     pub last_s: Option<f64>,
+    /// Where the car was last tick, off the level's road (an open level's
+    /// network): its distance there is what it covers, not its place on
+    /// the level's road (stage 6).
+    pub last_xz: Option<(f64, f64)>,
     /// Unwrapped position (loops).
     pub odo: Option<f64>,
     /// Per traffic car: the last along-track gap to the player (`passed`).
@@ -184,6 +188,7 @@ impl PlayerRules {
             pass_lat: None,
             park: None,
             last_s: None,
+            last_xz: None,
             odo: None,
             passed: vec![None; n_cars],
             near_miss_hit: vec![false; n_cars],
@@ -345,7 +350,16 @@ impl SimState {
         } else {
             level_rivals(level, &mut rng)
         };
-        grid(t, &mut phys, &mut v, &mut rivals, t.start_s);
+        // A cruise given a start begins there, on whichever road
+        // (stage 6f).
+        match t.chosen_start().filter(|_| cruise) {
+            Some((r, s)) if r != 0 => {
+                phys.reset_on(&mut v, t, r, s, -2.4);
+                v.prog = Some(v.s);
+            }
+            Some((_, s)) => grid(t, &mut phys, &mut v, &mut rivals, s + 5.0),
+            None => grid(t, &mut phys, &mut v, &mut rivals, t.start_s),
+        }
         let prog_s = std::iter::once(v.s)
             .chain(rivals.iter().map(|a| a.k.s))
             .collect();
@@ -445,6 +459,7 @@ impl SimState {
                     pass_lat: None,
                     park: None,
                     last_s: None,
+                    last_xz: None,
                     odo: None,
                     passed: vec![None; n_cars],
                     near_miss_hit: vec![false; n_cars],
@@ -995,6 +1010,20 @@ fn reset_player(
     player: usize,
     events: &mut Vec<SimEvent>,
 ) {
+    // Off the level's road (an open level's network), back on the road
+    // the car was on.
+    if p.v.road != 0 && p.v.road <= t.branches.len() {
+        crash(race, &mut p.rules, player, events);
+        let rt = t.road(p.v.road);
+        let s = (p.v.road_s - 5.0).clamp(0.0, rt.length);
+        let f = rt.frame(s);
+        let lat = clamp(p.v.road_lat, -f.hw * 0.5, f.hw * 0.5);
+        let road = p.v.road;
+        p.phys.reset_on(&mut p.v, t, road, s, lat);
+        p.rules.reset_cooldown = 2.0;
+        events.push(SimEvent::Reset { player });
+        return;
+    }
     let s = if t.is_loop {
         t.wrap(p.v.s - 5.0)
     } else {
@@ -1179,10 +1208,17 @@ pub fn step(
     let odos: Vec<f64> = (0..np)
         .map(|i| {
             let s = st.players[i].v.s;
+            let (road, x, z) = (st.players[i].v.road, st.players[i].v.x, st.players[i].v.z);
             let r = &mut st.players[i].rules;
             let d_s = t.ds(r.last_s.unwrap_or(s), s);
             r.last_s = Some(s);
-            r.dist += d_s.abs();
+            if road == 0 && r.last_xz.is_none() {
+                r.dist += d_s.abs();
+            } else {
+                let (lx, lz) = r.last_xz.unwrap_or((x, z));
+                r.dist += kernel::hypot(x - lx, z - lz);
+            }
+            r.last_xz = (road != 0).then_some((x, z));
             let odo = r.odo.unwrap_or(s) + d_s; // unwrapped position (loops)
             r.odo = Some(odo);
             odo
@@ -1204,6 +1240,10 @@ pub fn step(
             0.0,
             dist,
             trail_s,
+            {
+                let v = &st.players[lead].v;
+                (v.road, v.x, v.z)
+            },
             &mut st.rng.traffic,
         );
     }
@@ -1913,6 +1953,15 @@ pub fn hash(st: &SimState) -> u64 {
             );
             rec.extend_from_slice(&e.cruise_time.to_bits().to_le_bytes());
             rec.extend_from_slice(&st.race.finish_prog.to_bits().to_le_bytes());
+        }
+    }
+    // An open level's suspension (stage 7a): only there on one, so every
+    // closed level hashes as it did.
+    for (i, p) in st.players.iter().enumerate() {
+        if let Some(s) = &p.phys.suspension {
+            rec.extend_from_slice(b"susp");
+            rec.push(i as u8);
+            rec.extend_from_slice(&s.contact.to_bits().to_le_bytes());
         }
     }
     // A sim car's own state (docs/vehicle-dynamics/SPEC.md 10): only there

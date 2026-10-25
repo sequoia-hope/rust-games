@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use crate::fonts::canvas;
 use mp_scene::{MaterialKind, three};
+use mp_track::seabright::{LotKind, Sign, Town};
 use mp_track::{Frame, Track};
 use pk_canvas::Canvas;
 use pk_math::{Mulberry32, js, kernel, lerp, rpick, rrange, smoothstep};
@@ -305,6 +306,11 @@ impl Scenery for Beach {
         let group = graph.group("beach");
         let mut b = Bld {
             t: track,
+            town: track
+                .open_ground
+                .as_ref()
+                .and_then(|_| track.props.town())
+                .filter(|town| town.zone == self.zone),
             ground: Ground::new(terrain),
             beach: self,
             graph,
@@ -335,6 +341,22 @@ impl Scenery for Beach {
         b.make_signs();
 
         b.reserve_streets();
+        if let Some(town) = b.town {
+            // The layout took its ground, and placed the palms.
+            b.occ = town.occ.iter().map(|o| (o[0], o[1], o[2])).collect();
+            for p in &town.palms {
+                let y = b.gy(p.x, p.z);
+                b.palms.push(Palm {
+                    x: p.x,
+                    z: p.z,
+                    y,
+                    h: p.h,
+                    yaw: p.yaw,
+                    s: p.s,
+                    c: p.c,
+                });
+            }
+        }
         b.build_promenade();
         b.build_frontage();
         b.b.set_channel("far"); // houses behind main street: no shadow casting
@@ -538,6 +560,9 @@ pub struct Coaster {
 /// What `this` holds while Seabright is built.
 struct Bld<'a> {
     t: &'a Track,
+    /// An open level's town (stage 7d, D1248): the layout is the
+    /// simulation's ([`mp_track::seabright`]), and this draws it.
+    town: Option<&'a Town>,
     ground: Ground<'a>,
     beach: &'a Beach,
     graph: &'a mut SceneGraph,
@@ -1590,6 +1615,12 @@ impl Bld<'_> {
             },
         );
         self.front_lat = w + 6.2;
+        if let Some(town) = self.town {
+            for lot in &town.lots {
+                self.place_town_lot(lot);
+            }
+            return;
+        }
         let sg = |me: &Self, f: fn(&Signs) -> Rect| f(me.sg());
         let mut blocks: Vec<Vec<Lot>> = Vec::new();
         {
@@ -1666,6 +1697,63 @@ impl Bld<'_> {
                 s += lot.w() + rrange(&mut self.rng, 0.5, 2.5);
             }
         }
+    }
+
+    /// An open level's frontage lot, where the layout put it.
+    fn place_town_lot(&mut self, lot: &mp_track::seabright::Lot) {
+        let (mut fr, _) = self.frame_at(lot.s, self.front_lat, true);
+        let (w, d) = (lot.kind.w(), lot.kind.d());
+        let mut y = f64::INFINITY;
+        for (lx, lz) in [
+            (-w / 2.0, 0.0),
+            (w / 2.0, 0.0),
+            (-w / 2.0, -d),
+            (w / 2.0, -d),
+        ] {
+            let (x, z) = Self::to_world(&fr, lx, lz);
+            y = js::min(y, self.gy(x, z));
+        }
+        fr.y = y;
+        self.b.set_frame(fr.x, y, fr.z, fr.yaw);
+        let shop = |me: &Self, sign: Sign, w: f64| {
+            let sg = me.sg();
+            let rect = match sign {
+                Sign::Icecream => sg.icecream,
+                Sign::Bikes => sg.bikes,
+                Sign::Cafe => sg.cafe,
+                Sign::Records => sg.records,
+                Sign::Swim => sg.swim,
+                Sign::Pizza => sg.pizza,
+                Sign::Pharmacy => sg.pharmacy,
+                Sign::Supply => sg.supply,
+                Sign::Bait => sg.bait,
+            };
+            Lot::Shop { rect, w }
+        };
+        let built = match lot.kind {
+            LotKind::Shop { sign, w } => shop(self, sign, w),
+            LotKind::Surf => Lot::Surf,
+            LotKind::Taco => Lot::Taco,
+            LotKind::Diner => Lot::Diner,
+            LotKind::Motel => Lot::Motel,
+            LotKind::Gas => Lot::Gas,
+            LotKind::Hotel => Lot::Hotel,
+            LotKind::Parking => Lot::Parking,
+            LotKind::House { house, .. } => {
+                beach_house(
+                    &mut self.b,
+                    &mut self.rng,
+                    HouseOpts {
+                        w: Some(house[0]),
+                        d: Some(house[1]),
+                        floors: Some(2.0),
+                        ..HouseOpts::default()
+                    },
+                );
+                return;
+            }
+        };
+        self.build_lot(&built, &fr);
     }
 
     fn place_lot(&mut self, s: f64, lat: f64, lot: &Lot) -> bool {
@@ -1872,6 +1960,12 @@ impl Bld<'_> {
                 },
             );
         }
+        if let Some(town) = self.town {
+            for h in &town.houses {
+                self.build_town_house(h);
+            }
+            return;
+        }
         let bl = self.back_lats.clone();
         let rows = [
             (bl[0] - 7.0, 1.0, 0.9),
@@ -1996,7 +2090,120 @@ impl Bld<'_> {
         }
     }
 
+    /// An open level's house behind main street, where the layout put it.
+    fn build_town_house(&mut self, h: &mp_track::seabright::House) {
+        let (w, d) = (h.w, h.d);
+        let mut fr = Fr {
+            x: h.at.x,
+            z: h.at.z,
+            y: 0.0,
+            yaw: h.at.yaw,
+        };
+        let (cx, cz) = Self::to_world(&fr, 0.0, -d / 2.0);
+        fr.y = js::min(self.gy(cx, cz), self.gy(fr.x, fr.z));
+        self.b.set_frame(fr.x, fr.y, fr.z, fr.yaw);
+        beach_house(
+            &mut self.b,
+            &mut self.rng,
+            HouseOpts {
+                w: Some(w),
+                d: Some(d),
+                floors: Some(h.floors),
+                ..HouseOpts::default()
+            },
+        );
+        // Front lawn and hedge, sometimes a pool out back.
+        self.b.box_(
+            "lawn",
+            w * 0.55,
+            0.05,
+            3.6,
+            w * 0.2,
+            0.02,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        self.b.box_(
+            "concrete",
+            w * 0.4,
+            0.05,
+            3.6,
+            -w * 0.25,
+            0.02,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+        );
+        if self.rng.next_f64() < 0.6 {
+            let hh = rrange(&mut self.rng, 0.7, 1.1);
+            self.b
+                .box_("hedge", w * 0.5, hh, 0.7, w * 0.22, 0.0, 4.1, 0.0, 0.0, 0.0);
+        }
+        if self.rng.next_f64() < 0.25 {
+            self.b.box_(
+                "concrete",
+                5.5,
+                0.12,
+                4.0,
+                0.0,
+                0.0,
+                -d - 3.2,
+                0.0,
+                0.0,
+                0.0,
+            );
+            self.b
+                .box_("pool", 4.5, 0.04, 3.0, 0.0, 0.1, -d - 3.2, 0.0, 0.0, 0.0);
+        }
+        if h.car {
+            let (x, z) = Self::to_world(&fr, -w * 0.22, 3.2);
+            let y = self.gy(x, z);
+            let turn = if self.rng.next_f64() < 0.5 { 0.0 } else { PI };
+            let kind = *rpick(&mut self.rng, &["sedan", "hatch", "pickup", "van"]);
+            let color = *rpick(
+                &mut self.rng,
+                &[0xe8e6df, 0x2b2f36, 0x8a1c1c, 0x2e6d8e, 0x9aa3ad, 0xb5a27a],
+            );
+            let seed = (self.rng.next_f64() * 999.0).floor() as u32;
+            self.cars.push(Car {
+                x,
+                z,
+                y,
+                yaw: fr.yaw + turn,
+                kind,
+                color,
+                seed,
+            });
+        }
+    }
+
     fn build_hill_houses(&mut self) {
+        if let Some(town) = self.town {
+            for h in &town.hill {
+                let mut rng = Mulberry32::new(h.seed);
+                let y = self.gy(h.at.x, h.at.z);
+                self.b.set_frame(h.at.x, y, h.at.z, h.at.yaw);
+                self.b
+                    .box_("concrete", 14.0, 1.2, 15.0, 0.0, -1.1, -6.0, 0.0, 0.0, 0.0);
+                let w = rrange(&mut rng, 10.0, 12.0);
+                let tile = rng.next_f64() < 0.6;
+                beach_house(
+                    &mut self.b,
+                    &mut rng,
+                    HouseOpts {
+                        w: Some(w),
+                        d: Some(h.d),
+                        floors: Some(h.floors),
+                        tile: Some(tile),
+                        ..HouseOpts::default()
+                    },
+                );
+            }
+            return;
+        }
         for h in self.beach.hill_houses.clone() {
             let mut rng = Mulberry32::new(h.seed);
             let y = self.gy(h.x, h.z);
@@ -2035,6 +2242,10 @@ impl Bld<'_> {
 
     /// `addPalm(x, z, rng, force = false)`: `rng` `None` is `this.rng`.
     fn add_palm(&mut self, x: f64, z: f64, rng: Option<&mut Mulberry32>, force: bool) {
+        // An open level's palms are the layout's.
+        if self.town.is_some() {
+            return;
+        }
         if !force && !self.free(x, z, 1.2) {
             return;
         }

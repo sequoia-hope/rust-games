@@ -343,8 +343,12 @@ impl Effects {
     /// visible pool sits `POOL_LIFT` over the road at its centre, tilted
     /// with the road there (grade along, bank across, as `Vehicle.sync`
     /// tilts a car), and its material has no slope term. `hints`: each
-    /// car's s, where to look for the road.
-    pub fn lay_pools(&mut self, track: &mp_track::Track, hints: &[f64]) {
+    /// car's road of the network and its place along it, where to look
+    /// for the road. (Off the level's own road the car's `s` is its
+    /// progress, not a place on any road: the search for road 0 near it
+    /// widened to 768 samples a car a frame and laid the pool at that
+    /// road's height, D1252.)
+    pub fn lay_pools(&mut self, track: &mp_track::Track, hints: &[(usize, f64)]) {
         let norm = |v: [f64; 3]| {
             let l = kernel::hypot(kernel::hypot(v[0], v[1]), v[2]);
             if l == 0.0 {
@@ -360,11 +364,12 @@ impl Effects {
                 a[0] * b[1] - a[1] * b[0],
             ]
         };
-        for (c, &hint) in self.cars.iter_mut().zip(hints) {
+        for (c, &(road, hint)) in self.cars.iter_mut().zip(hints) {
             let p = &mut c.pool;
             if !p.visible {
                 continue;
             }
+            let track = track.road(road);
             let pr = track.project(p.x, p.z, hint);
             let f = track.frame(pr.s);
             p.y = track.surface_y(pr.s, pr.lat) + POOL_LIFT;
@@ -619,6 +624,36 @@ mod tests {
         assert_eq!((p.x, p.y, p.z), (20.0, 2.06, 5.0));
         assert!((p.rot_y - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
         assert!((fx.pool_opacity - 0.3).abs() < 1e-12);
+    }
+
+    /// Off the level's own road a pool lies on the road the car is on, at
+    /// its height there (D1252: it was looked for on road 0 from the car's
+    /// progress, kilometres off, and laid at that road's height).
+    #[test]
+    fn a_pool_lies_on_the_branch_the_car_is_on() {
+        let lr = mp_sim::race::LevelRuntime::new(mp_levels::level_by_id("peninsula")).unwrap();
+        let t = &*lr.track;
+        let road = t.branches.len().min(7);
+        let b = t.road(road);
+        let s = (b.n / 2) as f64;
+        let f = b.frame(s);
+        let mut fx = Effects::new(1);
+        fx.add_car(true, 0);
+        let car = CarIn {
+            x: f.x - f.fx * 10.0,
+            y: b.surface_y(s - 10.0, 0.0),
+            z: f.z - f.fz * 10.0,
+            yaw: kernel::atan2(f.fz, f.fx),
+            visible: true,
+            on_ground: true,
+            ..CarIn::default()
+        };
+        fx.update(1.0 / 60.0, 1.0, &[car], &[]);
+        fx.lay_pools(t, &[(road, s - 10.0)]);
+        let p = fx.cars[0].pool;
+        let pr = b.project(p.x, p.z, s);
+        assert!(pr.lat.abs() < 1.0, "{pr:?}");
+        assert!((p.y - (b.surface_y(pr.s, pr.lat) + POOL_LIFT)).abs() < 1e-9);
     }
 
     #[test]

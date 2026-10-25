@@ -311,9 +311,12 @@ pub struct RoadCtx<'a> {
     /// Which road of the network this is (0 the level's, k its (k - 1)th
     /// branch): a partitioned section builds only its own road's metres.
     pub road: usize,
-    /// A branch's parent road: where the branch runs onto the parent's
-    /// tarmac (its mouth, and an open far end) it stands nothing there.
-    pub parent: Option<&'a Track>,
+    /// The level's road, which holds the network's junctions (stage 6c):
+    /// a road clears its rails where a lesser road meets it, and stands
+    /// nothing on the tarmac of the greater roads it meets (a branch's
+    /// mouth and open far end, a street's crossings). `None` for a road
+    /// built on its own.
+    pub network: Option<&'a Track>,
 }
 
 /// `new Road(track, terrain)` and what `build()` leaves on it.
@@ -392,8 +395,7 @@ impl RoadCtx<'_> {
     /// The parts of `[a, b]` this build makes.
     fn pieces(&self, a: f64, b: f64) -> Vec<[f64; 2]> {
         match &self.clip {
-            Some(sec) if sec.road != self.road => Vec::new(),
-            Some(sec) => sec.clip(self.track, a, b),
+            Some(sec) => sec.clip_road(self.road, self.track, a, b),
             None => vec![[a, b]],
         }
     }
@@ -412,10 +414,52 @@ impl RoadCtx<'_> {
             .collect()
     }
 
-    /// Whether the branch's metre at `s` lies on its parent's road, out to
-    /// the parent's margin and a metre more (D1218).
-    fn on_parent(&self, s: f64) -> bool {
-        let Some(p) = self.parent else { return false };
+    /// Whether the road's edge at `s` on `side` (where a chevron or a post
+    /// would stand, past the wall) lies on the tarmac of a lesser road that
+    /// meets it near there: the mouth of a road leaving on the outside of a
+    /// bend (stage 6).
+    fn on_lesser(&self, s: f64, side: f64) -> bool {
+        let Some(net) = self.network else {
+            return false;
+        };
+        let t = self.track;
+        let f = t.frame(s);
+        let lat = side * ((if side < 0.0 { f.wall_l } else { f.wall_r }) + 0.9);
+        let (x, z) = (f.x + f.rx * lat, f.z + f.rz * lat);
+        net.junctions
+            .iter()
+            .filter(|j| j.other == self.road && t.ds(j.other_s, s).abs() < 80.0)
+            .any(|j| {
+                let bt = net.road(j.road);
+                let d = bt.distance_to_road(x, z, 40.0);
+                d.s.is_some_and(|bs| {
+                    let bf = bt.frame(bs.clamp(0.0, bt.length));
+                    d.d < bf.hw + bf.margin + 1.0
+                })
+            })
+    }
+
+    /// Whether the road's metre at `s` lies on a greater road it meets,
+    /// out to that road's margin and a metre more (D1218).
+    fn on_greater(&self, s: f64) -> bool {
+        let Some(net) = self.network else {
+            return false;
+        };
+        let mut seen: Vec<usize> = Vec::new();
+        for j in net.junctions.iter().filter(|j| j.road == self.road) {
+            if seen.contains(&j.other) {
+                continue;
+            }
+            seen.push(j.other);
+            if self.on_road(net.road(j.other), s) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether the road's metre at `s` lies on road `p`'s tarmac.
+    fn on_road(&self, p: &Track, s: f64) -> bool {
         let f = self.track.frame(s);
         let d = p.distance_to_road(f.x, f.z, 60.0);
         let Some(ps) = d.s else { return false };
@@ -429,9 +473,7 @@ impl RoadCtx<'_> {
     /// Whether the metre ending at `s` is this build's.
     fn wants(&self, s: f64) -> bool {
         match &self.clip {
-            Some(sec) if sec.road != self.road => false,
-            Some(sec) if sec.partition => sec.holds_on(self.track, s - 0.5),
-            Some(sec) => sec.holds_within(self.track, s - 0.5, sec.scenery_radius),
+            Some(sec) => sec.holds_road(self.road, self.track, s - 0.5, sec.scenery_radius),
             None => true,
         }
     }
@@ -602,40 +644,24 @@ impl Road {
                 }
             }
         }
-        // Nothing across the mouth of a branch, nor where a branch's far
-        // end meets the road again (round a loop's wrap; D1218).
-        let mut clear = |at: f64, w: f64, side: f64| {
-            let (k0, k1) = ((at - w).floor() as i64, (at + w).ceil() as i64);
-            for k in k0..=k1 {
-                let i = if t.is_loop {
-                    k.rem_euclid(n as i64)
-                } else if (0..n as i64).contains(&k) {
-                    k
-                } else {
-                    continue;
-                } as usize;
-                let arr = if side < 0.0 { &mut l } else { &mut r };
-                arr[i] = 0;
-            }
-        };
-        for b in &t.branches {
-            let w = f64::from(b.track.hw[0]) + f64::from(b.track.margin[0]) + 3.0;
-            clear(b.s, w, b.side);
-            if let Some(e) = b.end {
-                let bt = &b.track;
-                let last = bt.n - 1;
-                let w = f64::from(bt.hw[last]) + f64::from(bt.margin[last]) + 3.0;
-                // The side the branch comes in from.
-                let f = bt.frame((bt.length - 30.0).max(0.0));
-                let side = js::sign(t.project(f.x, f.z, e).lat);
-                clear(e, w, side);
-            }
-        }
-        // A branch stands nothing on its parent's tarmac.
-        if c.parent.is_some() {
+        // Nothing where the network meets the road: across the mouths of
+        // the roads that join it, where one crosses it, and on the tarmac
+        // of a greater road it meets (`mp_track::barriers`, which the
+        // simulation's barriers are too: stage 7c).
+        if let Some(net) = c.network {
+            let own;
+            let e = match net.edges.get(c.road) {
+                Some(e) => e,
+                None => {
+                    own = net.edges_of(c.road);
+                    &own
+                }
+            };
             for i in 0..n {
-                if c.on_parent(i as f64) {
+                if e.left[i] == mp_track::barriers::NONE {
                     l[i] = 0;
+                }
+                if e.right[i] == mp_track::barriers::NONE {
                     r[i] = 0;
                 }
             }
@@ -763,6 +789,7 @@ impl Road {
                     continue;
                 }
                 let city = edge_type == "jersey";
+                let open = t.open_ground.is_some();
                 let tint = match z.zone.landform {
                     "mountain" => [0.55, 0.52, 0.48],
                     "coast" => [0.6, 0.55, 0.47],
@@ -780,6 +807,20 @@ impl Road {
                             pt(move |f| side * f.hw, 0.0, 0.0),
                             pt(move |f| side * (w(f) + 0.35), 0.0, 0.4),
                             pt(move |f| side * (w(f) + 0.35), -1.6, 1.0),
+                        ]
+                    } else if open {
+                        // An open level's roadside eases down to the land
+                        // as the simulation's ground does (stage 7b):
+                        // `EDGE_RUN` out, to just under the near field's
+                        // drop.
+                        vec![
+                            pt(move |f| side * f.hw, -0.01, 0.0),
+                            pt(move |f| side * w(f), -0.08, 0.5),
+                            pt(
+                                move |f| side * (w(f) + mp_track::EDGE_RUN),
+                                -mp_track::OPEN_DROP - 0.12,
+                                1.0,
+                            ),
                         ]
                     } else {
                         vec![
@@ -1249,7 +1290,12 @@ impl Road {
                 "circuitWide",
             ]
             .contains(&key);
-            if !skip && k.abs() > 0.03 && s - last > 11.0 && !c.on_parent(s) {
+            if !skip
+                && k.abs() > 0.03
+                && s - last > 11.0
+                && !c.on_greater(s)
+                && !c.on_lesser(s, if k > 0.0 { -1.0 } else { 1.0 })
+            {
                 items.push(Item {
                     s,
                     side: if k > 0.0 { -1.0 } else { 1.0 },

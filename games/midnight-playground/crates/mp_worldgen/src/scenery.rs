@@ -49,6 +49,7 @@ pub const PORTED: &[(&str, MakeScenery)] = &[
         Box::new(crate::streets::Streets::new(info))
     }),
     ("Land", |info| Box::new(crate::land::Land::new(info))),
+    ("Town", |info| Box::new(crate::town::Town::new(info))),
 ];
 
 /// The open world's scenery (docs/vision/peninsula.md): the Land kit and
@@ -58,6 +59,7 @@ pub const PORTED: &[(&str, MakeScenery)] = &[
 pub fn open_world(info: &SceneryInfo) -> Option<Box<dyn Scenery>> {
     match info.name {
         "Land" => Some(Box::new(crate::land::Land::new(info))),
+        "Town" => Some(Box::new(crate::town::Town::new(info))),
         "Coast" => Some(Box::new(crate::coast::Coast::new(info))),
         "Beach" => Some(Box::new(crate::beach::Beach::new(info))),
         "Harbor" => Some(Box::new(crate::harbor::Harbor::new(info))),

@@ -50,6 +50,9 @@ pub struct AgentView {
     pub police: bool,
     /// A traffic car (`o.kinematicOnly`).
     pub kinematic_only: bool,
+    /// The road of the network it is on (0 the level's road; stage 6g),
+    /// and its place on that road.
+    pub road: usize,
     pub s: f64,
     pub lat: f64,
     /// +1 with the race, -1 oncoming.
@@ -119,8 +122,9 @@ pub fn player_view(v: &Vehicle) -> AgentView {
         id: BodyId::Anon,
         police: false,
         kinematic_only: false,
-        s: v.s,
-        lat: v.lat,
+        road: v.road,
+        s: if v.road == 0 { v.s } else { v.road_s },
+        lat: if v.road == 0 { v.lat } else { v.road_lat },
         dir: 1,
         half_w: v.half_w,
         half_l: v.half_l,

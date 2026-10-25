@@ -46,6 +46,9 @@ pub struct Kinematic {
     pub free_lat: bool,
     /// Optional surface height override.
     pub surface: Surface,
+    /// The road of the network it drives (0 the level's road; stage 6g):
+    /// `s` and `lat` are on it.
+    pub road: usize,
 }
 
 impl Kinematic {
@@ -63,11 +66,12 @@ impl Kinematic {
             stunned: 0.0,
             free_lat: false,
             surface: Surface::Road,
+            road: 0,
         }
     }
 
     pub fn frame(&mut self, t: &Track) -> Frame {
-        self.f = t.frame(self.s);
+        self.f = t.road(self.road).frame(self.s);
         self.f
     }
 
@@ -108,14 +112,15 @@ impl Kinematic {
     }
 
     /// Advance along the road; curvature makes inside lines shorter.
-    pub fn advance(&mut self, t: &Track, dt: f64) {
-        let f = self.frame(t);
+    pub fn advance(&mut self, net: &Track, dt: f64) {
+        let t = net.road(self.road);
+        let f = self.frame(net);
         let k = f.kappa;
         let scale = 1.0 / js::max(0.4, 1.0 - k * self.lat);
         self.s += self.speed * self.dir as f64 * dt * scale;
         self.lat += self.lat_vel * dt;
         // Walls.
-        let f2 = self.frame(t);
+        let f2 = self.frame(net);
         let lim = self.v.half_w + 0.15;
         // Cars on the other carriageway (freeLat) aren't bound by our walls.
         if !self.free_lat {
@@ -147,14 +152,21 @@ impl Kinematic {
             dt,
         );
         self.stunned = js::max(0.0, self.stunned - dt);
-        self.write_pos(t);
+        self.write_pos(net);
     }
 
-    pub fn write_pos(&mut self, t: &Track) {
-        let f = self.frame(t);
+    pub fn write_pos(&mut self, net: &Track) {
+        let f = self.frame(net);
+        let t = net.road(self.road);
         let v = &mut self.v;
-        v.s = self.s;
-        v.lat = self.lat;
+        // Off the level's road its place there is left as it was.
+        if self.road == 0 {
+            v.s = self.s;
+            v.lat = self.lat;
+        }
+        v.road = self.road;
+        v.road_s = self.s;
+        v.road_lat = self.lat;
         v.x = f.x + f.rx * self.lat;
         v.z = f.z + f.rz * self.lat;
         v.y = match self.surface {
@@ -177,6 +189,7 @@ impl Kinematic {
             id: crate::body::BodyId::Anon,
             police: false,
             kinematic_only: false,
+            road: self.road,
             s: self.s,
             lat: self.lat,
             dir: self.dir,

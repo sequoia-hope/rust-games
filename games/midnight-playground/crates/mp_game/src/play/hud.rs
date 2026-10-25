@@ -48,6 +48,9 @@ pub(super) fn plugin(app: &mut App) {
     material::plugin(app);
 }
 
+/// A colour number as the minimap's sRGB with alpha (for the atlas).
+pub(super) use minimap::rgb as minimap_rgb;
+
 // ── Elements ───────────────────────────────────────────────────────────
 
 /// The nodes the update touches, by their DOM ids.
@@ -1780,7 +1783,7 @@ fn places(race: &super::flow::Race) -> Vec<PlaceDot> {
         .collect()
 }
 
-fn hud_in(race: &super::flow::Race) -> HudIn {
+pub(super) fn hud_in(race: &super::flow::Race) -> HudIn {
     let st = &race.session.curr;
     let me = race.me();
     let p = &st.players[me];
@@ -1850,6 +1853,8 @@ fn hud_in(race: &super::flow::Race) -> HudIn {
         electric: p.phys.electric,
         power: p.phys.power_out,
         s,
+        road: p.v.road,
+        road_s: p.v.road_s,
         started: st.race.state != RaceStateKind::Countdown,
         racers,
         laps: laps.then(|| LapsIn {
@@ -2088,6 +2093,7 @@ pub(super) fn update(
     hs: Option<ResMut<HudState>>,
     mut mats: ResMut<Assets<HudMaterial>>,
     mut writes: ResMut<material::HudWrites>,
+    mini: Option<Res<super::atlas::MiniZoom>>,
     mut roots: Query<&mut Visibility, (With<HudRoot>, Without<El>)>,
     mut parts: Query<Parts>,
 ) {
@@ -2323,7 +2329,12 @@ pub(super) fn update(
             writes.set(m, material::dial(&dial.draw));
         }
     }
-    let scene = minimap::scene(track, &input, model.clock);
+    let k = if mini.is_some_and(|m| m.wide) {
+        minimap::WIDE
+    } else {
+        minimap::SCALE
+    };
+    let scene = minimap::scene_at(track, &input, model.clock, k);
     if hs.last_scene.as_ref() != Some(&scene) {
         if let Some(m) = mats.get(&mats_h[1]) {
             writes.set(m, material::minimap(&scene));

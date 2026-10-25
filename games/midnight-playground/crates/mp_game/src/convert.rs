@@ -464,31 +464,6 @@ fn linear_to_srgb(x: f32) -> u8 {
     (y * 255.0 + 0.5).clamp(0.0, 255.0) as u8
 }
 
-/// The next mip level by a 2×2 box filter (odd edges clamp), averaging
-/// colour in linear light when the texture is sRGB (as the GPU's own mip
-/// generation does for sRGB formats). Alpha and non-colour data average
-/// as stored.
-fn downsample(src: &[u8], w: usize, h: usize, ch: usize, srgb: bool, lut: &[f32; 256]) -> Vec<u8> {
-    let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
-    let mut out = vec![0u8; nw * nh * ch];
-    for y in 0..nh {
-        let (y0, y1) = ((2 * y).min(h - 1), (2 * y + 1).min(h - 1));
-        for x in 0..nw {
-            let (x0, x1) = ((2 * x).min(w - 1), (2 * x + 1).min(w - 1));
-            for k in 0..ch {
-                let at = |xx: usize, yy: usize| src[(yy * w + xx) * ch + k];
-                let px = [at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1)];
-                out[(y * nw + x) * ch + k] = if srgb && k < 3 {
-                    linear_to_srgb(px.iter().map(|&p| lut[p as usize]).sum::<f32>() / 4.0)
-                } else {
-                    ((px.iter().map(|&p| u32::from(p)).sum::<u32>() + 2) / 4) as u8
-                };
-            }
-        }
-    }
-    out
-}
-
 fn wrap(mode: u32) -> ImageAddressMode {
     match mode {
         three::CLAMP_TO_EDGE_WRAPPING => ImageAddressMode::ClampToEdge,
@@ -513,82 +488,203 @@ fn filter(f: u32) -> (ImageFilterMode, bool, ImageFilterMode) {
 /// A texture as a Bevy image: rows flipped where three flips them on upload
 /// (SPEC 5.2), a mip chain where three generates one, and three's sampler.
 pub fn build_image(scene: &Scene, t: &TextureDesc) -> Option<Image> {
-    let BufferData::U8(px) = &scene.buffers[t.pixels as usize].data else {
-        return None;
-    };
-    let (w, h, ch) = (t.width as usize, t.height as usize, t.channels as usize);
-    if w == 0 || h == 0 || px.len() < w * h * ch || !(ch == 1 || ch == 4) {
-        return None;
-    }
-    let row = w * ch;
-    let mut level: Vec<u8> = if t.flip_y {
-        let mut v = Vec::with_capacity(w * h * ch);
-        for y in (0..h).rev() {
-            v.extend_from_slice(&px[y * row..(y + 1) * row]);
+    let mut job = ImageJob::new(scene, t)?;
+    while !job.step(scene, usize::MAX) {}
+    Some(job.finish())
+}
+
+/// [`build_image`] a slice at a time (D1245): converting a 2048-square
+/// texture's mip chain on the web's main thread is 100 to 400 ms, a frame
+/// held that long when a streamed section first meets it, so the loader
+/// converts it a megabyte or so a frame.
+pub struct ImageJob {
+    t: TextureDesc,
+    w: usize,
+    h: usize,
+    ch: usize,
+    srgb: bool,
+    mips: bool,
+    lut: [f32; 256],
+    /// Every level so far, end to end; the first is the texture's pixels
+    /// in upload order.
+    data: Vec<u8>,
+    /// The level being made (0: the pixels), its size, where it starts in
+    /// `data`, the previous level's start, and the rows done.
+    level: u32,
+    lw: usize,
+    lh: usize,
+    at: usize,
+    prev: usize,
+    row: usize,
+}
+
+impl ImageJob {
+    /// None for what [`build_image`] cannot convert.
+    pub fn new(scene: &Scene, t: &TextureDesc) -> Option<ImageJob> {
+        let BufferData::U8(px) = &scene.buffers[t.pixels as usize].data else {
+            return None;
+        };
+        let (w, h, ch) = (t.width as usize, t.height as usize, t.channels as usize);
+        if w == 0 || h == 0 || px.len() < w * h * ch || !(ch == 1 || ch == 4) {
+            return None;
         }
-        v
-    } else {
-        px[..w * h * ch].to_vec()
-    };
-    let srgb = t.color_space == "srgb";
-    let format = match (ch, srgb) {
-        (4, true) => TextureFormat::Rgba8UnormSrgb,
-        (4, false) => TextureFormat::Rgba8Unorm,
-        _ => TextureFormat::R8Unorm,
-    };
-    let (min, min_mips, mip_filter) = filter(t.min_filter);
-    let (mag, _, _) = filter(t.mag_filter);
-    let mips = t.generate_mipmaps && min_mips;
-    let size = Extent3d {
-        width: t.width,
-        height: t.height,
-        depth_or_array_layers: 1,
-    };
-    let mut image = Image::new(
-        size,
-        TextureDimension::D2,
-        level.clone(),
-        format,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    if mips {
-        let lut: [f32; 256] = std::array::from_fn(|i| srgb_to_linear(i as u8));
-        let mut data = level.clone();
-        let (mut lw, mut lh, mut count) = (w, h, 1u32);
-        while lw > 1 || lh > 1 {
-            level = downsample(&level, lw, lh, ch, srgb && ch == 4, &lut);
-            lw = (lw / 2).max(1);
-            lh = (lh / 2).max(1);
-            data.extend_from_slice(&level);
-            count += 1;
-        }
-        image.data = Some(data);
-        image.texture_descriptor.mip_level_count = count;
+        let (_, min_mips, _) = filter(t.min_filter);
+        let mips = t.generate_mipmaps && min_mips;
+        // The chain is a third again of the first level.
+        let total = w * h * ch + if mips { w * h * ch / 3 + 64 } else { 0 };
+        Some(ImageJob {
+            t: t.clone(),
+            w,
+            h,
+            ch,
+            srgb: t.color_space == "srgb",
+            mips,
+            lut: std::array::from_fn(|i| srgb_to_linear(i as u8)),
+            data: Vec::with_capacity(total),
+            level: 0,
+            lw: w,
+            lh: h,
+            at: 0,
+            prev: 0,
+            row: 0,
+        })
     }
-    // WebGPU allows anisotropy only with linear filtering throughout.
-    let linear = min == ImageFilterMode::Linear
-        && mag == ImageFilterMode::Linear
-        && (!mips || mip_filter == ImageFilterMode::Linear);
-    image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
-        label: None,
-        address_mode_u: wrap(t.wrap_s),
-        address_mode_v: wrap(t.wrap_t),
-        address_mode_w: ImageAddressMode::ClampToEdge,
-        mag_filter: mag,
-        min_filter: min,
-        mipmap_filter: if mips {
-            mip_filter
-        } else {
-            ImageFilterMode::Nearest
-        },
-        anisotropy_clamp: if linear && mips {
-            (t.anisotropy as u16).clamp(1, 16)
-        } else {
-            1
-        },
-        ..ImageSamplerDescriptor::default()
-    });
-    Some(image)
+
+    /// Converts at least a row, and rows until about `bytes` are made.
+    /// True once the image is whole.
+    pub fn step(&mut self, scene: &Scene, bytes: usize) -> bool {
+        let mut made = 0usize;
+        loop {
+            if self.level == 0 {
+                let BufferData::U8(px) = &scene.buffers[self.t.pixels as usize].data else {
+                    return true;
+                };
+                let row = self.w * self.ch;
+                while self.row < self.h {
+                    let y = if self.t.flip_y {
+                        self.h - 1 - self.row
+                    } else {
+                        self.row
+                    };
+                    self.data.extend_from_slice(&px[y * row..(y + 1) * row]);
+                    self.row += 1;
+                    made += row;
+                    if made >= bytes {
+                        return false;
+                    }
+                }
+            } else {
+                // The next level by a 2×2 box filter (odd edges clamp),
+                // averaging colour in linear light when the texture is
+                // sRGB (as the GPU's own mip generation does for sRGB
+                // formats). Alpha and non-colour data average as stored.
+                let (pw, ph) = (self.lw_prev(), self.lh_prev());
+                let (ch, srgb) = (self.ch, self.srgb && self.ch == 4);
+                while self.row < self.lh {
+                    let y = self.row;
+                    let (y0, y1) = ((2 * y).min(ph - 1), (2 * y + 1).min(ph - 1));
+                    for x in 0..self.lw {
+                        let (x0, x1) = ((2 * x).min(pw - 1), (2 * x + 1).min(pw - 1));
+                        for k in 0..ch {
+                            let at = |xx: usize, yy: usize| {
+                                self.data[self.prev + (yy * pw + xx) * ch + k]
+                            };
+                            let px = [at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1)];
+                            let v = if srgb && k < 3 {
+                                linear_to_srgb(
+                                    px.iter().map(|&p| self.lut[p as usize]).sum::<f32>() / 4.0,
+                                )
+                            } else {
+                                ((px.iter().map(|&p| u32::from(p)).sum::<u32>() + 2) / 4) as u8
+                            };
+                            self.data.push(v);
+                        }
+                    }
+                    self.row += 1;
+                    made += self.lw * ch;
+                    if made >= bytes {
+                        return false;
+                    }
+                }
+            }
+            // The level is done: the next, or the end.
+            if !self.mips || (self.lw == 1 && self.lh == 1) {
+                return true;
+            }
+            self.prev = self.at;
+            self.at = self.data.len();
+            self.lw = (self.lw / 2).max(1);
+            self.lh = (self.lh / 2).max(1);
+            self.level += 1;
+            self.row = 0;
+        }
+    }
+
+    /// The previous level's size (the one being filtered from).
+    fn lw_prev(&self) -> usize {
+        (self.w >> (self.level - 1)).max(1)
+    }
+
+    fn lh_prev(&self) -> usize {
+        (self.h >> (self.level - 1)).max(1)
+    }
+
+    /// The bytes made so far.
+    pub fn made(&self) -> usize {
+        self.data.len()
+    }
+
+    /// The image, once [`step`](ImageJob::step) has said it is whole.
+    pub fn finish(self) -> Image {
+        let t = &self.t;
+        let format = match (self.ch, self.srgb) {
+            (4, true) => TextureFormat::Rgba8UnormSrgb,
+            (4, false) => TextureFormat::Rgba8Unorm,
+            _ => TextureFormat::R8Unorm,
+        };
+        let (min, _, mip_filter) = filter(t.min_filter);
+        let (mag, _, _) = filter(t.mag_filter);
+        let mips = self.mips;
+        let size = Extent3d {
+            width: t.width,
+            height: t.height,
+            depth_or_array_layers: 1,
+        };
+        let mut image = Image::new_uninit(
+            size,
+            TextureDimension::D2,
+            format,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        image.data = Some(self.data);
+        if mips {
+            image.texture_descriptor.mip_level_count = self.level + 1;
+        }
+        // WebGPU allows anisotropy only with linear filtering throughout.
+        let linear = min == ImageFilterMode::Linear
+            && mag == ImageFilterMode::Linear
+            && (!mips || mip_filter == ImageFilterMode::Linear);
+        image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+            label: None,
+            address_mode_u: wrap(t.wrap_s),
+            address_mode_v: wrap(t.wrap_t),
+            address_mode_w: ImageAddressMode::ClampToEdge,
+            mag_filter: mag,
+            min_filter: min,
+            mipmap_filter: if mips {
+                mip_filter
+            } else {
+                ImageFilterMode::Nearest
+            },
+            anisotropy_clamp: if linear && mips {
+                (t.anisotropy as u16).clamp(1, 16)
+            } else {
+                1
+            },
+            ..ImageSamplerDescriptor::default()
+        });
+        image
+    }
 }
 
 /// three's `Matrix3.setUvTransform` for a texture's offset, repeat, rotation
@@ -866,13 +962,70 @@ mod tests {
         );
     }
 
+    /// A scene of one texture of `rgba`, `w` × `h`, sRGB, mipmapped.
+    fn one_texture(w: u32, h: u32, rgba: Vec<u8>, canvas: bool) -> Scene {
+        let t = mp_worldgen::textures::Texture {
+            width: w,
+            height: h,
+            rgba,
+            source: if canvas {
+                mp_scene::TextureSource::Canvas
+            } else {
+                mp_scene::TextureSource::Data
+            },
+            repeat: true,
+            srgb: true,
+            anisotropy: 8.0,
+        };
+        let mut scene = Scene::default();
+        scene.buffers.push(mp_scene::Buffer {
+            item_size: 4,
+            normalized: false,
+            data: BufferData::U8(t.rgba.clone()),
+        });
+        scene.textures.push(t.desc("t", 0));
+        scene
+    }
+
     #[test]
     fn box_filter_in_linear_light() {
-        let lut: [f32; 256] = std::array::from_fn(|i| srgb_to_linear(i as u8));
         // Black and white average to linear 0.5, which is sRGB 188.
-        let src = [0, 0, 0, 255, 255, 255, 255, 255];
-        let out = downsample(&src, 2, 1, 4, true, &lut);
-        assert_eq!(out, vec![188, 188, 188, 255]);
+        let scene = one_texture(2, 1, vec![0, 0, 0, 255, 255, 255, 255, 255], false);
+        let img = build_image(&scene, &scene.textures[0]).unwrap();
+        assert_eq!(img.texture_descriptor.mip_level_count, 2);
+        assert_eq!(img.data.as_ref().unwrap()[8..], [188, 188, 188, 255]);
         assert_eq!(linear_to_srgb(srgb_to_linear(77)), 77);
+    }
+
+    /// A texture converted a row at a time is the one converted whole,
+    /// flipped and mipmapped alike.
+    #[test]
+    fn an_image_converted_in_slices_is_the_whole_one() {
+        let (w, h) = (37u32, 20u32);
+        let rgba: Vec<u8> = (0..w * h * 4).map(|i| (i * 7 % 251) as u8).collect();
+        for canvas in [false, true] {
+            let scene = one_texture(w, h, rgba.clone(), canvas);
+            let t = &scene.textures[0];
+            let whole = build_image(&scene, t).unwrap();
+            let mut job = ImageJob::new(&scene, t).unwrap();
+            let mut steps = 0;
+            while !job.step(&scene, 1) {
+                steps += 1;
+            }
+            let sliced = job.finish();
+            assert!(steps > 20, "{steps} steps");
+            assert_eq!(whole.data, sliced.data);
+            assert_eq!(
+                whole.texture_descriptor.mip_level_count,
+                sliced.texture_descriptor.mip_level_count
+            );
+            // 37×20, 18×10, 9×5, 4×2, 2×1, 1×1.
+            assert_eq!(sliced.texture_descriptor.mip_level_count, 6);
+            let n: u32 = [(37, 20), (18, 10), (9, 5), (4, 2), (2, 1), (1, 1)]
+                .iter()
+                .map(|(a, b)| a * b * 4)
+                .sum();
+            assert_eq!(sliced.data.unwrap().len(), n as usize);
+        }
     }
 }

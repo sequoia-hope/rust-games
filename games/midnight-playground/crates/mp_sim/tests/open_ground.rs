@@ -17,8 +17,13 @@ use std::sync::Arc;
 
 const DT: f64 = 1.0 / 120.0;
 
+/// Level `id`'s track, without its roadside barriers: these tests are of
+/// the ground off the road, which the barriers (stage 7c, tests/barriers.rs)
+/// keep the car from along most of the coast.
 fn track(id: &str) -> Arc<Track> {
-    LevelRuntime::new(mp_levels::level_by_id(id)).unwrap().track
+    let mut t = LevelRuntime::new(mp_levels::level_by_id(id)).unwrap().track;
+    Arc::make_mut(&mut t).edges.clear();
+    t
 }
 
 /// Full lock to one side with the throttle down, from `s` at road speed:
@@ -49,7 +54,7 @@ fn swerve(t: &Track, s: f64, seconds: f64) -> (Vehicle, CarPhysics) {
 fn an_open_level_lets_the_car_leave_the_road_and_keeps_it_on_the_ground() {
     let t = track("southcoast");
     assert!(t.open_ground.is_some(), "the corridor is open");
-    let (v, _) = swerve(&t, 600.0, 8.0);
+    let (v, phys) = swerve(&t, 600.0, 8.0);
     let f = t.frame(v.s);
     assert!(
         v.lat.abs() > f.hw + f.margin + 10.0,
@@ -63,7 +68,16 @@ fn an_open_level_lets_the_car_leave_the_road_and_keeps_it_on_the_ground() {
     // On the land: the simulation's ground there, which is the real
     // grid away from the road.
     let g = t.ground_y(v.x, v.z, v.s, v.lat);
-    assert!((v.y - g).abs() < 0.05, "y {} vs ground {g}", v.y);
+    // On the suspension (stage 7a): the body within its reach of the
+    // ground under the four wheels, which on a plane is the ground under
+    // its middle.
+    let contact = phys.suspension.expect("an open level's suspension").contact;
+    assert!(
+        (v.y - contact).abs() < 0.3,
+        "y {} vs the wheels' ground {contact}",
+        v.y
+    );
+    assert!((contact - g).abs() < 0.1, "the wheels' {contact} vs {g}");
     let land = t.open_ground.as_ref().unwrap()(v.x, v.z);
     assert!((g - land).abs() < 0.5, "past the band: {g} vs {land}");
     assert!(v.on_ground);

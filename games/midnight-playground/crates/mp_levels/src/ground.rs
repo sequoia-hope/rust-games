@@ -192,3 +192,135 @@ impl CoverGrid {
         self.classes[j * self.w + i]
     }
 }
+
+/// The city grid (`<id>.city.bin`, stage 6b, written by
+/// `tools/atlas/city.py`): over the ground's box, in cells of its own step
+/// (32 game metres), how much of the ground the real buildings cover and
+/// how tall they stand. Heights are real metres: the map is compressed,
+/// the buildings are not. Little-endian: `b"MPCITY01"`, u32 width, u32
+/// height, f32 step, f32 x0, f32 z0 (cell (0, 0)'s centre, the north-west
+/// corner), u32 zlib length, zlib of three u8 a cell, row by row from the
+/// north: coverage (0 to 255 of the cell), then the median and the
+/// ninetieth percentile height of the buildings in it, in units of
+/// [`CityGrid::HEIGHT_UNIT`] metres.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CityGrid {
+    pub x0: f64,
+    pub z0: f64,
+    pub step: f64,
+    pub w: usize,
+    pub h: usize,
+    /// Three bytes a cell: coverage, p50, p90.
+    pub cells: Vec<u8>,
+}
+
+impl CityGrid {
+    /// Real metres in a unit of the file's heights.
+    pub const HEIGHT_UNIT: f64 = 2.0;
+
+    pub fn parse(bytes: &[u8]) -> Result<CityGrid, String> {
+        if bytes.len() < 32 || &bytes[0..8] != b"MPCITY01" {
+            return Err("city: not an MPCITY01 file".to_owned());
+        }
+        let u32_at =
+            |o: usize| u32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]]);
+        let f32_at =
+            |o: usize| f32::from_le_bytes([bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]]);
+        let w = u32_at(8) as usize;
+        let h = u32_at(12) as usize;
+        let step = f64::from(f32_at(16));
+        let x0 = f64::from(f32_at(20));
+        let z0 = f64::from(f32_at(24));
+        let len = u32_at(28) as usize;
+        if w < 1
+            || h < 1
+            || step.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+            || w.checked_mul(h).and_then(|n| n.checked_mul(3)).is_none()
+        {
+            return Err("city: bad grid size".to_owned());
+        }
+        let stream = bytes
+            .get(32..32 + len)
+            .ok_or_else(|| "city: short file".to_owned())?;
+        let cells = miniz_oxide::inflate::decompress_to_vec_zlib(stream)
+            .map_err(|e| format!("city: inflating: {e:?}"))?;
+        if cells.len() != w * h * 3 {
+            return Err(format!(
+                "city: {} bytes of cells for {w} x {h} cells",
+                cells.len()
+            ));
+        }
+        Ok(CityGrid {
+            x0,
+            z0,
+            step,
+            w,
+            h,
+            cells,
+        })
+    }
+
+    /// The cell holding (x, z), as the index of its first byte; None
+    /// outside the grid.
+    fn cell(&self, x: f64, z: f64) -> Option<usize> {
+        let i = ((x - self.x0) / self.step).round();
+        let j = ((z - self.z0) / self.step).round();
+        if !(0.0..self.w as f64).contains(&i) || !(0.0..self.h as f64).contains(&j) {
+            return None;
+        }
+        Some((j as usize * self.w + i as usize) * 3)
+    }
+
+    /// The share of the ground under buildings in the cell at (x, z), 0 to
+    /// 1; None outside the grid.
+    pub fn coverage(&self, x: f64, z: f64) -> Option<f64> {
+        self.cell(x, z).map(|k| f64::from(self.cells[k]) / 255.0)
+    }
+
+    /// The median height (real metres) of the buildings in the cell at
+    /// (x, z), by footprint area; 0 where there are none, None outside.
+    pub fn height_p50(&self, x: f64, z: f64) -> Option<f64> {
+        self.cell(x, z)
+            .map(|k| f64::from(self.cells[k + 1]) * Self::HEIGHT_UNIT)
+    }
+
+    /// The ninetieth percentile height (real metres) of the buildings in
+    /// the cell at (x, z), by footprint area; 0 where there are none, None
+    /// outside.
+    pub fn height_p90(&self, x: f64, z: f64) -> Option<f64> {
+        self.cell(x, z)
+            .map(|k| f64::from(self.cells[k + 2]) * Self::HEIGHT_UNIT)
+    }
+}
+
+#[cfg(test)]
+mod city_tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_nearest_cell_and_nothing_outside() {
+        // 2 x 1 cells of 32 m from (100, 50): open ground, then a tower.
+        let raw = [0u8, 0, 0, 128, 20, 150];
+        let z = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6);
+        let mut b = b"MPCITY01".to_vec();
+        for v in [2u32, 1] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in [32f32, 100.0, 50.0] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.extend_from_slice(&(z.len() as u32).to_le_bytes());
+        b.extend_from_slice(&z);
+        let g = CityGrid::parse(&b).unwrap();
+        assert_eq!(g.coverage(110.0, 60.0), Some(0.0));
+        assert_eq!(g.height_p90(110.0, 60.0), Some(0.0));
+        let (x, z) = (140.0, 40.0);
+        assert!((g.coverage(x, z).unwrap() - 128.0 / 255.0).abs() < 1e-12);
+        assert_eq!(g.height_p50(x, z), Some(40.0));
+        assert_eq!(g.height_p90(x, z), Some(300.0));
+        assert_eq!(g.coverage(160.0, 50.0), None);
+        assert_eq!(g.coverage(83.0, 50.0), None);
+        assert_eq!(g.height_p50(140.0, 67.0), None);
+        assert!(CityGrid::parse(b"MPCOVER1 not this file at all.....").is_err());
+    }
+}

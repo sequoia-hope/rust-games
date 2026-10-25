@@ -69,6 +69,8 @@ and carry on with the option that best preserves parity.
 | Web build into `dist/next/` | `cargo xtask web` (add `--release` for the optimised build) |
 | Wasm size report | `cargo xtask size` (after a release web build) |
 | Frame times of the Rust client, desktop, phone or throttled (BASELINE; the JS game's: `perf-baseline.mjs`) | `node tools/parity/rust-perf.mjs --level sierra --race [--backend webgl2] [--phone] [--throttle 4]` (on a laptop over ssh: `--headed --angle gl --size WxH --dpr N`, see BASELINE "The laptop itself") |
+| Frame stutter in the open world: frame times held to budgets on the GPU, each long frame explained by the stream's work around it (menu, cruise, a branch, an event; D1238) | `cargo xtask web --release && node --test tools/parity/e2e/stutter.test.mjs` (`MP_BACKEND=webgl2`, `MP_DEVICE=phone`, `MP_STUTTER_SECS=<s>`, `MP_STUTTER_ONLY=menu,cruise,branch,event`) |
+| The stream's work budgets without a GPU: every section's items, bytes and pipelines against the warm-up scene (D1238, D1245); `MP_WARMUP_WRITE=1` writes `assets/warmup/peninsula.mrscene` again when a kit's materials change | `cargo nextest run -p mp_game -E 'test(every_section_streams)' --no-capture` |
 | CPU profile by Bevy system (needs the names-kept build: `cargo xtask prof`) | `node tools/parity/rust-prof.mjs --level sierra --backend webgl2 --throttle 4` (`--from <.cpuprofile> --callers <regex>` to dig) |
 | WebGL2 calls a frame, and the GPU's time by pass and shader program (the JS game's figures are in BASELINE) | `node tools/parity/gl-calls.mjs` (`--by-program`, `--angle gl`, `--headed`, `--sub-frag 're=>to'` for what-if shader edits, `PK_DUMPIO=1 INTEL_DEBUG=perf` for Mesa's compile notes) |
 | Two builds of the Rust client compared pixel for pixel (WebGL2, four levels; `dist/prof/` is the usual before) | `node tools/parity/build-diff.mjs --a prof --b next` |
@@ -79,7 +81,12 @@ and carry on with the option that best preserves parity.
 | The open world's plan, measured (`resolve` rewrites what the planner draws; `corridor <id>` writes a route's road for a level, `docs/vision/peninsula.md`) | `cargo run --release -p mp_atlas -- report` |
 | Rebuild the atlas from real data (python3 with numpy, Pillow, shapely, pyarrow) | `python3 tools/atlas/build.py` |
 | The ground and land cover under the open world's corridors (stages 2 and 4a of `docs/vision/peninsula.md`) | `python3 tools/atlas/ground.py coast-south hwy-92 skyline-south hwy-84 --margin 1200 --step 16 --name peninsula` |
+| The same for the bay side (stage 6b; pyarrow, numpy, Pillow, shapely: `uv run --with ...` where they are not installed) | `python3 tools/atlas/ground.py hwy-92-east hwy-84-east us-101 i-280 el-camino ralston hillsdale third-ave broadway millbrae san-bruno sf-19th-ave sf-lombard sf-van-ness sf-market sf-geary sf-embarcadero --margin 1200 --step 24 --name bayside` |
+| The city grid over a ground box: built cover and building heights from Overture (stage 6b) | `python3 tools/atlas/city.py --name bayside` |
 | Drive the web client round the loop with the keyboard | `node tools/parity/drive-branch.mjs --level peninsula [--phone] [--secs 900]` |
+| A long drive through the open world: frame times, memory and what the world holds (`__mp.census`) per 30 s window, each long frame with the stream's work round it (D1252; `--capped` as a player sees it, `--menu`, `--throttle`, `--prof`, `--trace`) | `node tools/parity/long-drive.mjs --road el-camino --secs 600 --capped` |
+| A cruise of the open world from each of its starts, driven along its road, with pictures and frame times (stage 6) | `node tools/parity/cruise-shots.mjs [--starts redwood-city,lombard] [--backend webgl2] [--dist next]` |
+| A streamed level's plan and sections, timed and sized natively (`AT=x,z;x,z` for the squares under points) | `cargo run --release -p mp_worldgen --example stream_cost -- peninsula [N]` |
 | Drive the web client along the open world's roads with the keyboard, watching for a hang (console, ticks, frame time) | `node tools/parity/drive-branch.mjs [--phone] [--query "touch=1&assist=2&physics=player"]` |
 | The police radio's script (every clip, for `tools/radio-voice/render.py`) | `cargo run -p mp_audio --example radio_lines` |
 | JS unit tests | `npm run test:unit` (and `npm run test:unit:kernel`, with the parity kernel) |

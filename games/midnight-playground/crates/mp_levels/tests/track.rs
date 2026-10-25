@@ -120,6 +120,12 @@ fn zones_are_contiguous_and_cover_the_route() {
         assert_eq!(t.zones[0].s0, 0.0);
         assert_eq!(t.zones.last().unwrap().s1, t.length);
         for (z, zn) in t.zones.iter().enumerate() {
+            // A zone only the level's other roads enter (the bay side's,
+            // stage 6) is empty at the road's end.
+            if zn.s0 == t.length {
+                assert_eq!(zn.s1, t.length, "zone {} is empty", zn.zone.key);
+                continue;
+            }
             assert!(zn.s1 > zn.s0, "zone {} has length", zn.zone.key);
             if z > 0 {
                 assert_eq!(

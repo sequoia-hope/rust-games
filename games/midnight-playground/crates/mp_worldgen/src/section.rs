@@ -27,6 +27,8 @@ use crate::object::{HandleMap, NodeId, SceneGraph};
 use crate::terrain::Tile;
 use crate::three_geom::math::{Matrix4, Vector3};
 use crate::world::{World, WorldBuild};
+use std::sync::Arc;
+
 use mp_track::Track;
 
 /// A stretch of the route and how far around it the section reaches.
@@ -58,6 +60,92 @@ pub struct Section {
     /// its (k - 1)th branch (`Track::road`; stage 4d). A partitioned
     /// section owns what is nearer its road than any other.
     pub road: usize,
+    /// A section of a level streamed by place (`Level::stream_cell`,
+    /// stage 6d): a square of the ground, which owns what stands in it,
+    /// and the metres of every road inside it. `s0`, `s1` and `road` mean
+    /// nothing then.
+    pub place: Option<Arc<Place>>,
+}
+
+/// A square of ground a section streamed by place owns (stage 6d).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Place {
+    /// The square, `[x0, x1)` by `[z0, z1)`.
+    pub x0: f64,
+    pub z0: f64,
+    pub x1: f64,
+    pub z1: f64,
+    /// Each road's metres inside the square, as runs `[s0, s1)`: road k's
+    /// at index k.
+    pub runs: Vec<Vec<[f64; 2]>>,
+}
+
+impl Place {
+    /// The square at `[x0, x1) x [z0, z1)` and the runs of every road of
+    /// `track`'s network inside it: a metre (`s - 0.5` to `s + 0.5`) is
+    /// in when its middle is.
+    pub fn new(track: &Track, x0: f64, z0: f64, x1: f64, z1: f64) -> Place {
+        let mut runs = Vec::new();
+        for t in track.roads() {
+            let mut out: Vec<[f64; 2]> = Vec::new();
+            let inside = t.bounds.max_x >= x0
+                && t.bounds.min_x < x1
+                && t.bounds.max_z >= z0
+                && t.bounds.min_z < z1;
+            if inside {
+                let end = if t.is_loop {
+                    t.length
+                } else {
+                    t.road_end().min(t.length + t.runout)
+                };
+                let mut s = 0.5;
+                let mut open: Option<f64> = None;
+                while s < end {
+                    let f = t.frame(s);
+                    let a = s - 0.5;
+                    let here = f.x >= x0 && f.x < x1 && f.z >= z0 && f.z < z1;
+                    match (here, open) {
+                        (true, None) => open = Some(a),
+                        (false, Some(o)) => {
+                            out.push([o, a]);
+                            open = None;
+                        }
+                        _ => {}
+                    }
+                    s += 1.0;
+                }
+                if let Some(o) = open {
+                    out.push([o, s - 0.5]);
+                }
+            }
+            runs.push(out);
+        }
+        Place {
+            x0,
+            z0,
+            x1,
+            z1,
+            runs,
+        }
+    }
+
+    pub fn contains(&self, x: f64, z: f64) -> bool {
+        x >= self.x0 && x < self.x1 && z >= self.z0 && z < self.z1
+    }
+
+    /// Whether metre `s` of road `road` (its middle at `s + 0.5`) is in.
+    fn holds(&self, road: usize, s: f64) -> bool {
+        self.runs
+            .get(road)
+            .is_some_and(|rs| rs.iter().any(|r| s >= r[0] && s < r[1]))
+    }
+
+    /// The squared distance from (x, z) to the square.
+    fn dist2(&self, x: f64, z: f64) -> f64 {
+        let dx = (self.x0 - x).max(0.0).max(x - self.x1);
+        let dz = (self.z0 - z).max(0.0).max(z - self.z1);
+        dx * dx + dz * dz
+    }
 }
 
 impl Default for Section {
@@ -71,6 +159,7 @@ impl Default for Section {
             partition: false,
             base: false,
             road: 0,
+            place: None,
         }
     }
 }
@@ -88,8 +177,23 @@ impl Section {
         track.road(self.road.min(track.branches.len()))
     }
 
-    /// The stretch as points (x, z) every [`STEP`] m.
+    /// The stretch as points (x, z) every [`STEP`] m; a place's square
+    /// as its corners and a grid every 100 m.
     pub fn points(&self, track: &Track) -> Vec<[f64; 2]> {
+        if let Some(p) = &self.place {
+            let nx = ((p.x1 - p.x0) / 100.0).ceil().max(1.0) as usize;
+            let nz = ((p.z1 - p.z0) / 100.0).ceil().max(1.0) as usize;
+            let mut out = Vec::new();
+            for j in 0..=nz {
+                for i in 0..=nx {
+                    out.push([
+                        p.x0 + (p.x1 - p.x0) * i as f64 / nx as f64,
+                        p.z0 + (p.z1 - p.z0) * j as f64 / nz as f64,
+                    ]);
+                }
+            }
+            return out;
+        }
         let t = self.track(track);
         let n = ((self.s1 - self.s0) / STEP).ceil().max(1.0) as usize;
         (0..=n)
@@ -140,29 +244,57 @@ impl Section {
     /// The place of (x, z) in the level's network: the nearest road within
     /// [`NEAR_ROAD`] and the metres along it.
     pub fn s_of(track: &Track, x: f64, z: f64) -> Option<(usize, f64)> {
-        let mut best: Option<(usize, f64, f64)> = None;
-        for (r, t) in track.roads().enumerate() {
-            let d = t.distance_to_road(x, z, NEAR_ROAD);
-            let Some(s) = d.s else { continue };
-            // The distance to the place itself: beyond an open road's end
-            // the lateral distance from its last segment says nothing.
-            let f = t.frame(if t.is_loop {
-                t.wrap(s)
-            } else {
-                s.clamp(0.0, t.length)
-            });
-            let dd = pk_math::kernel::hypot(x - f.x, z - f.z);
-            if dd <= NEAR_ROAD && best.is_none_or(|b| dd < b.2) {
-                best = Some((r, s, dd));
-            }
-        }
-        best.map(|(r, s, _)| (r, s))
+        track.nearest_place(x, z, NEAR_ROAD)
     }
 
     /// Whether the point (x, z) belongs to the stretch: its nearest place
     /// in the network is on the section's road, on the stretch.
     pub fn owns(&self, track: &Track, x: f64, z: f64) -> bool {
+        if let Some(p) = &self.place {
+            return p.contains(x, z);
+        }
         Self::s_of(track, x, z).is_some_and(|(r, s)| r == self.road && self.holds(track, s))
+    }
+
+    /// Whether this section builds road `road` at all.
+    pub fn has_road(&self, road: usize) -> bool {
+        match &self.place {
+            Some(p) => p.runs.get(road).is_some_and(|r| !r.is_empty()),
+            None => road == self.road,
+        }
+    }
+
+    /// Whether metre `s` of road `road` (`t`, its track) is this
+    /// section's: on its stretch (a partitioned section's, exactly; else
+    /// within `margin`), or in its place's square.
+    pub fn holds_road(&self, road: usize, t: &Track, s: f64, margin: f64) -> bool {
+        match &self.place {
+            Some(p) => p.holds(road, s),
+            None if road != self.road => false,
+            None if self.partition => self.holds_on(t, s),
+            None => self.holds_within(t, s, margin),
+        }
+    }
+
+    /// [`Section::clip`] for road `road` of the network: a place's runs of
+    /// that road cut to `[a, b]`.
+    pub fn clip_road(&self, road: usize, t: &Track, a: f64, b: f64) -> Vec<[f64; 2]> {
+        match &self.place {
+            Some(p) => p
+                .runs
+                .get(road)
+                .map(|rs| {
+                    rs.iter()
+                        .filter_map(|r| {
+                            let (lo, hi) = (a.max(r[0]), b.min(r[1]));
+                            (hi > lo).then_some([lo, hi])
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            None if road != self.road => Vec::new(),
+            None => self.clip(t, a, b),
+        }
     }
 
     /// The parts of the range `[a, b]` of the road that lie on the
@@ -199,6 +331,22 @@ impl Section {
     /// Whether a scenery module that owns these zones (indices into
     /// `track.zones`) reaches the section.
     pub fn wants_zones(&self, track: &Track, pts: &[[f64; 2]], zones: &[usize]) -> bool {
+        // A place: any road of the network in one of the zones within
+        // reach of the square.
+        if let Some(p) = &self.place {
+            let r2 = self.scenery_radius * self.scenery_radius;
+            return track.roads().any(|t| {
+                let mut s = 0.0;
+                while s <= t.length {
+                    let f = t.frame(s);
+                    if zones.contains(&(f.zone as usize)) && p.dist2(f.x, f.z) <= r2 {
+                        return true;
+                    }
+                    s += 25.0;
+                }
+                false
+            });
+        }
         zones.iter().any(|&z| {
             let Some(tz) = track.zones.get(z) else {
                 return false;
@@ -245,8 +393,11 @@ pub fn bounds(w: &World) -> Option<[f64; 4]> {
     let (Some(sec), Some(track)) = (&w.section, &w.track) else {
         return None;
     };
-    let pts = sec.points(track);
     let r = sec.terrain_radius;
+    if let Some(p) = &sec.place {
+        return Some([p.x0 - r, p.z0 - r, p.x1 + r, p.z1 + r]);
+    }
+    let pts = sec.points(track);
     let mut b = [
         f64::INFINITY,
         f64::INFINITY,
@@ -301,6 +452,23 @@ pub fn wants_box(w: &World, x0: f64, z0: f64, x1: f64, z1: f64) -> bool {
     }
     let pts = sec.points(track);
     box_dist2(&pts, x0, z0, x1, z1) <= sec.scenery_radius * sec.scenery_radius
+}
+
+/// Whether a thing standing at (x, z) is this build's to draw: always
+/// for a level; for a section, when it owns the point (streaming) or the
+/// point is within its scenery radius (the menu's views); never for the
+/// base or a view without scenery.
+pub fn owns_point(w: &World, x: f64, z: f64) -> bool {
+    let (Some(sec), Some(track)) = (&w.section, &w.track) else {
+        return true;
+    };
+    if !sec.scenery || sec.base {
+        return false;
+    }
+    if sec.partition {
+        return sec.owns(track, x, z);
+    }
+    dist2(&sec.points(track), x, z) <= sec.scenery_radius * sec.scenery_radius
 }
 
 /// Whether the scenery module `name` builds: always for a level; for a
@@ -620,7 +788,80 @@ pub fn clear_branch_tarmac(w: &mut World) {
 pub fn finish(b: crate::world::Build) -> (crate::world::WorldBuild, CutStats) {
     let mut w = b.world;
     let stats = cut(&mut w);
+    split_large(&mut w);
     (w.finish(), stats)
+}
+
+/// The bytes of one mesh a streamed section's scene holds at most (D1245):
+/// the client converts a node's mesh in one item, and a megabyte or two of
+/// it is one frame's slice on the web (D1238). Half Moon Bay's merged
+/// stucco was 3.5 and 5 MB.
+pub const SPLIT_BYTES: usize = 3 << 19;
+
+/// Splits every plain mesh of a section whose geometry is over
+/// [`SPLIT_BYTES`] into meshes of runs of its triangles under it, beside
+/// it under the same parent, with its material, matrix and flags: the same
+/// drawing in pieces that each fit a frame. Nothing for the base (behind
+/// the loading screen) or a level.
+pub fn split_large(w: &mut World) {
+    if w.section.as_ref().is_none_or(|s| s.base) {
+        return;
+    }
+    let g = &w.graph;
+    let mut big: Vec<NodeId> = Vec::new();
+    let mut stack: Vec<NodeId> = g.roots.clone();
+    while let Some(id) = stack.pop() {
+        let o = g.get(id);
+        stack.extend(o.children.iter().copied());
+        let Some(geo) = o.geometry else { continue };
+        let geo = &g.geometries[geo.0 as usize];
+        if o.ty == mp_scene::NodeType::Mesh
+            && o.instances.is_none()
+            && !o.multi_material
+            && geo.groups.is_empty()
+            && geo.instanced.is_none()
+            && geo.draw_range.start == 0
+            && geo.draw_range.count.is_none()
+            && geo.byte_len() > SPLIT_BYTES
+        {
+            big.push(id);
+        }
+    }
+    for id in big {
+        let o = w.graph.get(id).clone();
+        let Some(gid) = o.geometry else { continue };
+        let geo = w.graph.geometries[gid.0 as usize].clone();
+        let pieces = geo.byte_len().div_ceil(SPLIT_BYTES);
+        let tris = geo.triangle_count();
+        let per = tris.div_ceil(pieces).max(1);
+        for p in 0..pieces {
+            let (from, to) = (p * per, ((p + 1) * per).min(tris));
+            if from >= to {
+                break;
+            }
+            let mut part = geo.triangle_range(from, to);
+            part.compute_bounding_sphere();
+            let part = w.graph.add_geometry(part);
+            if p == 0 {
+                w.graph.get_mut(id).geometry = Some(part);
+                continue;
+            }
+            let n = w.graph.object(crate::object::Object3D {
+                parent: None,
+                children: Vec::new(),
+                geometry: Some(part),
+                ..o.clone()
+            });
+            match o.parent {
+                Some(parent) => w.graph.add(parent, n),
+                None => w.graph.add_root(n),
+            }
+        }
+        // The whole geometry is drawn by nothing now.
+        if !w.graph.objects.iter().any(|x| x.geometry == Some(gid)) {
+            w.graph.geometries[gid.0 as usize] = crate::three_geom::BufferGeometry::new();
+        }
+    }
 }
 
 /// The packed form's magic.
@@ -634,6 +875,32 @@ struct Packed {
     log: Vec<String>,
     kept: usize,
     cut: usize,
+    /// Each texture's key (`Scene::texture_key`), when packed by
+    /// [`pack_sent`].
+    #[serde(default)]
+    keys: Vec<u64>,
+    /// The textures whose pixels were left out, already sent.
+    #[serde(default)]
+    stripped: Vec<Stripped>,
+}
+
+/// A texture packed without its pixels (D1245): the builder sent them with
+/// an earlier section, and the client has them by its key. The scene holds
+/// it as one pixel; this is its real size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Stripped {
+    pub texture: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A packed section read back ([`unpack_sent`]).
+pub struct Unpacked {
+    pub wb: WorldBuild,
+    pub stats: CutStats,
+    /// Each texture's key, when packed by [`pack_sent`] (else empty).
+    pub keys: Vec<u64>,
+    pub stripped: Vec<Stripped>,
 }
 
 /// A built section as bytes, for a worker to hand to the client (stage
@@ -642,6 +909,74 @@ struct Packed {
 /// animator that is a closure cannot be packed; the log says how many
 /// were lost. The sim data is not carried: the plan's base has it.
 pub fn pack(wb: &WorldBuild, stats: CutStats) -> Result<Vec<u8>, String> {
+    pack_with(wb, stats, Vec::new(), Vec::new(), &wb.scene)
+}
+
+/// [`pack`], leaving out the pixels of every texture whose key is in
+/// `sent` and adding the others' keys to it (D1245): most of a section's
+/// bytes are the terrain's and the kits' textures, the same in every
+/// section, which the client keeps by key once it has them. Each
+/// texture's key is packed.
+pub fn pack_sent(
+    wb: &WorldBuild,
+    stats: CutStats,
+    sent: &mut std::collections::BTreeSet<u64>,
+) -> Result<Vec<u8>, String> {
+    let keys: Vec<u64> = wb
+        .scene
+        .textures
+        .iter()
+        .map(|t| wb.scene.texture_key(t))
+        .collect();
+    let mut stripped = Vec::new();
+    let mut scene = std::borrow::Cow::Borrowed(&wb.scene);
+    for (i, &k) in keys.iter().enumerate() {
+        if !sent.contains(&k) {
+            continue;
+        }
+        let s = scene.to_mut();
+        let t = &s.textures[i];
+        stripped.push(Stripped {
+            texture: i as u32,
+            width: t.width,
+            height: t.height,
+        });
+        let channels = t.channels.max(1);
+        s.buffers.push(mp_scene::Buffer {
+            item_size: channels,
+            normalized: false,
+            data: mp_scene::BufferData::U8(vec![0; channels as usize]),
+        });
+        let one = s.buffers.len() as u32 - 1;
+        let t = &mut s.textures[i];
+        (t.width, t.height, t.pixels) = (1, 1, one);
+    }
+    if let std::borrow::Cow::Owned(s) = &mut scene {
+        // The pixels no texture names any more, emptied.
+        let used: std::collections::BTreeSet<u32> = s.textures.iter().map(|t| t.pixels).collect();
+        for &st in &stripped {
+            let p = wb.scene.textures[st.texture as usize].pixels;
+            if !used.contains(&p)
+                && let Some(b) = s.buffers.get_mut(p as usize)
+            {
+                b.item_size = 1;
+                b.data = mp_scene::BufferData::U8(Vec::new());
+            }
+        }
+    }
+    let all = keys.clone();
+    let out = pack_with(wb, stats, keys, stripped, &scene)?;
+    sent.extend(all);
+    Ok(out)
+}
+
+fn pack_with(
+    wb: &WorldBuild,
+    stats: CutStats,
+    keys: Vec<u64>,
+    stripped: Vec<Stripped>,
+    scene: &mp_scene::Scene,
+) -> Result<Vec<u8>, String> {
     let mut log = wb.log.clone();
     let lost = wb.animators.len().saturating_sub(wb.descs.len());
     if lost > 0 {
@@ -653,9 +988,11 @@ pub fn pack(wb: &WorldBuild, stats: CutStats) -> Result<Vec<u8>, String> {
         log,
         kept: stats.kept,
         cut: stats.cut,
+        keys,
+        stripped,
     })
     .map_err(|e| format!("packing a section: {e}"))?;
-    let scene = mp_scene::write(&wb.scene)?;
+    let scene = mp_scene::write(scene)?;
     let mut out = Vec::with_capacity(16 + extra.len() + scene.len());
     out.extend_from_slice(PACK_MAGIC);
     out.extend_from_slice(&(extra.len() as u32).to_le_bytes());
@@ -668,6 +1005,12 @@ pub fn pack(wb: &WorldBuild, stats: CutStats) -> Result<Vec<u8>, String> {
 /// A packed section read back: its scene, its animators made from their
 /// descriptions, and the cut's counts.
 pub fn unpack(bytes: &[u8]) -> Result<(WorldBuild, CutStats), String> {
+    unpack_sent(bytes).map(|u| (u.wb, u.stats))
+}
+
+/// [`unpack`], with the textures' keys and the ones packed without their
+/// pixels ([`pack_sent`]).
+pub fn unpack_sent(bytes: &[u8]) -> Result<Unpacked, String> {
     if bytes.len() < 16 || &bytes[..8] != PACK_MAGIC {
         return Err("not a packed section (bad magic)".into());
     }
@@ -687,8 +1030,8 @@ pub fn unpack(bytes: &[u8]) -> Result<(WorldBuild, CutStats), String> {
         .cloned()
         .map(AnimatorDesc::into_animator)
         .collect();
-    Ok((
-        WorldBuild {
+    Ok(Unpacked {
+        wb: WorldBuild {
             scene,
             animators,
             descs: p.descs,
@@ -701,9 +1044,11 @@ pub fn unpack(bytes: &[u8]) -> Result<(WorldBuild, CutStats), String> {
             sky: None,
             on_countdown: None,
         },
-        CutStats {
+        stats: CutStats {
             kept: p.kept,
             cut: p.cut,
         },
-    ))
+        keys: p.keys,
+        stripped: p.stripped,
+    })
 }

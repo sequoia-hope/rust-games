@@ -239,7 +239,12 @@ pub fn level() -> Level {
             road: "mountain",
             zone: 0,
             elevation_smooth: None,
+            lift: None,
         }],
+        stream_cell: None,
+        buildings: None,
+        starts: Vec::new(),
+        start: None,
         sea_y: Some(0.),
         zones: vec![
             zone(

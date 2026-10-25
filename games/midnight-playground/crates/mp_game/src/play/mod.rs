@@ -18,6 +18,7 @@
 //! smoke, sparks, skid marks, flames and headlight pools are `Effects.js`'s
 //! ([`effects`], drawn by [`fx`], WP 4.4).
 
+pub mod atlas;
 pub mod audio;
 pub mod beacons;
 pub mod camera;
@@ -78,6 +79,9 @@ pub struct Params {
     /// `?cruise=1`, or the menu's Cruise on the open world: the road with
     /// no race on it ([`cruise_level`], D1211).
     pub cruise: bool,
+    /// `?start=<id>`, or the card's pick: where a cruise of an open level
+    /// starts (`Level::starts`, stage 6f); the level's own when `None`.
+    pub start: Option<String>,
     pub heat: f64,
     /// `?cops=N`: Hot Pursuit's cap on units (6 by default).
     pub cops: f64,
@@ -125,6 +129,7 @@ impl Params {
                 .unwrap_or(1.0),
             pursuit: get("pursuit") == Some("1"),
             cruise: get("cruise") == Some("1"),
+            start: get("start").map(str::to_owned),
             heat: get("heat")
                 .and_then(|s| s.parse().ok())
                 .filter(|h: &f64| *h >= 1.0)
@@ -164,6 +169,20 @@ impl Params {
 /// the loop, no laps (endless, as the Night City Cruise is). The
 /// level's traffic stays as it is; the world is built from the level by
 /// id, so nothing drawn changes.
+/// [`cruise_level`] begun at the start `start` names (stage 6f), when it
+/// is a cruise and the level offers that start.
+pub fn cruise_level_at(
+    level: mp_track::Level,
+    cruise: bool,
+    start: Option<&str>,
+) -> mp_track::Level {
+    let mut level = cruise_level(level, cruise);
+    if level.mode == mp_track::Mode::Cruise {
+        level.start = start.and_then(|id| level.starts.iter().find(|s| s.id == id).map(|s| s.id));
+    }
+    level
+}
+
 pub fn cruise_level(mut level: mp_track::Level, cruise: bool) -> mp_track::Level {
     if cruise && level.open {
         level.mode = mp_track::Mode::Cruise;
@@ -230,6 +249,8 @@ pub struct Play {
     headlight: f64,
     /// The radio widget's buttons and the taps on them (D1160).
     pub radio: radio_widget::Taps,
+    /// The minimap's and the atlas's buttons and the taps on them (D1251).
+    pub atlas: atlas::Taps,
 }
 
 /// A car's root entity.
@@ -265,6 +286,7 @@ pub fn plugin(app: &mut App) {
         stop: false,
         headlight: 0.0,
         radio: radio_widget::Taps::default(),
+        atlas: atlas::Taps::default(),
     })
     .add_systems(Startup, (hud::spawn, touch_ui::spawn, nametags::spawn))
     .add_systems(
@@ -289,6 +311,7 @@ pub fn plugin(app: &mut App) {
             touch_ui::sizes,
             nametags::update,
             radio_widget::update,
+            atlas::update,
         )
             .after(draw)
             .run_if(in_state(AppState::Running)),
@@ -300,6 +323,7 @@ pub fn plugin(app: &mut App) {
             .before(crate::render::lighting::pack_globals),
     );
     audio::plugin(app);
+    atlas::plugin(app);
     guide::plugin(app);
     beacons::plugin(app);
     hud::plugin(app);
@@ -386,7 +410,11 @@ fn start(
     // The new field's light setters take their slots afresh (D456).
     lights.values.clear();
     let Some(level) = &tr.level else { return };
-    let lr = match LevelRuntime::new(cruise_level(level.clone(), play.params.cruise)) {
+    let lr = match LevelRuntime::new(cruise_level_at(
+        level.clone(),
+        play.params.cruise,
+        play.params.start.as_deref(),
+    )) {
         Ok(lr) => lr,
         Err(e) => {
             warn!("race: {e}");
@@ -581,6 +609,7 @@ fn read_input(
 ) {
     let play = &mut *play;
     let radio = &mut play.radio;
+    let atlas_taps = &mut play.atlas;
     let scale = f64::from(play.touch_scale);
     let css = f64::from(play.css_scale);
     let touch_ui = play.touch_ui;
@@ -653,8 +682,21 @@ fn read_input(
             None => false,
         }
     };
+    // So do the minimap's and the atlas's (D1251).
+    let on_atlas = |taps: &mut atlas::Taps, p: Vec2| -> bool {
+        let (x, y) = (p.x * scale as f32, p.y * scale as f32);
+        match taps.hit(x, y) {
+            Some(b) => {
+                taps.queued.push(b);
+                true
+            }
+            None => false,
+        }
+    };
     for t in touches.read() {
-        if t.phase == TouchPhase::Started && race.mode == Mode::Race && on_radio(radio, t.position)
+        if t.phase == TouchPhase::Started
+            && race.mode == Mode::Race
+            && (on_radio(radio, t.position) || on_atlas(atlas_taps, t.position))
         {
             continue;
         }
@@ -673,7 +715,10 @@ fn read_input(
             continue;
         }
         let Some(p) = *last_cursor else { continue };
-        if b.state == ButtonState::Pressed && race.mode == Mode::Race && on_radio(radio, p) {
+        if b.state == ButtonState::Pressed
+            && race.mode == Mode::Race
+            && (on_radio(radio, p) || on_atlas(atlas_taps, p))
+        {
             continue;
         }
         if touch_ui {
@@ -909,6 +954,9 @@ fn draw(
         .single()
         .map_or(1.0, |w| f64::from(w.scale_factor()));
     let world_dt = if opts.o.freeze { 0.0 } else { dt };
+    if let Some(sky) = sky_res.sky.as_mut() {
+        sky.on_road = Some((car.road, car.road_s));
+    }
     crate::update_sky(
         &mut sky_res,
         &opts,
@@ -1083,7 +1131,11 @@ pub fn smoke_race_cli(o: &crate::options::Options) -> Result<(), String> {
         let d = mp_levels::SeasideData::parse(&bytes)?;
         mp_levels::seaside::prepare(&mut level, std::sync::Arc::new(d));
     }
-    let lr = LevelRuntime::new(cruise_level(level, params.cruise))?;
+    let lr = LevelRuntime::new(cruise_level_at(
+        level,
+        params.cruise,
+        params.start.as_deref(),
+    ))?;
     let opts = RaceOpts {
         seed: params.seed.unwrap_or(1),
         ..params.race_opts()
@@ -1137,6 +1189,7 @@ pub(crate) mod tests {
             stop: false,
             headlight: 0.0,
             radio: radio_widget::Taps::default(),
+            atlas: atlas::Taps::default(),
         }
     }
 }

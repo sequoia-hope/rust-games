@@ -122,6 +122,8 @@ pub enum Act {
     Level(&'static str),
     Car(&'static str),
     Mode(&'static str),
+    /// Where a cruise of an open level starts (the card's pick, stage 6f).
+    StartAt(&'static str),
     Start,
     Toggle(Opt),
     Slide(Sl),
@@ -386,6 +388,9 @@ pub fn plugin(app: &mut App) {
             }
             if o.param("cruise").is_none() {
                 play.params.cruise = mode == "cruise";
+            }
+            if o.param("start").is_none() {
+                play.params.start = store::start_for(&store, &level);
             }
         }
         // Over the menu's views no field is built at boot (D751): Race
@@ -824,6 +829,9 @@ fn arm(ui: &mut UiState, play: &mut Play, store: &Store, o: &Options) {
     play.params.pursuit = level.police.is_some() && forced.unwrap_or(mode == "pursuit");
     let forced = o.param("cruise").map(|v| v == "1");
     play.params.cruise = level.open && forced.unwrap_or(mode == "cruise");
+    if o.param("start").is_none() {
+        play.params.start = store::start_for(store, &level);
+    }
     play.params.flash = s.flash;
     if !play.params.physics_forced {
         play.params.physics = mp_sim::model::Physics::parse(&s.physics).unwrap_or_default();
@@ -1306,6 +1314,7 @@ fn activate(ui: &mut UiState, ctx: &mut ActCtx, controls: &ControlQuery, act: Ac
         Act::Level(_)
             | Act::Car(_)
             | Act::Mode(_)
+            | Act::StartAt(_)
             | Act::Resume
             | Act::EndRun
             | Act::Continue
@@ -1351,6 +1360,12 @@ fn activate(ui: &mut UiState, ctx: &mut ActCtx, controls: &ControlQuery, act: Ac
                 return;
             }
             ctx.store.set_str(&format!("mode.{}", level.id), m);
+        }
+        Act::StartAt(id) => {
+            let level = mp_levels::level_by_id(&ui.settings.level);
+            if level.starts.iter().any(|s| s.id == id) {
+                ctx.store.set_str(&format!("start.{}", level.id), id);
+            }
         }
         Act::Start => {
             // A double tap starts one race.

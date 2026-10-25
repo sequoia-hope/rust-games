@@ -13,6 +13,9 @@ pub const S: f64 = 220.0;
 pub const C: f64 = S / 2.0;
 /// px per metre.
 pub const SCALE: f64 = 0.28;
+/// px per metre zoomed out (Z, or the atlas's MINI button: D1251): a
+/// little over three times as far, about 1.2 km across the circle.
+pub const WIDE: f64 = 0.09;
 /// The clip circle's radius (`c - 2`).
 pub const CLIP: f64 = C - 2.0;
 /// The most road points the shader takes (s − 500 to s + 900 every 6 m is
@@ -28,23 +31,32 @@ pub struct Xform {
     pz: f64,
     cos: f64,
     sin: f64,
+    /// px per metre ([`SCALE`] or [`WIDE`]).
+    k: f64,
 }
 
 impl Xform {
+    #[cfg(test)]
     pub fn new(x: f64, z: f64, yaw: f64) -> Xform {
+        Xform::at_scale(x, z, yaw, SCALE)
+    }
+
+    /// The same at `k` px per metre.
+    pub fn at_scale(x: f64, z: f64, yaw: f64, k: f64) -> Xform {
         let a = -yaw - std::f64::consts::FRAC_PI_2;
         Xform {
             px: x,
             pz: z,
             cos: a.cos(),
             sin: a.sin(),
+            k,
         }
     }
 
     /// World (x, z) → canvas px.
     pub fn apply(&self, x: f64, z: f64) -> (f64, f64) {
-        let dx = (x - self.px) * SCALE;
-        let dz = (z - self.pz) * SCALE;
+        let dx = (x - self.px) * self.k;
+        let dz = (z - self.pz) * self.k;
         (
             C + dx * self.cos - dz * self.sin,
             C + 30.0 + dx * self.sin + dz * self.cos,
@@ -54,14 +66,22 @@ impl Xform {
 
 /// The road near the player, in world (x, z): every 6th sample from
 /// s − 500 to s + 900, and the straight runout past the last sample.
+#[cfg(test)]
 pub fn road(t: &Track, s: f64) -> Vec<(f64, f64)> {
+    road_at(t, s, 1.0)
+}
+
+/// The same `far` times as far each way, `far` times as sparse (the wide
+/// scale's road).
+pub fn road_at(t: &Track, s: f64, far: f64) -> Vec<(f64, f64)> {
+    let (back, ahead, step) = (500.0 * far, 900.0 * far, (6.0 * far).round());
     let n = t.n as f64;
     let (s0, s1) = if t.is_loop {
-        ((s - 500.0).floor(), (s + 900.0).ceil())
+        ((s - back).floor(), (s + ahead).ceil())
     } else {
         (
-            (s - 500.0).floor().max(0.0),
-            (n - 1.0).min((s + 900.0).ceil()),
+            (s - back).floor().max(0.0),
+            (n - 1.0).min((s + ahead).ceil()),
         )
     };
     let mut out = Vec::new();
@@ -69,18 +89,76 @@ pub fn road(t: &Track, s: f64) -> Vec<(f64, f64)> {
     while i <= s1 {
         let k = t.idx(i);
         out.push((f64::from(t.px[k]), f64::from(t.pz[k])));
-        i += 6.0;
+        i += step;
     }
     // The straight runout past the last sample.
-    if !t.is_loop && t.runout > 0.0 && s + 900.0 > n - 1.0 {
+    if !t.is_loop && t.runout > 0.0 && s + ahead > n - 1.0 {
         let a = t.frame(s0.max(n - 1.0));
-        let e = t.frame(t.road_end().min(s + 900.0));
+        let e = t.frame(t.road_end().min(s + ahead));
         if s0 > s1 {
             out.push((a.x, a.z));
         }
         out.push((e.x, e.z));
     }
     out
+}
+
+/// Where the pen lifts between two roads' polylines (canvas px the shader
+/// skips: below -5000).
+pub const BREAK: (f64, f64) = (-9999.0, -9999.0);
+/// How far from the player a road of the network is drawn: the clip
+/// circle reaches 385 m, 490 m ahead.
+const NET_REACH: f64 = 560.0;
+
+/// An open level's network near (x, z) (stage 6): each road's runs of
+/// samples within [`NET_REACH`], the nearest road first, [`BREAK`]
+/// between runs, thinned until they fit [`MAX_ROAD`].
+#[cfg(test)]
+pub fn network(t: &Track, x: f64, z: f64) -> Vec<(f64, f64)> {
+    network_at(t, x, z, 1.0)
+}
+
+/// The same `far` times as far (the wide scale's network).
+pub fn network_at(t: &Track, x: f64, z: f64, far: f64) -> Vec<(f64, f64)> {
+    let reach = NET_REACH * far;
+    let mut roads = t.net.roads_near(x, z, reach);
+    if let Some(&(r, _, _)) = t.net.nearest_samples(t, x, z, reach, 0.0).first() {
+        roads.retain(|&q| q != r);
+        roads.insert(0, r);
+    }
+    let r2 = reach * reach;
+    let mut step = ((6.0 * far).round() as usize).max(6);
+    loop {
+        let mut out: Vec<(f64, f64)> = Vec::new();
+        for &r in &roads {
+            let rt = t.road(r);
+            let mut open = false;
+            let mut k = 0;
+            while k < rt.n {
+                let (px, pz) = (f64::from(rt.px[k]), f64::from(rt.pz[k]));
+                let near = (px - x) * (px - x) + (pz - z) * (pz - z) <= r2;
+                if near {
+                    if !open && !out.is_empty() {
+                        out.push(BREAK);
+                    }
+                    out.push((px, pz));
+                    open = true;
+                } else {
+                    open = false;
+                }
+                k += step;
+            }
+            // A loop closes on itself.
+            if rt.is_loop && open {
+                out.push((f64::from(rt.px[0]), f64::from(rt.pz[0])));
+            }
+        }
+        if out.len() <= MAX_ROAD || step >= 96 {
+            out.truncate(MAX_ROAD);
+            return out;
+        }
+        step *= 2;
+    }
 }
 
 /// A dot or a bar, in canvas px, as the shader draws it.
@@ -142,12 +220,33 @@ pub struct Scene {
 }
 
 /// `drawMinimap(st)` (and `drawPolice`), `clock` the HUD's.
+#[cfg(test)]
 pub fn scene(t: &Track, st: &HudIn, clock: f64) -> Scene {
+    scene_at(t, st, clock, SCALE)
+}
+
+/// The same at `k` px per metre ([`SCALE`] or [`WIDE`]): the roads and
+/// where things are follow the scale; the dots and bars keep their size
+/// on the canvas, so they read zoomed out too.
+pub fn scene_at(t: &Track, st: &HudIn, clock: f64, k: f64) -> Scene {
     let (px, pz, yaw) = st.player;
-    let xf = Xform::new(px, pz, yaw);
-    let mut road: Vec<(f64, f64)> = road(t, st.s)
+    let xf = Xform::at_scale(px, pz, yaw, k);
+    let far = SCALE / k;
+    // A network (an open level's branches): every road near the player.
+    let pts = if t.branches.is_empty() {
+        road_at(t, st.s, far)
+    } else {
+        network_at(t, px, pz, far)
+    };
+    let mut road: Vec<(f64, f64)> = pts
         .into_iter()
-        .map(|(x, z)| xf.apply(x, z))
+        .map(|(x, z)| {
+            if (x, z) == BREAK {
+                BREAK
+            } else {
+                xf.apply(x, z)
+            }
+        })
         .collect();
     road.truncate(MAX_ROAD);
     let mut shapes = Vec::new();
@@ -273,6 +372,25 @@ pub(crate) mod tests {
     use super::*;
     use crate::play::hud::model::{Dot, HudIn, PursuitIn, RivalDot, Unit};
 
+    /// In the city the minimap draws the streets about the car, each its
+    /// own polyline (stage 6).
+    #[test]
+    fn the_network_near_the_car_is_drawn_road_by_road() {
+        let t = Track::new(&mp_levels::level_by_id("peninsula")).expect("track");
+        // Downtown San Francisco, on Market Street.
+        let r = 1 + t.branches.iter().position(|b| b.id == "sf-market").unwrap();
+        let f = t.road(r).frame(1200.0);
+        let pts = network(&t, f.x, f.z);
+        let breaks = pts.iter().filter(|&&p| p == BREAK).count();
+        assert!(pts.len() <= MAX_ROAD && pts.len() > 40, "{}", pts.len());
+        assert!(breaks >= 2, "{breaks} roads' runs");
+        assert_ne!(pts[0], BREAK);
+        // Every drawn point is within reach.
+        for &(x, z) in pts.iter().filter(|&&p| p != BREAK) {
+            assert!((x - f.x).hypot(z - f.z) <= 561.0);
+        }
+    }
+
     /// A straight road along +x, sample i at (i, 0), one zone named SIERRA
     /// PASS: Sierra's track with its arrays replaced.
     pub(crate) fn straight_track(n: usize) -> Track {
@@ -364,6 +482,36 @@ pub(crate) mod tests {
         let r = road(&t, 1600.0);
         assert_eq!(r.len(), 2);
         assert!((r[0].0 - 1100.0).abs() < 1e-9 && (r[1].0 - 1299.0).abs() < 1e-9);
+    }
+
+    /// Zoomed out the road reaches a little over three times as far each
+    /// way, as sparse; a place stays the same size on the canvas.
+    #[test]
+    fn the_wide_scale_shows_three_times_as_far() {
+        let t = straight_track(6000);
+        let far = SCALE / WIDE;
+        let r = road_at(&t, 3000.0, far);
+        assert_eq!(r[0], ((3000.0 - 500.0 * far).floor(), 0.0));
+        assert!(r.len() < 260, "{}", r.len());
+        let xf = Xform::at_scale(3000.0, 0.0, 0.0, WIDE);
+        // 1 km ahead: 90 px up, inside the clip circle.
+        assert!(close(xf.apply(4000.0, 0.0), (110.0, 50.0)));
+        let mut s = st();
+        s.s = 3000.0;
+        s.player = (3000.0, 0.0, 0.0);
+        s.rivals = vec![RivalDot {
+            x: 3700.0,
+            z: 0.0,
+            color: 0xff8800,
+        }];
+        // 700 m ahead: off the near map, on the wide one at the near size.
+        assert!(scene(&t, &s, 0.0).shapes.is_empty());
+        let sc = scene_at(&t, &s, 0.0, WIDE);
+        assert!(
+            matches!(sc.shapes[0], Shape::Dot { r, .. } if (r - 16.0 * SCALE).abs() < 1e-12),
+            "{:?}",
+            sc.shapes
+        );
     }
 
     #[test]

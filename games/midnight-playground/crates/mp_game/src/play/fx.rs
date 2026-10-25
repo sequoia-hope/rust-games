@@ -795,7 +795,7 @@ pub fn frame(
                 Some((pv, true)) => *pv,
                 _ => v,
             };
-            hints.push(v.s);
+            hints.push(pool_hint(v));
             let mut c = car_in(a, v, alpha);
             c.visible = active;
             c.wheel_base = car.model.dims.wheel_base;
@@ -812,7 +812,7 @@ pub fn frame(
             for (k, car) in (0..n).zip(cars.cars.iter().skip(cars.police_base)) {
                 let (u, a) = (pu.police(k), pp.police(k));
                 let a = if a.active { &a.k.v } else { &u.k.v };
-                hints.push(u.k.v.s);
+                hints.push(pool_hint(&u.k.v));
                 let mut c = car_in(a, &u.k.v, alpha);
                 c.visible = u.active;
                 c.wheel_base = car.model.dims.wheel_base;
@@ -869,6 +869,16 @@ pub fn frame(
         fx.write(writes);
     }
     fx.place(parts, lights);
+}
+
+/// Where to look for the road under a car's pool: its road and its place
+/// on it (on the level's own road its `s`, as the JS).
+fn pool_hint(v: &mp_sim::vehicle::Vehicle) -> (usize, f64) {
+    if v.road == 0 {
+        (0, v.s)
+    } else {
+        (v.road, v.road_s)
+    }
 }
 
 impl Fx {

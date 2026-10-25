@@ -47,14 +47,20 @@ pub fn plan(id: &str) -> Result<Planned, String> {
     )
 }
 
-/// Section `k` of the plan built to its end, cut, and packed.
-pub fn build(p: &Planned, k: i64) -> Result<Vec<u8>, String> {
+/// Section `k` of the plan built to its end, cut, and packed, without the
+/// pixels of the textures in `sent` (those an earlier section handed the
+/// client), whose keys it adds to `sent` (D1245).
+pub fn build(
+    p: &Planned,
+    k: i64,
+    sent: &mut std::collections::BTreeSet<u64>,
+) -> Result<Vec<u8>, String> {
     let mut b = p.build(p.section(k));
     while !b.is_done() {
         b.step()?;
     }
     let (wb, stats) = section::finish(b);
-    section::pack(&wb, stats)
+    section::pack_sent(&wb, stats, sent)
 }
 
 #[cfg(test)]
@@ -63,10 +69,30 @@ mod tests {
     fn plans_and_packs_a_section_of_the_loop() {
         let p = super::plan("peninsula").unwrap();
         let k = p.section_at(p.track.start_s);
-        let bytes = super::build(&p, k).unwrap();
-        let (wb, stats) = mp_worldgen::section::unpack(&bytes).unwrap();
-        assert!(stats.kept > 0 && !wb.scene.nodes.is_empty());
-        assert!(!wb.animators.is_empty());
+        let mut sent = Default::default();
+        let bytes = super::build(&p, k, &mut sent).unwrap();
+        let u = mp_worldgen::section::unpack_sent(&bytes).unwrap();
+        assert!(u.stats.kept > 0 && !u.wb.scene.nodes.is_empty());
+        assert!(!u.wb.animators.is_empty());
+        assert!(u.stripped.is_empty() && u.keys.len() == u.wb.scene.textures.len());
+        // Built again, it sends none of its textures' pixels: the client
+        // has them.
+        let again = super::build(&p, k, &mut sent).unwrap();
+        let v = mp_worldgen::section::unpack_sent(&again).unwrap();
+        assert_eq!(v.stripped.len(), v.wb.scene.textures.len());
+        assert_eq!(v.keys, u.keys);
+        // Less by every pixel buffer the textures name, but for a pixel
+        // and a line of the pack's list each (a buffer header, its key).
+        let s = &u.wb.scene;
+        let bufs: std::collections::BTreeSet<u32> = s.textures.iter().map(|t| t.pixels).collect();
+        let pixels: usize = bufs.iter().map(|&b| s.buffers[b as usize].data.len()).sum();
+        let room = 256 * s.textures.len();
+        assert!(
+            bytes.len() - again.len() + room >= pixels,
+            "{} of {} without {pixels} bytes of pixels",
+            again.len(),
+            bytes.len()
+        );
         assert!(super::plan("sierra").is_err());
     }
 }

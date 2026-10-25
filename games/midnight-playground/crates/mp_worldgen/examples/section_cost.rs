@@ -76,6 +76,7 @@ fn main() {
                 partition: env("PARTITION").is_some_and(|v| v != 0.0),
                 base: false,
                 road: 0,
+                place: None,
             });
         }
         let base = NOW.load(Ordering::Relaxed);

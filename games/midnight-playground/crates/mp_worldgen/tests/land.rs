@@ -6,6 +6,7 @@
 
 mod common;
 
+use mp_track::planting::TILE;
 use mp_worldgen::land::{CELL, Land, REACH};
 use mp_worldgen::section::Section;
 use mp_worldgen::world::{Scenery, SceneryInfo};
@@ -58,16 +59,34 @@ fn skyline_is_planted_with_conifers_clear_of_the_road() {
             let mat = inst.get_matrix_at(k);
             let (x, y, z) = (mat.elements[12], mat.elements[13], mat.elements[14]);
             let f = tr.far(x, z);
-            assert!(f.d <= REACH, "an instance {:.0} m from the road", f.d);
-            let hw = f64::from(t.hw[t.idx(f.s)]);
-            assert!(f.d > hw + 1.5, "an instance on the road: {:.1} m out", f.d);
+            // The planting measures from the roads' samples; the far field
+            // is a 32 m raster's blend.
+            assert!(
+                f.d <= REACH + 32.0,
+                "an instance {:.0} m from the road",
+                f.d
+            );
+            // Clear of the roads themselves (the far field's distance is a
+            // raster's, and to the nearest road of any).
+            let clear = mp_track::planting::road_clearance(t, x, z, 80.0);
+            assert!(
+                clear > 1.5,
+                "an instance on the road: {clear:.1} m out at ({x:.1}, {z:.1})"
+            );
             assert!(y > 1.0, "an instance under the sea at y {y:.1}");
             n += 1;
         }
     }
     assert_eq!(
         n,
-        c.conifers + c.far_conifers + c.oaks + c.scrub + c.posts + c.rails
+        c.conifers
+            + c.far_conifers
+            + c.oaks
+            + c.scrub
+            + c.coast_trees
+            + c.rocks
+            + c.posts
+            + c.rails
     );
 }
 
@@ -110,4 +129,67 @@ fn a_cell_plants_the_same_whatever_section_asks_for_it() {
             .unwrap();
         assert_eq!(x.3, y.3, "cell ({}, {}) template {}", x.0, x.1, x.2);
     }
+}
+
+#[test]
+fn what_is_drawn_is_what_the_simulation_plants() {
+    // Stage 7d (D1248): every plant, post and rail of a drawn cell is the
+    // planting's, where the planting put it, and nothing else is drawn.
+    let (w, land) = build(17_000.0, 17_600.0);
+    let t = w.track.as_ref().unwrap();
+    let p = t.props.planting().expect("the peninsula is planted");
+    let root = mp_worldgen::land::group_of(&w.graph, w.root).unwrap();
+    let mut drawn: Vec<(f64, f64)> = Vec::new();
+    for &m in &w.graph.get(root).children {
+        let inst = w.graph.get(m).instances.as_ref().unwrap();
+        for k in 0..inst.count as usize {
+            let mat = inst.get_matrix_at(k);
+            drawn.push((mat.elements[12], mat.elements[14]));
+        }
+    }
+    let mut cells: Vec<(i64, i64)> = drawn
+        .iter()
+        .map(|&(x, z)| ((x / CELL).floor() as i64, (z / CELL).floor() as i64))
+        .collect();
+    cells.sort();
+    cells.dedup();
+    let per = (CELL / TILE) as i64;
+    let mut placed: Vec<(f64, f64)> = Vec::new();
+    let mut trunks = 0;
+    for &(ci, cj) in &cells {
+        for tj in cj * per..(cj + 1) * per {
+            for ti in ci * per..(ci + 1) * per {
+                for q in p.plants(t, ti, tj) {
+                    placed.push((q.x, q.z));
+                }
+                trunks += t.props.tile(t, ti, tj).len();
+            }
+        }
+        let (x0, z0) = (ci as f64 * CELL, cj as f64 * CELL);
+        let f = p.fences(t, x0, z0, x0 + CELL, z0 + CELL);
+        placed.extend(f.posts.iter().map(|q| (q[0], q[1])));
+        placed.extend(
+            f.rails
+                .iter()
+                .map(|r| ((r[0][0] + r[1][0]) / 2.0, (r[0][1] + r[1][1]) / 2.0)),
+        );
+    }
+    eprintln!(
+        "{} cells: {} drawn, {} placed, {} solids",
+        cells.len(),
+        drawn.len(),
+        placed.len(),
+        trunks
+    );
+    assert_eq!(drawn.len(), placed.len());
+    // Drawn at f32: each drawn item matches a placed one within a millimetre.
+    let mut left = placed.clone();
+    for d in &drawn {
+        let k = left
+            .iter()
+            .position(|q| (d.0 - q.0).abs() < 1e-3 && (d.1 - q.1).abs() < 1e-3)
+            .unwrap_or_else(|| panic!("drawn at {d:?}, placed nowhere near"));
+        left.swap_remove(k);
+    }
+    assert!(trunks > land.counts.conifers / 2, "{trunks} solids");
 }

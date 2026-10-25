@@ -11682,3 +11682,594 @@ The owner still saw the menu's flyover stutter while the other levels' views (se
 - **`preview::holding`.** True while the menu draws sections and any section is still queued, building, spawning, or warming up (`SectionWarm`). `fly_system` then steps the attract camera with `dt = 0`, as it already does behind the loading screen, so the camera, the sky's clock and the scenery's animators stand at the shown view's first frame. A tab still switches the view at once (to that level's still first frame, once its section is up). When the last section is up and its pipelines have compiled, the camera starts its run from the start.
 - **Measured** (release web build, headless Chrome on this machine, Sierra saved): before, the camera flew through 4.1 s of preparation with 18 frames over 50 ms (the longest 267 ms); after, it stands at one place for the same 3.7 to 4.3 s (WebGPU, WebGL2) and then flies with no frame over 50 ms. The long frames (mostly the stand-ins' pipeline compiles) are still there while it stands, but nothing moves to show them. Raising the menu's budgets (20 ms of build and of spawning a frame) was tried and dropped: no faster to all up, and the menu's median frame went from 17 to 33 ms.
 - **Not done:** pre-rendered pictures of each level. The section's own first frame is the still picture; it needs no extra assets, matches what then flies, and a tab still shows the level the menu selects.
+
+## D1238 (2026-10-24): frame stutter tests
+
+Stage 6a of the open world (docs/vision/peninsula.md): before the world grows, a way to see when a frame is late and why, so each part that follows is measured. Two layers.
+
+- **What a frame does, counted (`mp_game::frame_work`).** A `FrameWork` resource, reset in `First` and filled through the frame: the mesh, image and material assets added and their bytes (from the asset events, before the render world extracts them), and from the stream (`stream::drive`, `end_warm_up`) the entities a section spawned and the dropped sections', the instance streams' bytes, the stream's time on the main thread and within it the spawning, the worker's read-back and the stepped build, the pipelines compiling, and its events (`ring k`, `ask k`, `built k`, `up k`, `drop k`, `warm`). On the web each frame that did anything is appended to `window.__mp.frameWork` (the page drains it; 1200 kept), with `__mp.stream` (the ring's section and each section's state) and `__mp.holding` (D1237's hold). `loader::Build` counts its own uploads (`uploads()`) and the combinations it draws with their materials' names (`drawn()`), and `loader::step_item` is one item (a texture or a node) of `step_section`, which now loops over it.
+- **The browser suite (`tools/parity/e2e/stutter.test.mjs`).** Through the kit's harness (request interception, no server): the menu while the views are prepared and then flying; a 120 s cruise on autodrive (six or seven section boundaries); a jump to 700 m before Tunitas Creek Road's mouth (`reset`), settled, then steered onto the branch with the keys along the corridors; an event started from the cruise (hold gas and brake, the countdown, 20 s racing). rAF deltas are recorded with the client's frame number, so every frame over 50 ms is printed with the work in it and the frame before (`MP_BACKEND`, `MP_DEVICE=phone`). **Budgets** split by cause: a long frame with the client's work around it is the client's stutter and is held hard (none over 50 ms); one with nothing recorded is the shared machine (this machine's load average was 40 to 120 during the baselines: other worktrees' builds) and gets an allowance (150 ms at most, 2 a minute over 50 ms); p95 20 ms and 10 frames a minute over 33 ms overall. The suite fails today, on real stutter.
+- **The native test (`stream::budget`, nextest, 31 s in the debug profile on 8 threads).** Every section of the loop and its branches is built as the client streams it, packed and read back as the worker hands it over, and spawned by the loader item by item into a bare world. Held to: no material × layout × shadow combination outside what the base and the start's ring draw (the warm-up); per item 16 entities, 2 MB of mesh, 2 MB of instances, 1 MB of image (only textures first met after the start: the stream's image cache converts each once); 16 MB packed. The byte budgets are from the browser's figures: 3.4 to 3.9 MB of meshes spawned in 4 to 7 ms, 27 MB of images converted in 128 to 425 ms (5 to 15 ms a MB), 43 MB read back in 10 to 37 ms. Running the stream system itself headless was possible but its per-frame counts depend on the time slices (5 ms of whatever the machine does), so the deterministic floor, one item, is what is held.
+- **Found** (both layers agree): (1) 21 pipelines first used after the warm-up, in sections 4 to 8 (Half Moon Bay's Beach kit brings 15), the branches' 37, 38 and 46: on WebGL2 frames of 117 to 317 ms when sections 4 and 8 come up, on WebGPU 100 to 117 ms. (2) Section 8's 2048² texture (21.8 MB with mipmaps) and a 1024² one, converted in one item: 128 to 214 ms (WebGPU), 417 ms (WebGL2). (3) Section 8's 43 MB hand-over read back in one frame (10 to 37 ms), and its 5 MB Stucco mesh (`beach:solid:far`) in one item. (4) Frames where only the stream's own systems ran 3 to 19 ms: the ring and `section_under` each frame (the 900 m search over every road), which the bay side's network will make worse. The menu flies clean once it lets go (D1237): no frame over 50 ms on WebGPU; on WebGL2 one of 83 ms with no work recorded.
+- **Fixed:** a streamed section no longer makes the sky's noise texture (256² generated, converted and uploaded at every section's `finish_section`, then dropped): `finish_section` gives the dome's noise only, and the menu's sections make the fallback themselves as before.
+- **Not fixed:** the warm-up of every combination the level's sections can draw at the start (it needs the list before the sections are built: a manifest from the native test, or every section's materials planned up front), the big textures and the read-back in slices. Each is its own change; the tests say when they are done.
+
+## D1239 (2026-10-24): the bay side's data
+
+Stage 6b of `docs/vision/peninsula.md`: the data the bay side's network,
+streaming and city kit (6c to 6e) build on. Nothing here is wired into a
+level yet.
+
+- **The first network in the plan.** 27 places (the junctions of 92, 84,
+  280, 101 and El Camino, the six cross streets' ends, San Francisco's
+  corners) and 17 routes: `hwy-92-east`, `hwy-84-east`, `us-101`, `i-280`,
+  `el-camino`, `ralston`, `hillsdale`, `third-ave`, `broadway`, `millbrae`,
+  `san-bruno`, `sf-19th-ave`, `sf-lombard`, `sf-van-ness`, `sf-market`,
+  `sf-geary`, `sf-embarcadero`: 222 km of real road, 111 km of game road.
+  Each has its corridor file (`mp-atlas corridor <id>`), 0.9 MB of text in
+  all; the stale test now checks every corridor file in the folder.
+- **A route keeps to one carriageway** (`mp_atlas::graph`). The map has no
+  one-way flags, and a freeway's two carriageways carry its number but
+  meet only where they merge (280's never do inside the box). Snapping each
+  place to its nearest road sent 280 nowhere and would have sent 101 round
+  by the far end of the other carriageway. Each place now has candidates
+  (every allowed road within 80 m of the nearest, six at most) and the
+  resolver picks the snaps whose way through all the places is shortest,
+  a metre off the road counting as ten of road, so a place keeps its
+  nearest road unless that costs kilometres. Every existing route resolves
+  exactly as before (`resolved.json`'s old routes are unchanged).
+- **Unnamed links in named routes.** A route by road names may cross a
+  short (under 60 m) road with no name or number whose both ends touch its
+  roads: Mission Street in Daly City is drawn as a pair round an island
+  with such a link between the halves, which cut El Camino in two.
+- **84 east** follows `Woodside Road` by name as well as its number: the
+  map drops the number through Woodside's village.
+- **The ground and cover** under the bay side's box (`bayside.ground.bin`
+  and `.cover.bin`): 24 m cells, not the loop's 16 m (the bay side is
+  mostly flat, and 16 m would be 1.5 MB), with ground.py's 1.2 km margin:
+  593 x 1078 cells from (-3240, -20040), 687 kB and 29 kB.
+- **The city grid** (`tools/atlas/city.py`, `bayside.city.bin`,
+  `mp_levels::ground::CityGrid`): Overture's buildings over the same box in
+  32 m cells, three bytes a cell: the share of the ground under footprints,
+  and the median and ninetieth-percentile height in units of 2 real metres.
+  The footprints are rasterised 16 x 16 samples a cell, each sample holding
+  its building's height, so a building counts by the area of its footprint
+  in each cell it covers (a first try that counted each building in its
+  centroid's cell left built cells with no height under large footprints).
+  Heights stay real, as stage 6 draws the buildings full size; a building
+  without one (20 %) takes its floors times 3.2 m, else a default by class
+  (6 m for a house or an unclassed building). 445 x 809 cells, 212 kB;
+  downtown San Francisco's p90 reaches 326 m (Salesforce Tower).
+- **Not fixed, for 6c:** Market Street's mapped end is at Steuart Street,
+  175 m short of the Embarcadero; the profiles still follow the 50 m
+  planning grid, so a freeway in a cut reads up to 18 to 23 % for a few
+  tens of metres (92 and Hillsdale at their interchange).
+
+## D1240 (2026-10-24): the open world's roads form a network
+
+Stage 6c of `docs/vision/peninsula.md`. The bay side's city is crossing
+streets; the open world was a star, every branch leaving road 0.
+
+- **A branch joins the network built before it.** `build_branch` takes
+  the road nearest the path's start among road 0 and the branches listed
+  earlier (`BranchTrack::parent`), and its far end is open on whichever
+  road's pavement it lies (`end_road`). A level lists its roads greatest
+  first: a road's rank is its index.
+- **Crossings come from the geometry** (`network::find_crossings`): a
+  road whose centreline crosses a greater one's, away from the ends it
+  joins by, gets a `Junction` of kind `Cross`; its surface is fitted to
+  the greater road's over that road's pavement (lifted 2 cm, as a mouth
+  is) and returns over `BRANCH_FIT` either side; both roads' fences
+  open. All crossings are at grade: the arcade has intersections where
+  the real freeways have interchanges.
+- **`Track::junctions`** (road 0's Track) lists every start, joined end
+  and crossing, in the order the branches were built, then the
+  crossings. The road builder clears rails where a lesser road meets a
+  road and stands nothing on the tarmac of the greater roads a road
+  meets (`RoadCtx::network` replaces `parent`); the streaming ring links
+  sections across every junction. Both read the list in the old order,
+  so the loop builds and streams as it did.
+- **`NetIndex`**: every road's samples (every second) in 64 m cells,
+  tagged by road. `project_road` asks only the roads near the car, and
+  `Track::nearest_place` (what `Section::s_of` is now) searches rings of
+  cells outward instead of every road's own hash with a 900 m reach.
+
+## D1241 (2026-10-24): streaming by place; the far field by propagation
+
+Stage 6d. On a network the unit to stream is a square of the map, not a
+stretch of one road.
+
+- **`Level::stream_cell`**: when set, `Planned` lays a grid of squares
+  over the network's box (those with a road within 600 m, the Land kit's
+  reach and more, are sections) and a section is a `section::Place`: the
+  square and the runs of every road's metres inside it. `owns` is the
+  square, `holds_road`/`clip_road`/`has_road` answer for any road, and
+  the ring is the squares within a square (the client's `BEHIND`) of the
+  one under the car, with one more as slack. The loop still streams by
+  road; a test streams it by place and checks that every metre of every
+  road is in exactly one square.
+- **The far field on an open level built whole** is a vector distance
+  transform (four sweeps carrying each cell's nearest of every road's
+  12th samples to its neighbours) rather than a 3 km disc stamped round
+  every sample: its cost is the grid's, not the roads' length times the
+  disc. Its zone is now the nearest road's own (a branch's zone colours
+  its land); s, side and lateral distance stay road 0's. The loop plans
+  in 0.4 s rather than 1.8 s. A section's terrain clipped to bounds (the
+  menu's views) still stamps.
+- **The terrain's fields are shared** (`Arc`, copied on write) by the
+  clones a section build makes: a loop section holds 18 MB over the plan
+  rather than 46 MB.
+- `examples/stream_cost.rs` times and sizes the plan and its sections.
+
+## D1242 (2026-10-24): buildings are the simulation's
+
+Stage 6e. The open world has no walls, so a car would drive through a
+city's buildings; and every player of a race must meet the same walls.
+
+- **`Level::buildings`** places footprints (`mp_track::Footprint`: an
+  oriented box, the ground under it, a height, a kind and a seed) from
+  the built network; `Track::new` runs it last and indexes them in 32 m
+  cells (`Buildings`, behind an `Arc`).
+- **The arcade car** is pushed out along the shortest axis of the
+  overlap (separating axes over both boxes) the way `collide_walls`
+  pushes it off a wall: bounced (0.25), scrubbed, the nose swung along
+  the face, an impact over 1.5 m/s and the scrape. Over the roof (a
+  jump) nothing. **The sim model** gets the face its box's centre is
+  outside of as a plane collider, from buildings its box reaches.
+- **`mp_levels::city::place`** puts them along every street but the
+  freeways (rows of lots behind a 4 m sidewalk, sized by kind: houses,
+  low shops, mid-rises, towers; a second row where the ground is built
+  up) and fills the built-up land between the streets on a jittered
+  46 m grid, each turned to its nearest road; every lot clear of every
+  road's pavement and sidewalk and of the others. Buildings are full
+  size on half-size roads: the real density is drawn with fewer of them.
+- **The Town kit** (`mp_worldgen::town`, the zones' scenery `Town`)
+  draws them on Downtown Streets' façade atlas, whose shader lights each
+  window by the building's seed: walls from 1.5 m below the ground to
+  the roof, a cap, plant or a crown on the taller ones. A section draws
+  the buildings standing in it (`section::owns_point`), in 200 m chunks.
+
+## D1243 (2026-10-24): a cruise starts where it is asked to
+
+Stage 6f. **`Level::starts`** lists places (a road by branch id, empty
+for road 0, and metres along it, from its end when negative) and
+**`Level::start`** names the chosen one; `Track::chosen_start` resolves
+it. A cruise begins there (`CarPhysics::reset_on`, `Vehicle::place_on`:
+on a branch the car's road-0 place is the nearest to it), and a reset
+off road 0 puts the car back on the road it was on. The card shows the
+starts under the mode switch when Cruise is picked (kept per level as
+`start.<level>`; `?start=<id>` forces one), and the stream rings the car
+from the first frame of a cruise begun elsewhere.
+
+## D1244 (2026-10-24): traffic round the player; the HUD reads the road under the car
+
+Stage 6g, and what driving the bay side in the browser showed.
+
+- **A kinematic car has a road** (`Kinematic::road`; its `s` and `lat`
+  are on it; `AgentView::road`, and a player's view is their place on
+  the road under them). Cars follow only cars on their own road.
+- **Off the loop** (the lead player on another road, or a car on one)
+  traffic is round the player: `spawn_near` picks a road within
+  `NET_FAR` (650 m), the player's own half the time (spread over every
+  road near, only one to three of 23 cars were within the minimap's
+  400 m), a place along it 220 to 550 m either way from the player's
+  nearest, and spawns there if it is 190 to 650 m off; a car goes once
+  800 m away. At a road's end a car carries on onto the road
+  the junction names, the way it was heading, in one of its lanes
+  (`carry_on`), or goes where nothing meets the end or it would land
+  heading off the other road's own end (two roads end to end, the wrong
+  way: it ping-ponged otherwise). On the loop with the player on it the
+  traffic draws and drives as before.
+- **The HUD's zone** (the card) and **the sky's fog** come from the road
+  under the car (`HudIn::road`, `SkyState::on_road`, each branch's own
+  zones); **the cruise's distance** off the loop is the ground covered,
+  not the loop's projection. The city's arterials are `street` (kerbs),
+  not `boulevard` (guardrails).
+
+## D1245 (2026-10-24): the stream's work in pieces a frame can take
+
+What D1238's tests found, fixed, with the bay side's own on top. The owner
+drove the bay side in the browser and called the stutter "really bad":
+every section coming up was a frame of 56 to 96 ms, three at a time when
+the car crossed into a new square.
+
+- **The fallback sky noise is made once** (`render::sky::noise_image`): every
+  section without a dome made the 256² terrain detail texture again in
+  `finish_section`, tens of milliseconds of wasm each (the bay side's
+  hitch; D1238 found it on the loop too and stopped the stream's sections
+  asking for it; both stand).
+- **A warm-up scene for the whole level** (`stream::warm`,
+  `assets/warmup/peninsula.mrscene`): one node for every material ×
+  mesh-layout × shadow combination any section draws (49 on the
+  peninsula), on six zero vertices and 4 × 4 textures, 160 kB, compiled
+  in the binary. The stream spawns it behind the loading screen and keeps
+  only its stand-ins until they compile; the start waits for it. The
+  budget test makes it from the sections it builds (each section's nodes
+  that drew a combination first, then one per combination across them),
+  spawns the committed one as the client does and fails when a section
+  draws a combination it lacks; `MP_WARMUP_WRITE=1` writes it again. A
+  manifest from the test rather than every section's materials planned
+  up front: the materials are made by the kits as they build, and building
+  every section at load is a minute and a half.
+- **A texture's pixels go once** (`section::pack_sent`, `unpack_sent`): most
+  of a section's 10 to 18 MB were the terrain's and the kits' textures,
+  the same in every section, and the main thread hashed each again to
+  find it in the image cache. The worker keys each texture
+  (`Scene::texture_key`: FNV-1a over its pixels and sampling, the same in
+  both wasms), sends its pixels with the first section that has it since
+  the plan, and after that packs it as one pixel and its real size. The
+  client finds it in the image cache by the key, or, when the section
+  that brought it has not been converted yet (spawning goes in key order,
+  not arrival order) or was no longer wanted, in a stash of pixels kept by
+  key until they are in the cache. A texture neither has fails the section
+  (logged); it cannot happen while the worker's set is cleared at each plan
+  and every answer of the generation is read.
+- **Textures convert in slices** (`convert::ImageJob`, 768 kB an item):
+  the mip chain was made in one item, 100 to 400 ms for 2048². The
+  loader's texture item goes on with the same texture until it is whole;
+  `build_image` runs the job to its end.
+- **Oversized meshes are split** (`section::split_large`, over 1.5 MB): a
+  streamed section's plain mesh is cut into runs of its triangles beside
+  it, with its material, matrix and flags. Only in the stream's sections:
+  whole builds, which the JS parity tests compare, are untouched.
+- **The hand-over's budget is 32 MB**, from the bay side's figures (17 to 18
+  MB read back in 4 to 5 ms once warm, 0.25 to 0.3 ms a MB; D1238 had
+  0.5 ms a MB from the loop's first sections, cold). With the pixels sent
+  once, only Half Moon Bay's square, which first meets its 2048² texture,
+  is over 20 MB (28 MB).
+- **Measured** (release web build, headless Chrome, WebGPU, El Camino from
+  San Mateo at 30 m/s, after the noise fix alone): no frame over 45 ms in
+  75 s, where there had been three of 56 to 96 ms at each of the ring's
+  moves. On WebGL2 at Lombard and Van Ness, with the car stuck against
+  the corner, frames ran 75 to 110 ms for ten seconds once and not again
+  in two later runs (150 to 400 draws a frame; the machine's load average
+  was 20): not chased further.
+
+## D1246 (2026-10-25): the open world's car rides a suspension over a sloped roadside
+
+Stage 7a and 7b of docs/vision/peninsula.md. The owner, after driving the
+bay side: the car should deal with bumps without flying, kerbs behave
+like slopes, pavements not be fallen through.
+
+- **7a, the suspension** (`physics::CarPhysics::suspension`, open levels
+  only). The arcade's vertical was the JS's: the car followed the ground
+  under its middle and took the ground's vertical speed whole each tick,
+  so a crest, a kerb or the road's edge threw it. Now the body rides a
+  spring (320 /s², a 3 cm sag taken up so a car at rest sits on the
+  ground) and damper (22 /s) over the mean of the ground under its four
+  wheels (`wheel_contact`, at 72 % of the half length and 82 % of the half
+  width): 16 cm of travel past the sag before the body takes the ground's
+  rise whole, 22 cm of hang before it is in the air, and the damper meets
+  at most 2.5 m/s of the ground's speed (the tyre's and the wheel's give:
+  a square kerb is not a kick). Measured (tests/suspension.rs): a 15 cm
+  hump over 3 m is never left up to 45 m/s; 30 cm over 8 m not at 25 m/s,
+  a hop of 0.1 s at 35; half a metre over ten jumps at speed. The client
+  tilts the body to the ground's normal under the wheels
+  (`Vehicle::ground_normal`, `Pose::normal`) instead of the road's frame.
+  Closed levels keep the JS's step (their traces and races unchanged);
+  the suspension's contact joins the state hash only when present.
+- **7b, the roadside's profile** (`mp_track`: `EDGE_RUN` 2 m, `KERB` 0.15,
+  `KERB_RUN` 0.6, `WALK` 4, `WALK_RUN` 2; `Track::walks`, `walk_y`,
+  `ground_y_walk`, the network's `ground_at` and `on_other_tarmac`). Off a
+  road's shoulder the simulation's ground stepped to the land over a
+  metre; now it eases over 2 m (2.5 tried first: the optional sim-car
+  model then missed the turn onto 84 at its mouth, where 1.5 and 2 did
+  not; the arcade was unaffected). A town's street (Town scenery, not a
+  freeway) has a gutter, a kerb ramp, the pavement level across to 4 m,
+  and a 2 m slope to the land, except where it would lie on another
+  road's tarmac. The Town kit draws its pavements on this profile (the
+  gutter covers the 25 cm of land streets showed between the asphalt and
+  the old floating pavement), and on an open level the road kit's
+  shoulder skirt eases out `EDGE_RUN` to just under the near field's drop
+  instead of diving 1.6 m. The sim car's ground (`TrackGround`) takes its
+  normal on an open level from the ground itself.
+
+## D1247 (2026-10-25): the open world's fences, barriers and railings stand
+
+Stage 7c. On an open level the car drove through everything the road kit
+stands at a road's edge: walls are a closed level's, and only buildings
+stopped a car on an open one.
+
+- **What stands where is mp_track's** (`barriers`: per sample and side,
+  the road type's edge code, cleared across junction mouths, crossings and
+  a road's metres on a greater road's tarmac, by the road kit's own rules,
+  moved here; `Track::edges` for an open level, `barrier_at` with the
+  fence gaps). The road kit draws from it, still choosing rock face or
+  guardrail for a terrain edge by the land beside it (either way solid),
+  so a drawn barrier and a simulated one are the same by construction.
+- **The car meets each barrier near it** (`physics::barrier_planes`): the
+  face toward the side its centre is on (the wall line toward the road,
+  or 0.45 m out toward the land for a car behind it, come in by a gap),
+  up to 1.2 m over the road (a car flying higher clears it). The arcade
+  meets a face as it meets a building (`meet_face`, shared); the sim car
+  gets the faces as colliders.
+- **The open world plays differently:** the coast loop and the mountain
+  roads keep the car on them but at their junctions and gaps, as their
+  guardrails and rock faces always said; valley roads have their wooden
+  fences and the farm gates (`fence_gaps`); the city's kerbed streets let
+  the car onto the pavements and between the buildings.
+- Tests: tests/barriers.rs. Two of tests/open_ground.rs are of the land
+  off the road and now clear the barriers; the junction race turns its car
+  round (no room for a U-turn between the coast road's rails) and steers
+  round a crashed car in its lane.
+
+## D1248 (2026-10-25): the open world's trees, fences and houses stand
+
+Stage 7d. The owner: the land off the road should be more solid, but for
+street signs and small things. On an open level the car passed through
+everything but the city's buildings and (D1247) the roadside barriers.
+
+- **What stands off the road is mp_track's** (`props`, `planting`,
+  `seabright`), placed from the level's ground and cover and the road
+  network alone, so every peer of a race meets the same and what is
+  drawn is what stands. `Track::props` holds the fixed solids (indexed in
+  32 m cells) and the planting, which plants a 64 m tile the first time a
+  car comes near it and keeps it (a memo: a tile's planting is a
+  function of the tile, so when it is planted changes nothing; at most
+  4096 kept). A solid is a circle (a trunk, a rock's foot) or a box (a
+  fence's rails between two posts, a building's block), the ground under
+  it and its height.
+- **The planting** is the Land kit's rules (D1212: by cover and distance
+  from the road, clear of the roads, off the sea and the steepest
+  ground), the Coast kit's cypress and pines and its landward outcrops,
+  and the crop land's post-and-rail fences, moved out of world
+  generation. The terrain's far field, ground and zone weights are world
+  generation's, so the planting asks the level's ground, the nearest
+  road sample (and its zone) and the roads themselves; the clumps are
+  the terrain's second noise, made again from its seed. Candidates stand
+  on a lattice fixed in the world, 8 m apart (the kits' odds for their 7
+  and 12 m walks scaled), each drawn from its own seed instead of a
+  cell's one stream, so any tile plants alone; a fence's post belongs to
+  where it stands and a rail to where its middle is, so any box of land
+  finds the same ones. The Land kit draws every plant, rock, post and
+  rail of its cells from it, on the terrain's ground, its looks (tilt,
+  tint) from the plant's seed; the Coast kit no longer plants its trees
+  or outcrops on an open level.
+- **The beach town** (`seabright`): the Beach kit's layout of Seabright
+  (the frontage lots block by block, the houses behind main street, the
+  hill houses, the palms) on its own streams, since on a closed level
+  the kit draws layout and looks from one stream only it can follow;
+  nothing on another road of the network. On an open level the kit draws
+  the layout's lots, houses and palms, with its own stream for the looks,
+  and starts from the layout's occupied ground. Each lot's blocks are its
+  parts' bodies (a shop's box, the motel's rooms and office, the gas
+  station's shop and canopy columns); a parking lot and the forecourts
+  are open. The cross streets' gaps in the kerb railing, which only the
+  kit's plan made (so the simulation had a railing there and the road kit
+  drew a gap), are the track's now.
+- **What collides:** trunks of conifers, oaks, cypress, pines and palms
+  (their templates' radius at the foot, scaled, at least 25 cm; 8 m
+  high), the coast's outcrops (0.7 of their radius), the crop fences
+  (16 cm thick, 2 m over the land's own ground, which near a road lies
+  under the ground the car rides), and the town's storefronts, houses,
+  motel, hotel and gas station. **Passable:** scrub and grass, signs,
+  lamps, poles, delineators, benches and the like, parked cars, the
+  pier and the marina, the promenade's rail, the boulders at the foot of
+  rock walls and the crags in the cut faces (both behind the road's
+  barriers), canopies over the car.
+- The arcade meets a solid as it meets a building (`collide_props`,
+  `meet_face`: the shortest way out of the box, a trunk by the car's
+  nearest point), twice a tick for a car wedged between two; the sim car
+  gets the face toward its box as a plane collider (a trunk's tangent).
+- Closed levels are untouched: none is open, and the kits' open-level
+  paths are new branches.
+- Cost (native release): the load adds only the town's layout, 0.1 ms
+  (the peninsula's `Track::new` was 0.56 to 0.9 s on a busy machine,
+  as before); a tile is planted in 0.14 ms (1 ms unoptimised), and a car
+  at speed meets a new one about every second. The Land kit plants its
+  cells from the same tiles; the section timing and stream budget tests
+  pass unchanged.
+- Tests: mp_sim tests/props.rs (a car at a tree stops, arcade and sim
+  car; a crop fence stops it; scrub does not), mp_levels tests/planting.rs
+  (the same every build, a cell's fences are its tiles', the town clear
+  of every road, the cost), mp_worldgen tests/land.rs (what is drawn is
+  what is planted) and tests/beach_open.rs.
+
+## D1249 (2026-10-25): freeways over the roads they cross; a car held by the road at its height
+
+Stage 8a and 8b of docs/vision/peninsula.md: the owner asked the world for
+verticality, lifted highways and parking garages (D1250). Every crossing
+met at grade; nothing stood over anything.
+
+- **Overpasses** (`network::find_crossings`, `lift_over`; `OVERPASS_CLEAR`
+  7 m, `OVERPASS_GRADE` 4.5 %). Where a freeway crosses a lesser road it
+  rises over it, its deck 7 m over that road's surface across its width
+  (wider as the angle narrows) and down at 4.5 % either side; the crossing
+  is no junction (`Track::overpasses`), and neither road's fence opens. A
+  crossing too near one of the freeway's own junctions to rise (the roads
+  that start and end on it were fitted to its surface as it was) stays at
+  grade; a lift never goes past what the freeway's junctions allow over its
+  heights before any lift, so two crossings near one junction cannot stack
+  (they did: a 13 % ramp where 101 ends on El Camino, which winds under it
+  twice; there the deck is 4.3 m over the street, 2.5 m of headroom).
+- **Viaducts by the level's word** (`Branch::lift`, `track::lift_road`):
+  the peninsula's 101 and 280 stand 8 m up north of z -13 300 (San
+  Francisco at the plan's scale), ramped at 4.5 % and down to nothing within
+  25 m of their ends, before the roads that end on them are built, so a
+  street that ends on one climbs to its deck as a ramp over the branch fit's
+  120 m. Only four true crossings of the freeways exist on the peninsula
+  (most streets end on them), so the city's lifted highways come from this.
+- **Elevated** (`ELEVATED_LIFT` 1.5 m over its own heights): the terrain's
+  near field is not raised to it (as before for `elevated` samples), the
+  road kit stands it on piers with a deck underside, and off its edge the
+  simulation's ground is the land's, not the near field pulled up to the
+  deck.
+- **A car held by the road at its height** (`Track::project_road_at`,
+  `REACH_UP` 1.5, `REACH_DOWN` 4): the projection chose a road by the
+  horizontal alone, so the street under a viaduct and the deck over it took
+  a car from each other. Now a road whose surface there is more than 1.5 m
+  over the car or 4 m under it cannot hold it, and of those that hold it the
+  surface nearest under it wins (if none, the least past a shoulder of those
+  in reach, else of all, as before). The car's projection, its wheels'
+  ground and the sim car's ground pass its height; a barrier counts only
+  level with the car (a deck's jersey barrier over the street does not stop
+  a car under it).
+
+## D1250 (2026-10-25): parking garages
+
+Stage 8c. `mp_track::garage`: one layout read by the simulation and by
+world generation.
+
+- **Where:** a frontage lot is a garage 5 % of the time where the ground is
+  at least 40 % built (`mp_levels::city`, chosen by a draw of its own so the
+  lots round it are as they were): 48 m along the street, 40 deep, four
+  decks; the peninsula has 75. A `Footprint` carries it (`garage`: decks,
+  the front's side, the floor at the pavement's height).
+- **Layout:** decks 3.2 m apart; along the back a strip 7 m wide holds the
+  ramps, each 32 m long (10 %) and climbing one deck the same way, stacked a
+  deck apart, the decks running on 8 m past their ends: up a ramp, turn on
+  the deck, back to the next. A wall along the strip's inner edge (open
+  4 m at each end) keeps a car from dropping onto a ramp half a deck down.
+  The perimeter's walls stand at every deck; the entrance, 7 m at the
+  front's start, is open at the floor.
+- **Simulation:** the ground in a garage is the highest deck or ramp at
+  most 0.6 m over the car (`Garage::ground`, `physics::ground_under`, both
+  car models), its walls stop the car (`collide_garages`, the sim car's
+  colliders), and push-out and the sim car's building faces leave garages
+  out.
+- **Drawn:** the slabs and ramps (top and underside) in the pavement's
+  concrete, the parapets, pillars and the strip's wall on the facade atlas's
+  panel cell: no new pipeline.
+- The page's `reset` command takes `road` (the network's), for tools that
+  put the car on a viaduct or a garage's street.
+
+## D1251 (2026-10-24): the atlas, a map of the whole level over the race
+
+The owner asked for "a larger atlas view, not just the local upcoming
+turns": the minimap (`hud/minimap.rs`) shows the roads within about
+400 m, which is right for a race and no help in finding the way across the
+open world's 20 roads.
+
+- **What it is** (`play/atlas/`): a panel over the race, which goes on
+  under it (a glance, like a satnav). It shows the network (major roads
+  bolder than city streets), the water and the built-up land from the
+  level's cover grid, an event's route in the event's colour with its
+  start and finish (a delivery's drop, pulsing), the events' starts in a
+  cruise, rivals, police, traffic once zoomed in, the player's arrow along
+  the car's heading, north up, the cruise starts and the roads' stretches
+  (zones) by name where they fit, and a scale bar in the HUD's units.
+- **Controls.** G opens and closes it; so do a tap or click on the
+  minimap and its X. Z steps between the whole map and 3 km round the car
+  (which follows the car; a drag lets go of it); the wheel (about the
+  cursor), + and − and the right stick zoom between 600 m across and a
+  little past the whole map. With it closed, Z steps the minimap between
+  its scale (0.28 px a metre) and a wide one (0.09, about 1.2 km across;
+  the dots keep their size), and the atlas's MINIMAP button does the same.
+  M was the obvious key but is the music's. On a pad: LB toggles and the
+  right stick's click steps, each falling back to D-pad up and down when
+  a remap has bound the button (the pad's map is read, not changed: no new
+  `Action`, so saved maps stay valid). On a touch screen the panel fills
+  the screen inside the insets, under the touch controls (their root is
+  now `GlobalZIndex(2)`, the atlas 1), which keep working; its buttons and
+  the minimap take a tap before the controls, as the radio's do (D1160).
+- **How it is drawn.** Per-pixel loops over polylines, as the minimap
+  draws its 256 points, would not scale to the whole network on a phone,
+  and a raster of the roads blurs at a 3 km zoom. Instead each road set is
+  an **offset field** (`atlas/field.rs`): over the level's box, each texel
+  holds the offset in metres to the nearest point of a road, in half
+  floats (`Rgba16Float`: all roads, major roads; filterable on WebGL2 and
+  WebGPU). A bilinear blend of offsets is exact along a straight road, so
+  one sample gives the true distance at any zoom and the shader strokes
+  the road in screen pixels (a casing and a core, the minimap's colours);
+  only where the nearest road changes (a junction) does the blend shorten,
+  by under a texel. The peninsula's network thins (Douglas-Peucker, 1.5 m)
+  to 2223 segments over an 11.8 by 30.6 km box: a 616 by 1536 field at
+  20.5 m a texel (7.6 MB), offsets kept within 16 texels. The route is a
+  field of its own over its own box, built when an event begins and the
+  atlas is open. The water and the built-up land are an `Rg8Unorm` grid,
+  768 texels along the network's box and 1200 m round it (as far as the
+  cover's corridors reach; faded out towards its edge, since past it the
+  cover only repeats its edge), sampled from the cover: the cover's sea
+  class only where the ground is at sea level (it also fills cells it has
+  no data for, in the towns), its water class anywhere; the shader blurs
+  it over four taps so the shore does not show the cover's cells.
+- **When it is built.** A slice a frame from the race's start (30 000
+  texel visits a frame shut, 250 000 open; the whole network is 2.6
+  million, 0.38 s in a debug build), so it is ready before it is wanted
+  and costs well under a millisecond a frame while it builds; cached per
+  level across races. The view and the markers are uniforms written into
+  one buffer in place (`atlas/material.rs`, as D865 does for the HUD), so
+  a frame with the atlas open makes no buffer or bind group. Shut, a 1 px
+  node of the material stays drawn, so its pipeline is built with the
+  race's and the first open compiles nothing.
+- `?map=whole|region` opens it at the start and `?minimap=wide` starts
+  the minimap zoomed out (pictures, tests); `tools/parity/atlas-shots.mjs`
+  takes the pictures on a desktop window and a phone.
+
+## D1252 (2026-10-24): a long drive, measured; the uploads a frame bounded, the pools on their road
+
+The owner, on the bay side after D1245: smoother, "but if I drive for a
+while it stutters again, probably tiles loading". Looked for what grows
+or falls behind over a long drive (release web build, headless Chrome on
+the owner's machine, El Camino from San Mateo to San Francisco and back at
+30 m/s, 101 from Redwood City at 55 m/s started from the menu, the car
+parked; 5 to 10 minutes each, WebGPU and WebGL2).
+
+- **Nothing grows.** Over ten minutes and some 25 squares: meshes 1200 to
+  1500, materials 200 to 260, images 62 to 65, entities 2700 to 3000 (all
+  following the squares round the car, back to the start's figures in the
+  same places), the image cache 14 to 16 textures, the stash 0 to 6 (2.7
+  MB, sections read back but no longer wanted), the stream's sections 14
+  to 16, the block map's ranges plateauing at 173 of 512, the animation
+  blocks reused (free list 0 to 12), the wasm memory flat (427 to 496 MB
+  by backend), the GPU process's memory flat (432 MB), the JS heap a
+  sawtooth of 8 to 44 MB.
+- **Nothing gets slower**, at the display's rate: every 30 s window of a
+  ten-minute drive p50 16.7 ms and p95 16.7 to 16.8 ms, no frame over 50
+  ms, the frames with the stream's work in them at most 33 ms (one missed
+  vsync, a few a minute), WebGPU and WebGL2 alike; 101 at 55 m/s from the
+  menu the same. With the CPU throttled 4× the frame rate follows the
+  place (p50 16.7 to 33 ms in the city), not the time driven.
+- **Uncapped frames are not a player's.** With `--disable-frame-rate-limit`
+  (the perf tools' default) at 400 fps, frames of 100 to 300 ms came every
+  2 s after two or three minutes and grew with time, with no stream work
+  around them and identically with the car parked and nothing streaming.
+  The CPU profile has them in `writeBuffer` and `createCommandEncoder`
+  (53 % and 5 % of their samples), and a Chrome trace in the GPU process:
+  one WebGPU `CommandBuffer::Flush` of 130 to 166 ms handling a backlog
+  of commands. The page outruns the GPU process and is held when its
+  transfer buffer fills; at the display's rate it never happens. A full
+  GC every 250 ms (`--gc`) took most of them away, which was the clue that
+  the rhythm was the page's, not the world's. (Asking `nvidia-smi` for the
+  GPU's memory stalls a frame or two by itself: `--gpu-mem` is off unless
+  asked.) The stutter suite runs at the display's rate, as it should.
+- **Fixed: a section's spawning slice is bounded in bytes too**
+  (`loader::step_section_within`, `SPAWN_RUNNING_BYTES` 2 MB while
+  running). The 5 ms slice spawned a whole square's meshes at once,
+  because making a mesh is quick on the main thread; the render world then
+  uploaded them in the same frame: 3.3 to 6.8 MB a frame (a 56 ms frame
+  uncapped, 6.6 MB in it). Now 2.1 to 2.7 MB (2 MB and the item that
+  crossed it); the square is up a few frames later. Behind the loading
+  screen there is no bound.
+- **Fixed: the headlight pools are laid on the car's own road**
+  (`Effects::lay_pools` takes each car's road and its place on it). Off
+  the level's road a car's `s` is its progress, so every pool was looked
+  for on road 0 kilometres away: the window widened to 768 samples, 5 µs
+  a car natively (26 ns now), and the pool took the coast road's height
+  there. In a profile of the merged bay side (WebGL2, CPU throttled 4×,
+  El Camino) it was 2.9 % of the main thread, more than the whole
+  simulation's step (2.5 %); now 0.3 %. The simulation's new per-tick
+  work in that profile is small: the barriers 0.12 %, the props 0.09 %,
+  the garages 0.08 %, the ground under the wheels 0.07 %; the HUD's atlas
+  is 3.2 %.
+- **What a drive holds is published** (`__mp.census`, every 60 frames:
+  entities, meshes, images, materials, the image cache, the stash and its
+  kB, the sections, the block map's ranges, the animation blocks and their
+  free list), and `tools/parity/long-drive.mjs` drives a corridor for
+  minutes and reports each window's frame times, memory and census, every
+  long frame with the stream's work and the GPU calls round it (`--capped`,
+  `--menu`, `--throttle`, `--prof`, `--trace`, `--gc`, `--gpu-mem`).
+- **Regression check:** the stutter suite's `long` scenario
+  (`MP_STUTTER_ONLY=long`, 480 s, not in the default set): El Camino north
+  from San Mateo held to the cruise's budgets, the last third no worse
+  than the first (p95 within 3 ms, frames over 33 ms at most twice the
+  rate and 5 more), and the census not growing (entities, meshes,
+  materials and images in the second half at most 1.6× the first half's
+  and 50, the wasm memory 128 MB, the image cache 64 textures, the stash 64
+  MB, 25 sections, the block map short of full). Passed: 28 801 frames in
+  480 s, p95 16.7 ms, the longest 16.8 ms.
+- **Not found:** the owner's stutter itself. On this machine a long drive
+  is as smooth at ten minutes as at one; what the owner saw may be the
+  machine's load (load averages of 20 to 40 during these runs from other
+  sessions' builds and a model server on the same GPU), another device,
+  or what came onto the bay side after D1245.

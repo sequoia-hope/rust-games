@@ -527,6 +527,66 @@ pub fn menu(
                         });
                     }
                 });
+                // A cruise's start (stage 6f): where on the open world it
+                // begins.
+                if m == "cruise" && !level.starts.is_empty() {
+                    let chosen = store::start_for(store, &level);
+                    p.spawn((
+                        Node {
+                            margin: UiRect::top(bp.px(if bp.compact { 4.0 } else { 8.0 })),
+                            flex_wrap: FlexWrap::Wrap,
+                            column_gap: bp.px(6.0),
+                            row_gap: bp.px(4.0),
+                            ..default()
+                        },
+                        Control::named(
+                            "start-pick",
+                            Value::Text(chosen.clone().unwrap_or_default()),
+                        ),
+                    ))
+                    .with_children(|p| {
+                        for sp in &level.starts {
+                            let sel = chosen.as_deref() == Some(sp.id);
+                            let id = format!("start-{}", sp.id);
+                            let focused = cx.f(&id);
+                            let mut e = p.spawn((
+                                Node {
+                                    padding: UiRect::axes(bp.px(10.0), bp.px(3.0)),
+                                    border: w::border(&bp, 1.0),
+                                    border_radius: w::pill(),
+                                    ..default()
+                                },
+                                BorderColor::all(if sel {
+                                    w::rgb(0x1ab8c4)
+                                } else {
+                                    w::white(0.16)
+                                }),
+                                BackgroundColor(if sel {
+                                    w::rgba(0x1ab8c4, 0.22)
+                                } else {
+                                    w::rgba(0, 0.25)
+                                }),
+                                Control::act(id, Act::StartAt(sp.id))
+                                    .sel(sel)
+                                    .value(Value::Text(sp.name.into())),
+                            ));
+                            w::focus_ring(&mut e, &bp, focused);
+                            e.with_children(|p| {
+                                p.spawn((
+                                    w::text(
+                                        sp.name.to_uppercase(),
+                                        T::new(if bp.compact { 10.0 } else { 12.0 })
+                                            .bold()
+                                            .ls(0.1)
+                                            .c(if sel { Color::WHITE } else { w::dim() }),
+                                        bp.k,
+                                    ),
+                                    TextLayout::no_wrap(),
+                                ));
+                            });
+                        }
+                    });
+                }
             }
         });
 

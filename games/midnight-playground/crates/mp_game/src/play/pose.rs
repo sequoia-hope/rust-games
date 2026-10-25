@@ -33,6 +33,10 @@ pub struct Pose {
     /// frame x forward, y up, z right): drawn as it is, instead of from the
     /// road frame and the springs (D1202).
     pub orient: Option<[f64; 4]>,
+    /// The ground's up normal under the wheels, on an open level's
+    /// suspension (`Vehicle::ground_normal`, stage 7a): the body tilts to
+    /// it instead of to the road's frame.
+    pub normal: Option<[f64; 3]>,
 }
 
 impl Pose {
@@ -52,6 +56,7 @@ impl Pose {
             speed: v.speed,
             steer_angle: v.steer_angle,
             orient: v.pose.as_ref().map(|p| p.orient),
+            normal: v.ground_normal,
         }
     }
 
@@ -104,6 +109,10 @@ impl Pose {
                 ),
                 (_, q) => q,
             },
+            normal: match (a.normal, b.normal) {
+                (Some(na), Some(nb)) => Some([l(na[0], nb[0]), l(na[1], nb[1]), l(na[2], nb[2])]),
+                (_, n) => n,
+            },
         }
     }
 }
@@ -122,12 +131,18 @@ pub fn root(track: &Track, p: &Pose) -> (DVec3, DQuat) {
         let q = DQuat::from_array(o) * DQuat::from_rotation_y(core::f64::consts::FRAC_PI_2);
         return (DVec3::new(p.x, p.y, p.z), q.normalize());
     }
-    let r = track.road(p.road.min(track.branches.len()));
-    let f = r.frame(if p.road == 0 { p.s } else { p.road_s });
-    // Surface normal from the road frame (grade along, bank across).
-    let t = norm(DVec3::new(f.fx, f.grade, f.fz));
-    let a = norm(DVec3::new(f.rx, -f.bank, f.rz));
-    let mut y = norm(a.cross(t));
+    let mut y = match p.normal {
+        // The ground under the wheels (an open level's suspension).
+        Some(n) => norm(DVec3::from_array(n)),
+        None => {
+            let r = track.road(p.road.min(track.branches.len()));
+            let f = r.frame(if p.road == 0 { p.s } else { p.road_s });
+            // Surface normal from the road frame (grade along, bank across).
+            let t = norm(DVec3::new(f.fx, f.grade, f.fz));
+            let a = norm(DVec3::new(f.rx, -f.bank, f.rz));
+            norm(a.cross(t))
+        }
+    };
     let mut z = DVec3::new(kernel::cos(p.yaw), 0.0, kernel::sin(p.yaw));
     // In the air, pitch the nose along the flight path a little.
     if !p.on_ground {
@@ -296,6 +311,7 @@ mod tests {
             speed: 0.0,
             steer_angle: 0.0,
             orient: None,
+            normal: None,
         };
         let (pos, q) = root(t, &p);
         assert_eq!(pos, DVec3::new(f.x, f.y, f.z));
@@ -342,6 +358,7 @@ mod tests {
             speed: 20.0,
             steer_angle: 0.0,
             orient: None,
+            normal: None,
         };
         let b = Pose {
             x: fb.x,

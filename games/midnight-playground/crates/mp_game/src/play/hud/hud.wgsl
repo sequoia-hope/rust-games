@@ -175,14 +175,18 @@ fn poly_edge(q: vec2<f32>, vi: vec2<f32>, vj: vec2<f32>, d: ptr<function, f32>, 
 fn minimap(q: vec2<f32>, aa: f32) -> vec4<f32> {
     let clip = cov(length(q - vec2<f32>(110.0)) - 108.0, aa);
     var acc = vec4<f32>(0.0);
-    // The road, s - 500 to s + 900, 26 and 14 m wide (0.28 px a metre).
+    // The road, s - 500 to s + 900 (an open level's network: every road
+    // near), 26 and 14 m wide (0.28 px a metre).
     let n = i32(p.head.y);
     if (n > 1 && clip > 0.0) {
         var dmin = 1e9;
         var a = road_pt(0);
         for (var i = 1; i < n; i = i + 1) {
             let b = road_pt(i);
-            dmin = min(dmin, sd_segment(q, a, b));
+            // The pen lifts between roads (a point far off the canvas).
+            if (a.x > -5000.0 && b.x > -5000.0) {
+                dmin = min(dmin, sd_segment(q, a, b));
+            }
             a = b;
         }
         acc = over(acc, vec3<f32>(0.0), 0.5 * clip * cov(dmin - 3.64, aa));

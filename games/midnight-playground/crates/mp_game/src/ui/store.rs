@@ -205,6 +205,18 @@ pub fn mode_for(store: &Store, level: &mp_track::Level) -> &'static str {
     }
 }
 
+/// The start a cruise of `level` was last given on its card (stage 6f):
+/// one the level offers, else its first.
+pub fn start_for(store: &Store, level: &mp_track::Level) -> Option<String> {
+    let id = store.string(&format!("start.{}", level.id), "");
+    level
+        .starts
+        .iter()
+        .find(|s| s.id == id)
+        .or(level.starts.first())
+        .map(|s| s.id.to_owned())
+}
+
 /// `bestKey(l)`: winning times are kept apart for Hot Pursuit.
 pub fn best_key(id: &str, pursuit: bool) -> String {
     format!("best.{id}{}", if pursuit { ".pursuit" } else { "" })
