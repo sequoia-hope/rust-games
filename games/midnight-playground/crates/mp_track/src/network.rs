@@ -85,6 +85,37 @@ impl NetIndex {
         out
     }
 
+    /// Every indexed sample within `radius` of (x, z): `(road, sample, x,
+    /// z)`, cell by cell.
+    pub fn samples_within(
+        &self,
+        t: &Track,
+        x: f64,
+        z: f64,
+        radius: f64,
+    ) -> Vec<(u32, u32, f64, f64)> {
+        let (a0, b0) = Self::key(x - radius, z - radius);
+        let (a1, b1) = Self::key(x + radius, z + radius);
+        let r2 = radius * radius;
+        let mut out = Vec::new();
+        for a in a0..=a1 {
+            for b in b0..=b1 {
+                let Some(v) = self.cells.get(&(a, b)) else {
+                    continue;
+                };
+                for &(r, k) in v {
+                    let rt = t.road(r as usize);
+                    let (sx, sz) = (f64::from(rt.px[k as usize]), f64::from(rt.pz[k as usize]));
+                    let (dx, dz) = (x - sx, z - sz);
+                    if dx * dx + dz * dz <= r2 {
+                        out.push((r, k, sx, sz));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// Each road's nearest indexed sample within `radius` of (x, z), for
     /// the roads whose nearest lies within `slack` of the nearest of all:
     /// `(road, sample, distance)` in road order. The cells are searched in
@@ -166,6 +197,37 @@ impl Track {
         out.map(|(r, s, _)| (r, s))
     }
 
+    /// Whether (x, z) lies on the tarmac of a road other than `road` (its
+    /// pavement and half a metre more): where a road's pavement would
+    /// cross another road, at a junction's mouth or a crossing, there is
+    /// none (stage 7b; the Town kit draws none there either).
+    pub fn on_other_tarmac(&self, road: usize, x: f64, z: f64) -> bool {
+        self.net.roads_near(x, z, 30.0).into_iter().any(|r| {
+            if r == road {
+                return false;
+            }
+            let t = self.road(r);
+            let d = t.distance_to_road(x, z, 30.0);
+            d.s.is_some_and(|s| {
+                let f = t.frame(s.clamp(0.0, t.length));
+                d.d < f.hw + f.margin + 0.5
+            })
+        })
+    }
+
+    /// The open world's ground under (x, z) on road `road` at (s, lat) of
+    /// it: the road's profile ([`Track::ground_y_walk`]), with its kerb and
+    /// pavement where it has them and no other road's tarmac covers the
+    /// place (stage 7b).
+    pub fn ground_at(&self, road: usize, x: f64, z: f64, s: f64, lat: f64) -> f64 {
+        let t = self.road(road);
+        let walk = t.open_ground.is_some() && {
+            let f = t.frame(s.clamp(0.0, t.length));
+            lat.abs() > f.hw + f.margin && t.walks(s) && !self.on_other_tarmac(road, x, z)
+        };
+        t.ground_y_walk(x, z, s, lat, walk)
+    }
+
     /// The junctions road `road` takes part in, either side.
     pub fn junctions_of(&self, road: usize) -> impl Iterator<Item = &Junction> {
         self.junctions
@@ -230,6 +292,66 @@ pub fn find_crossings(t: &mut Track) -> Vec<Junction> {
             }
         }
     }
+    // A freeway meets nothing at grade (stage 8a, D1248): it rises over
+    // the road it crosses on a viaduct, and the crossing is no junction.
+    let freeway = |t: &Track, r: usize, s: f64| {
+        let rt = t.road(r);
+        crate::ROAD_TYPES
+            .get(rt.road_type[rt.idx(s.clamp(0.0, rt.length))] as usize)
+            .is_some_and(|ty| ty.key == "freeway")
+    };
+    // How much a freeway may rise at `s`: nothing at its own junctions
+    // (where a road starts or ends on it, fitted to its surface as it was),
+    // then `OVERPASS_GRADE` a metre away from them, past the junction's
+    // width.
+    let room = |t: &Track, f: usize, s: f64| -> f64 {
+        let ft = t.road(f);
+        t.junctions
+            .iter()
+            .filter(|j| j.other == f || j.road == f)
+            .map(|j| {
+                let at = if j.other == f { j.other_s } else { j.s };
+                (ft.ds(at, s).abs() - 25.0).max(0.0) * OVERPASS_GRADE
+            })
+            .fold(f64::MAX, f64::min)
+    };
+    let (over, found): (Vec<Junction>, Vec<Junction>) = found.into_iter().partition(|j| {
+        if freeway(t, j.road, j.s) == freeway(t, j.other, j.other_s) {
+            return false;
+        }
+        let (f, fs) = if freeway(t, j.road, j.s) {
+            (j.road, j.s)
+        } else {
+            (j.other, j.other_s)
+        };
+        // On its viaduct already (the level's lift), or room to rise over
+        // the road; too near one of its junctions to clear it: at grade.
+        let ft = t.road(f);
+        ft.elevated[ft.idx(fs.clamp(0.0, ft.length))] != 0 || room(t, f, fs) >= OVERPASS_CLEAR + 1.0
+    });
+    let mut before: BTreeMap<usize, Vec<f32>> = BTreeMap::new();
+    for j in &over {
+        let (f, fs, o, os) = if freeway(t, j.road, j.s) {
+            (j.road, j.s, j.other, j.other_s)
+        } else {
+            (j.other, j.other_s, j.road, j.s)
+        };
+        let base = before
+            .entry(f)
+            .or_insert_with(|| t.road(f).py.clone())
+            .clone();
+        lift_over(t, f, fs, o, os, &base);
+    }
+    t.overpasses.extend(over.iter().copied());
+    for (f, own) in before {
+        let rt = t.road_mut(f);
+        for (i, &y) in own.iter().enumerate() {
+            if f64::from(rt.py[i]) - f64::from(y) > ELEVATED_LIFT {
+                rt.elevated[i] = 1;
+            }
+        }
+        rt.grade = crate::track::grade_of(&rt.py, rt.is_loop);
+    }
     for j in &found {
         let py = fit_crossing(t.road(j.road), t.road(j.other), j.s, j.other_s);
         let w = 3.0;
@@ -255,6 +377,58 @@ pub fn find_crossings(t: &mut Track) -> Vec<Junction> {
         }
     }
     found
+}
+
+/// How far a freeway's deck stands over a road it crosses (m), and the
+/// steepest its ramps up to it climb.
+pub const OVERPASS_CLEAR: f64 = 7.0;
+pub const OVERPASS_GRADE: f64 = 0.045;
+/// How much higher than its own ground a road must stand to count as
+/// elevated: the terrain is not raised to it, and the road kit puts it on
+/// piers.
+pub const ELEVATED_LIFT: f64 = 1.5;
+
+/// Lifts freeway `f` over road `o` where they cross (stage 8a): at its
+/// crossing `fs` the deck stands `OVERPASS_CLEAR` over the other road's
+/// surface across that road's width (wider as the angle narrows), and on
+/// either side it comes down at `OVERPASS_GRADE` to its own heights. Lifts
+/// only ever raise, so those of crossings close together merge into one
+/// viaduct; where they raise it past `ELEVATED_LIFT` it is elevated
+/// (`find_crossings`).
+fn lift_over(t: &mut Track, f: usize, fs: f64, o: usize, os: f64, base: &[f32]) {
+    let (deck, plateau) = {
+        let ot = t.road(o);
+        let of = ot.frame(os.clamp(0.0, ot.length));
+        let ff = t.road(f).frame(fs);
+        let cos = ff.fx * of.fx + ff.fz * of.fz;
+        let sin = (1.0 - cos * cos).max(0.09).sqrt();
+        (
+            ot.surface_y(os, 0.0) + OVERPASS_CLEAR,
+            (of.hw + of.margin) / sin + 12.0,
+        )
+    };
+    // Never more than it may rise by its own junctions, over its heights
+    // before any crossing lifted it (`base`): two crossings near one
+    // junction must not stack their room.
+    let ats: Vec<f64> = t
+        .junctions
+        .iter()
+        .filter(|j| j.other == f || j.road == f)
+        .map(|j| if j.other == f { j.other_s } else { j.s })
+        .collect();
+    let rt = t.road_mut(f);
+    for i in 0..rt.n {
+        let s = i as f64;
+        let d = rt.ds(fs, s).abs();
+        let room = ats
+            .iter()
+            .map(|&a| (rt.ds(a, s).abs() - 25.0).max(0.0) * OVERPASS_GRADE)
+            .fold(f64::MAX, f64::min);
+        let need = (deck - (d - plateau).max(0.0) * OVERPASS_GRADE).min(f64::from(base[i]) + room);
+        if need > f64::from(rt.py[i]) {
+            rt.py[i] = need as f32;
+        }
+    }
 }
 
 /// Fits the lesser road's heights round `s` to the greater road's surface

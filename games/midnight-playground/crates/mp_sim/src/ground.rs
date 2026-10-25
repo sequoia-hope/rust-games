@@ -17,6 +17,8 @@ pub const SURFACE_RUNOFF: u16 = 1;
 /// across the road, and along it (the track is sampled every metre).
 const D_LAT: f64 = 0.05;
 const D_S: f64 = 0.5;
+/// An open level's step across x and z for the ground's normal (m).
+const D_XZ: f64 = 0.25;
 
 /// The track as ground, near arc length `hint` on road `road` of the
 /// level's network (where the car is: every projection searches from
@@ -25,16 +27,40 @@ pub struct TrackGround<'a> {
     pub track: &'a Track,
     pub road: usize,
     pub hint: f64,
+    /// The car's height, where known: a road over or under it cannot hold
+    /// it ([`Track::project_road_at`], stage 8b).
+    pub y: Option<f64>,
 }
 
 impl<'a> TrackGround<'a> {
     pub fn new(track: &'a Track, road: usize, hint: f64) -> TrackGround<'a> {
-        TrackGround { track, road, hint }
+        TrackGround {
+            track,
+            road,
+            hint,
+            y: None,
+        }
+    }
+
+    /// [`TrackGround::new`] for a car at height `y`.
+    pub fn at(track: &'a Track, road: usize, hint: f64, y: f64) -> TrackGround<'a> {
+        TrackGround {
+            y: Some(y),
+            ..TrackGround::new(track, road, hint)
+        }
+    }
+
+    /// The road under (x, z) and the projection onto it.
+    fn project(&self, x: f64, z: f64) -> (usize, mp_track::Projection) {
+        match self.y {
+            Some(y) => self.track.project_road_at(x, z, y, self.road, self.hint),
+            None => self.track.project_road(x, z, self.road, self.hint),
+        }
     }
 
     /// The road under (x, z) and the projection onto it.
     fn on(&self, x: f64, z: f64) -> (&'a Track, mp_track::Projection) {
-        let (k, p) = self.track.project_road(x, z, self.road, self.hint);
+        let (k, p) = self.project(x, z);
         (self.track.road(k), p)
     }
 
@@ -62,8 +88,17 @@ impl<'a> TrackGround<'a> {
 
 impl Ground for TrackGround<'_> {
     fn height(&self, x: f64, z: f64) -> GroundSample {
-        let (t, p) = self.on(x, z);
-        let y = t.ground_y(x, z, p.s, p.lat);
+        let (k, p) = self.project(x, z);
+        let y = crate::physics::ground_under(
+            self.track,
+            k,
+            x,
+            z,
+            p.s,
+            p.lat,
+            self.y.unwrap_or(f64::NEG_INFINITY),
+        );
+        let t = self.track.road(k);
         let f = t.frame(p.s);
         // Slopes across and along the road, from the surface itself, so
         // bank, grade and run-off all come out as the arcade sees them.
@@ -71,12 +106,25 @@ impl Ground for TrackGround<'_> {
             (t.surface_y(p.s, p.lat + D_LAT) - t.surface_y(p.s, p.lat - D_LAT)) / (2.0 * D_LAT);
         let g_s = (t.surface_y(p.s + D_S, p.lat) - t.surface_y(p.s - D_S, p.lat)) / (2.0 * D_S);
         // n = t_lat × t_s, with t_s = (fx, g_s, fz), t_lat = (rx, g_lat, rz).
-        let normal = Vec3::new(
-            g_lat * f.fz - f.fx * g_s,
-            f.fx * f.fx + f.fz * f.fz,
-            -f.fz * g_s - g_lat * f.fx,
-        )
-        .normalize();
+        let normal = if t.open_ground.is_some() {
+            // An open level's ground off the tarmac is not the road's
+            // plane carried on (the shoulder's slope, the kerb, the land,
+            // stage 7b): its normal from the ground itself, across x and z.
+            let h = |x: f64, z: f64| {
+                let q = t.project(x, z, p.s);
+                self.track.ground_at(k, x, z, q.s, q.lat)
+            };
+            let hx = (h(x + D_XZ, z) - h(x - D_XZ, z)) / (2.0 * D_XZ);
+            let hz = (h(x, z + D_XZ) - h(x, z - D_XZ)) / (2.0 * D_XZ);
+            Vec3::new(-hx, 1.0, -hz).normalize()
+        } else {
+            Vec3::new(
+                g_lat * f.fz - f.fx * g_s,
+                f.fx * f.fx + f.fz * f.fz,
+                -f.fz * g_s - g_lat * f.fx,
+            )
+            .normalize()
+        };
         let off = self.off(t, x, z, &p, f.hw);
         GroundSample {
             y,
@@ -127,6 +175,9 @@ impl Ground for TrackGround<'_> {
             let r = 0.5 * kernel::hypot(aabb.max.x - aabb.min.x, aabb.max.z - aabb.min.z);
             for id in net.buildings.near(cx, cz, r) {
                 let b = &net.buildings.list[id];
+                if b.garage.is_some() {
+                    continue;
+                }
                 // Only a building the box reaches: a face's plane runs on
                 // past its corners.
                 let (la, lb) = b.local(cx, cz);
@@ -138,6 +189,48 @@ impl Ground for TrackGround<'_> {
                     point: Vec3::new(pt[0], b.y, pt[1]),
                     normal: Vec3::new(n[0], 0.0, n[1]),
                 });
+            }
+            // A garage's walls, each face toward the box (8c).
+            for w in net.buildings.garage_walls(cx, cz, r) {
+                let y = self.y.unwrap_or(w.y0);
+                if y < w.y0 || y > w.y1 {
+                    continue;
+                }
+                let (ex, ez) = (w.q[0] - w.p[0], w.q[1] - w.p[1]);
+                let len = (ex * ex + ez * ez).sqrt().max(1e-9);
+                let u = ((cx - w.p[0]) * ex + (cz - w.p[1]) * ez) / (len * len);
+                if !(-0.05..=1.05).contains(&u) {
+                    continue;
+                }
+                let (mut nx, mut nz) = (-ez / len, ex / len);
+                if (cx - w.p[0]) * nx + (cz - w.p[1]) * nz < 0.0 {
+                    (nx, nz) = (-nx, -nz);
+                }
+                out.push(Collider::Plane {
+                    point: Vec3::new(w.p[0], w.y0, w.p[1]),
+                    normal: Vec3::new(nx, 0.0, nz),
+                });
+            }
+            // And its roadside barriers, each face toward the box (7c).
+            for b in crate::physics::barrier_planes(net, cx, cz, r) {
+                out.push(Collider::Plane {
+                    point: Vec3::new(b.x, b.top - 1.2, b.z),
+                    normal: Vec3::new(b.nx, 0.0, b.nz),
+                });
+            }
+            // And the trunks, fences and houses off the road (7d) that the
+            // box reaches and is not over.
+            if !net.props.is_empty() {
+                for p in net.props.near(net, cx, cz, r) {
+                    if aabb.min.y > p.y + p.height || !p.reaches(cx, cz, r) {
+                        continue;
+                    }
+                    let (pt, n) = p.face(cx, cz);
+                    out.push(Collider::Plane {
+                        point: Vec3::new(pt[0], p.y, pt[1]),
+                        normal: Vec3::new(n[0], 0.0, n[1]),
+                    });
+                }
             }
             return;
         }

@@ -39,6 +39,7 @@ fn track(turn: f64) -> Track {
             height: 15.0,
             style: 0,
             seed: 1,
+            garage: None,
         }]
     }));
     Track::new(&l).unwrap()

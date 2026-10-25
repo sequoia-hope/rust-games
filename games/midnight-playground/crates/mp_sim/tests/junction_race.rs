@@ -46,6 +46,10 @@ fn drive(physics: mp_sim::model::Physics) {
     // Through the countdown, then turn round and drive to the junction.
     let mut el = 0.0;
     let mut switched = false;
+    let mut turned = false;
+    // Stuck against something off the road (a tree, stage 7d), a driver
+    // backs off a car's length and tries again.
+    let (mut stuck, mut backing) = (0.0, 0.0);
     while el < 240.0 {
         let v = &st.players[0].v;
         let aim = if v.road == 0 {
@@ -55,39 +59,82 @@ fn drive(physics: mp_sim::model::Physics) {
                 b.track.point_at(8.0, 0.0)
             }
         } else {
-            b.track.point_at(v.road_s + 30.0, 0.0)
+            // Round a car stopped in the way up 84 (a crashed oncoming
+            // car sits in the lane a while), as a driver would.
+            let lane = st
+                .traffic
+                .cars
+                .iter()
+                .filter(|c| c.active && c.k.road == 1)
+                .filter(|c| (0.0..30.0).contains(&(c.k.s - v.road_s)) && c.k.speed.abs() < 3.0)
+                .map(|c| {
+                    if c.k.lat > 0.0 {
+                        c.k.lat - 3.5
+                    } else {
+                        c.k.lat + 3.5
+                    }
+                })
+                .next()
+                .unwrap_or(0.0);
+            b.track.point_at(v.road_s + 30.0, lane)
         };
         let alpha = wrap_angle(kernel::atan2(aim.z - v.z, aim.x - v.x) - v.yaw);
         let speed = kernel::hypot(v.vx, v.vz);
         let fast = v.road == 0 && v.s > b.s + 200.0;
-        let (want, reverse) = if fast { (22.0, false) } else { (14.0, false) };
-        let _ = reverse;
-        let inp = Input {
-            steer: clamp(alpha * 2.5, -1.0, 1.0),
-            throttle: if speed < want { 0.6 } else { 0.0 },
-            brake: if speed > want + 2.0 { 0.3 } else { 0.0 },
-            ..Input::default()
+        // Slowly round the corner onto 84: a car carried wide leaves the
+        // road for the trees (stage 7d).
+        let corner = v.road_s < 40.0;
+        let (want, reverse) = if fast {
+            (22.0, false)
+        } else if corner {
+            (8.0, false)
+        } else {
+            (14.0, false)
         };
-        // At the start, turn round: full lock and throttle until facing back.
+        let _ = reverse;
+        stuck = if el > 5.0 && speed < 1.0 && backing <= 0.0 {
+            stuck + DT
+        } else {
+            0.0
+        };
+        if stuck > 2.0 {
+            backing = 1.5;
+        }
+        let inp = if backing > 0.0 {
+            backing -= DT;
+            Input {
+                steer: -clamp(alpha * 2.5, -1.0, 1.0),
+                brake: 0.6,
+                ..Input::default()
+            }
+        } else {
+            Input {
+                steer: clamp(alpha * 2.5, -1.0, 1.0),
+                throttle: if speed < want { 0.6 } else { 0.0 },
+                brake: if speed > want + 2.0 { 0.3 } else { 0.0 },
+                ..Input::default()
+            }
+        };
+        // At the start, under way; then turned round where the car is
+        // past the junction (the coast road's guardrails, stage 7c, leave
+        // no room for a U-turn at full lock: a driver would back and fill).
         let inp = if el < 1.0 {
             Input {
                 throttle: 1.0,
                 ..Input::default()
             }
-        } else if !switched && v.road == 0 && v.s > b.s + 200.0 {
-            let f = t.frame(v.s);
-            let heading = kernel::atan2(f.fz, f.fx);
-            let facing_back = wrap_angle(v.yaw - heading).abs() > PI * 0.8;
-            if facing_back {
-                inp
-            } else {
-                Input {
-                    steer: 1.0,
-                    throttle: 0.7,
-                    ..Input::default()
-                }
-            }
         } else {
+            if !switched && !turned && v.road == 0 && v.s > b.s + 200.0 {
+                let f = t.frame(v.s);
+                let heading = kernel::atan2(f.fz, f.fx);
+                if wrap_angle(v.yaw - heading).abs() < PI * 0.8 {
+                    let p = &mut st.players[0].v;
+                    p.yaw = wrap_angle(heading + PI);
+                    p.vx = 0.0;
+                    p.vz = 0.0;
+                }
+                turned = true;
+            }
             inp
         };
         // The client's steering help runs on the controls before the tick

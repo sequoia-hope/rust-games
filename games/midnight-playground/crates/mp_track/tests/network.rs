@@ -41,6 +41,7 @@ fn branch(id: &'static str, pts: Vec<(f64, f64, f64)>) -> Branch {
         road: "mountain",
         zone: 0,
         elevation_smooth: None,
+        lift: None,
     }
 }
 

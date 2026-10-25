@@ -11925,6 +11925,277 @@ the car crossed into a new square.
   in two later runs (150 to 400 draws a frame; the machine's load average
   was 20): not chased further.
 
+## D1246 (2026-10-25): the open world's car rides a suspension over a sloped roadside
+
+Stage 7a and 7b of docs/vision/peninsula.md. The owner, after driving the
+bay side: the car should deal with bumps without flying, kerbs behave
+like slopes, pavements not be fallen through.
+
+- **7a, the suspension** (`physics::CarPhysics::suspension`, open levels
+  only). The arcade's vertical was the JS's: the car followed the ground
+  under its middle and took the ground's vertical speed whole each tick,
+  so a crest, a kerb or the road's edge threw it. Now the body rides a
+  spring (320 /s², a 3 cm sag taken up so a car at rest sits on the
+  ground) and damper (22 /s) over the mean of the ground under its four
+  wheels (`wheel_contact`, at 72 % of the half length and 82 % of the half
+  width): 16 cm of travel past the sag before the body takes the ground's
+  rise whole, 22 cm of hang before it is in the air, and the damper meets
+  at most 2.5 m/s of the ground's speed (the tyre's and the wheel's give:
+  a square kerb is not a kick). Measured (tests/suspension.rs): a 15 cm
+  hump over 3 m is never left up to 45 m/s; 30 cm over 8 m not at 25 m/s,
+  a hop of 0.1 s at 35; half a metre over ten jumps at speed. The client
+  tilts the body to the ground's normal under the wheels
+  (`Vehicle::ground_normal`, `Pose::normal`) instead of the road's frame.
+  Closed levels keep the JS's step (their traces and races unchanged);
+  the suspension's contact joins the state hash only when present.
+- **7b, the roadside's profile** (`mp_track`: `EDGE_RUN` 2 m, `KERB` 0.15,
+  `KERB_RUN` 0.6, `WALK` 4, `WALK_RUN` 2; `Track::walks`, `walk_y`,
+  `ground_y_walk`, the network's `ground_at` and `on_other_tarmac`). Off a
+  road's shoulder the simulation's ground stepped to the land over a
+  metre; now it eases over 2 m (2.5 tried first: the optional sim-car
+  model then missed the turn onto 84 at its mouth, where 1.5 and 2 did
+  not; the arcade was unaffected). A town's street (Town scenery, not a
+  freeway) has a gutter, a kerb ramp, the pavement level across to 4 m,
+  and a 2 m slope to the land, except where it would lie on another
+  road's tarmac. The Town kit draws its pavements on this profile (the
+  gutter covers the 25 cm of land streets showed between the asphalt and
+  the old floating pavement), and on an open level the road kit's
+  shoulder skirt eases out `EDGE_RUN` to just under the near field's drop
+  instead of diving 1.6 m. The sim car's ground (`TrackGround`) takes its
+  normal on an open level from the ground itself.
+
+## D1247 (2026-10-25): the open world's fences, barriers and railings stand
+
+Stage 7c. On an open level the car drove through everything the road kit
+stands at a road's edge: walls are a closed level's, and only buildings
+stopped a car on an open one.
+
+- **What stands where is mp_track's** (`barriers`: per sample and side,
+  the road type's edge code, cleared across junction mouths, crossings and
+  a road's metres on a greater road's tarmac, by the road kit's own rules,
+  moved here; `Track::edges` for an open level, `barrier_at` with the
+  fence gaps). The road kit draws from it, still choosing rock face or
+  guardrail for a terrain edge by the land beside it (either way solid),
+  so a drawn barrier and a simulated one are the same by construction.
+- **The car meets each barrier near it** (`physics::barrier_planes`): the
+  face toward the side its centre is on (the wall line toward the road,
+  or 0.45 m out toward the land for a car behind it, come in by a gap),
+  up to 1.2 m over the road (a car flying higher clears it). The arcade
+  meets a face as it meets a building (`meet_face`, shared); the sim car
+  gets the faces as colliders.
+- **The open world plays differently:** the coast loop and the mountain
+  roads keep the car on them but at their junctions and gaps, as their
+  guardrails and rock faces always said; valley roads have their wooden
+  fences and the farm gates (`fence_gaps`); the city's kerbed streets let
+  the car onto the pavements and between the buildings.
+- Tests: tests/barriers.rs. Two of tests/open_ground.rs are of the land
+  off the road and now clear the barriers; the junction race turns its car
+  round (no room for a U-turn between the coast road's rails) and steers
+  round a crashed car in its lane.
+
+## D1248 (2026-10-25): the open world's trees, fences and houses stand
+
+Stage 7d. The owner: the land off the road should be more solid, but for
+street signs and small things. On an open level the car passed through
+everything but the city's buildings and (D1247) the roadside barriers.
+
+- **What stands off the road is mp_track's** (`props`, `planting`,
+  `seabright`), placed from the level's ground and cover and the road
+  network alone, so every peer of a race meets the same and what is
+  drawn is what stands. `Track::props` holds the fixed solids (indexed in
+  32 m cells) and the planting, which plants a 64 m tile the first time a
+  car comes near it and keeps it (a memo: a tile's planting is a
+  function of the tile, so when it is planted changes nothing; at most
+  4096 kept). A solid is a circle (a trunk, a rock's foot) or a box (a
+  fence's rails between two posts, a building's block), the ground under
+  it and its height.
+- **The planting** is the Land kit's rules (D1212: by cover and distance
+  from the road, clear of the roads, off the sea and the steepest
+  ground), the Coast kit's cypress and pines and its landward outcrops,
+  and the crop land's post-and-rail fences, moved out of world
+  generation. The terrain's far field, ground and zone weights are world
+  generation's, so the planting asks the level's ground, the nearest
+  road sample (and its zone) and the roads themselves; the clumps are
+  the terrain's second noise, made again from its seed. Candidates stand
+  on a lattice fixed in the world, 8 m apart (the kits' odds for their 7
+  and 12 m walks scaled), each drawn from its own seed instead of a
+  cell's one stream, so any tile plants alone; a fence's post belongs to
+  where it stands and a rail to where its middle is, so any box of land
+  finds the same ones. The Land kit draws every plant, rock, post and
+  rail of its cells from it, on the terrain's ground, its looks (tilt,
+  tint) from the plant's seed; the Coast kit no longer plants its trees
+  or outcrops on an open level.
+- **The beach town** (`seabright`): the Beach kit's layout of Seabright
+  (the frontage lots block by block, the houses behind main street, the
+  hill houses, the palms) on its own streams, since on a closed level
+  the kit draws layout and looks from one stream only it can follow;
+  nothing on another road of the network. On an open level the kit draws
+  the layout's lots, houses and palms, with its own stream for the looks,
+  and starts from the layout's occupied ground. Each lot's blocks are its
+  parts' bodies (a shop's box, the motel's rooms and office, the gas
+  station's shop and canopy columns); a parking lot and the forecourts
+  are open. The cross streets' gaps in the kerb railing, which only the
+  kit's plan made (so the simulation had a railing there and the road kit
+  drew a gap), are the track's now.
+- **What collides:** trunks of conifers, oaks, cypress, pines and palms
+  (their templates' radius at the foot, scaled, at least 25 cm; 8 m
+  high), the coast's outcrops (0.7 of their radius), the crop fences
+  (16 cm thick, 2 m over the land's own ground, which near a road lies
+  under the ground the car rides), and the town's storefronts, houses,
+  motel, hotel and gas station. **Passable:** scrub and grass, signs,
+  lamps, poles, delineators, benches and the like, parked cars, the
+  pier and the marina, the promenade's rail, the boulders at the foot of
+  rock walls and the crags in the cut faces (both behind the road's
+  barriers), canopies over the car.
+- The arcade meets a solid as it meets a building (`collide_props`,
+  `meet_face`: the shortest way out of the box, a trunk by the car's
+  nearest point), twice a tick for a car wedged between two; the sim car
+  gets the face toward its box as a plane collider (a trunk's tangent).
+- Closed levels are untouched: none is open, and the kits' open-level
+  paths are new branches.
+- Cost (native release): the load adds only the town's layout, 0.1 ms
+  (the peninsula's `Track::new` was 0.56 to 0.9 s on a busy machine,
+  as before); a tile is planted in 0.14 ms (1 ms unoptimised), and a car
+  at speed meets a new one about every second. The Land kit plants its
+  cells from the same tiles; the section timing and stream budget tests
+  pass unchanged.
+- Tests: mp_sim tests/props.rs (a car at a tree stops, arcade and sim
+  car; a crop fence stops it; scrub does not), mp_levels tests/planting.rs
+  (the same every build, a cell's fences are its tiles', the town clear
+  of every road, the cost), mp_worldgen tests/land.rs (what is drawn is
+  what is planted) and tests/beach_open.rs.
+
+## D1249 (2026-10-25): freeways over the roads they cross; a car held by the road at its height
+
+Stage 8a and 8b of docs/vision/peninsula.md: the owner asked the world for
+verticality, lifted highways and parking garages (D1250). Every crossing
+met at grade; nothing stood over anything.
+
+- **Overpasses** (`network::find_crossings`, `lift_over`; `OVERPASS_CLEAR`
+  7 m, `OVERPASS_GRADE` 4.5 %). Where a freeway crosses a lesser road it
+  rises over it, its deck 7 m over that road's surface across its width
+  (wider as the angle narrows) and down at 4.5 % either side; the crossing
+  is no junction (`Track::overpasses`), and neither road's fence opens. A
+  crossing too near one of the freeway's own junctions to rise (the roads
+  that start and end on it were fitted to its surface as it was) stays at
+  grade; a lift never goes past what the freeway's junctions allow over its
+  heights before any lift, so two crossings near one junction cannot stack
+  (they did: a 13 % ramp where 101 ends on El Camino, which winds under it
+  twice; there the deck is 4.3 m over the street, 2.5 m of headroom).
+- **Viaducts by the level's word** (`Branch::lift`, `track::lift_road`):
+  the peninsula's 101 and 280 stand 8 m up north of z -13 300 (San
+  Francisco at the plan's scale), ramped at 4.5 % and down to nothing within
+  25 m of their ends, before the roads that end on them are built, so a
+  street that ends on one climbs to its deck as a ramp over the branch fit's
+  120 m. Only four true crossings of the freeways exist on the peninsula
+  (most streets end on them), so the city's lifted highways come from this.
+- **Elevated** (`ELEVATED_LIFT` 1.5 m over its own heights): the terrain's
+  near field is not raised to it (as before for `elevated` samples), the
+  road kit stands it on piers with a deck underside, and off its edge the
+  simulation's ground is the land's, not the near field pulled up to the
+  deck.
+- **A car held by the road at its height** (`Track::project_road_at`,
+  `REACH_UP` 1.5, `REACH_DOWN` 4): the projection chose a road by the
+  horizontal alone, so the street under a viaduct and the deck over it took
+  a car from each other. Now a road whose surface there is more than 1.5 m
+  over the car or 4 m under it cannot hold it, and of those that hold it the
+  surface nearest under it wins (if none, the least past a shoulder of those
+  in reach, else of all, as before). The car's projection, its wheels'
+  ground and the sim car's ground pass its height; a barrier counts only
+  level with the car (a deck's jersey barrier over the street does not stop
+  a car under it).
+
+## D1250 (2026-10-25): parking garages
+
+Stage 8c. `mp_track::garage`: one layout read by the simulation and by
+world generation.
+
+- **Where:** a frontage lot is a garage 5 % of the time where the ground is
+  at least 40 % built (`mp_levels::city`, chosen by a draw of its own so the
+  lots round it are as they were): 48 m along the street, 40 deep, four
+  decks; the peninsula has 75. A `Footprint` carries it (`garage`: decks,
+  the front's side, the floor at the pavement's height).
+- **Layout:** decks 3.2 m apart; along the back a strip 7 m wide holds the
+  ramps, each 32 m long (10 %) and climbing one deck the same way, stacked a
+  deck apart, the decks running on 8 m past their ends: up a ramp, turn on
+  the deck, back to the next. A wall along the strip's inner edge (open
+  4 m at each end) keeps a car from dropping onto a ramp half a deck down.
+  The perimeter's walls stand at every deck; the entrance, 7 m at the
+  front's start, is open at the floor.
+- **Simulation:** the ground in a garage is the highest deck or ramp at
+  most 0.6 m over the car (`Garage::ground`, `physics::ground_under`, both
+  car models), its walls stop the car (`collide_garages`, the sim car's
+  colliders), and push-out and the sim car's building faces leave garages
+  out.
+- **Drawn:** the slabs and ramps (top and underside) in the pavement's
+  concrete, the parapets, pillars and the strip's wall on the facade atlas's
+  panel cell: no new pipeline.
+- The page's `reset` command takes `road` (the network's), for tools that
+  put the car on a viaduct or a garage's street.
+
+## D1251 (2026-10-24): the atlas, a map of the whole level over the race
+
+The owner asked for "a larger atlas view, not just the local upcoming
+turns": the minimap (`hud/minimap.rs`) shows the roads within about
+400 m, which is right for a race and no help in finding the way across the
+open world's 20 roads.
+
+- **What it is** (`play/atlas/`): a panel over the race, which goes on
+  under it (a glance, like a satnav). It shows the network (major roads
+  bolder than city streets), the water and the built-up land from the
+  level's cover grid, an event's route in the event's colour with its
+  start and finish (a delivery's drop, pulsing), the events' starts in a
+  cruise, rivals, police, traffic once zoomed in, the player's arrow along
+  the car's heading, north up, the cruise starts and the roads' stretches
+  (zones) by name where they fit, and a scale bar in the HUD's units.
+- **Controls.** G opens and closes it; so do a tap or click on the
+  minimap and its X. Z steps between the whole map and 3 km round the car
+  (which follows the car; a drag lets go of it); the wheel (about the
+  cursor), + and − and the right stick zoom between 600 m across and a
+  little past the whole map. With it closed, Z steps the minimap between
+  its scale (0.28 px a metre) and a wide one (0.09, about 1.2 km across;
+  the dots keep their size), and the atlas's MINIMAP button does the same.
+  M was the obvious key but is the music's. On a pad: LB toggles and the
+  right stick's click steps, each falling back to D-pad up and down when
+  a remap has bound the button (the pad's map is read, not changed: no new
+  `Action`, so saved maps stay valid). On a touch screen the panel fills
+  the screen inside the insets, under the touch controls (their root is
+  now `GlobalZIndex(2)`, the atlas 1), which keep working; its buttons and
+  the minimap take a tap before the controls, as the radio's do (D1160).
+- **How it is drawn.** Per-pixel loops over polylines, as the minimap
+  draws its 256 points, would not scale to the whole network on a phone,
+  and a raster of the roads blurs at a 3 km zoom. Instead each road set is
+  an **offset field** (`atlas/field.rs`): over the level's box, each texel
+  holds the offset in metres to the nearest point of a road, in half
+  floats (`Rgba16Float`: all roads, major roads; filterable on WebGL2 and
+  WebGPU). A bilinear blend of offsets is exact along a straight road, so
+  one sample gives the true distance at any zoom and the shader strokes
+  the road in screen pixels (a casing and a core, the minimap's colours);
+  only where the nearest road changes (a junction) does the blend shorten,
+  by under a texel. The peninsula's network thins (Douglas-Peucker, 1.5 m)
+  to 2223 segments over an 11.8 by 30.6 km box: a 616 by 1536 field at
+  20.5 m a texel (7.6 MB), offsets kept within 16 texels. The route is a
+  field of its own over its own box, built when an event begins and the
+  atlas is open. The water and the built-up land are an `Rg8Unorm` grid,
+  768 texels along the network's box and 1200 m round it (as far as the
+  cover's corridors reach; faded out towards its edge, since past it the
+  cover only repeats its edge), sampled from the cover: the cover's sea
+  class only where the ground is at sea level (it also fills cells it has
+  no data for, in the towns), its water class anywhere; the shader blurs
+  it over four taps so the shore does not show the cover's cells.
+- **When it is built.** A slice a frame from the race's start (30 000
+  texel visits a frame shut, 250 000 open; the whole network is 2.6
+  million, 0.38 s in a debug build), so it is ready before it is wanted
+  and costs well under a millisecond a frame while it builds; cached per
+  level across races. The view and the markers are uniforms written into
+  one buffer in place (`atlas/material.rs`, as D865 does for the HUD), so
+  a frame with the atlas open makes no buffer or bind group. Shut, a 1 px
+  node of the material stays drawn, so its pipeline is built with the
+  race's and the first open compiles nothing.
+- `?map=whole|region` opens it at the start and `?minimap=wide` starts
+  the minimap zoomed out (pictures, tests); `tools/parity/atlas-shots.mjs`
+  takes the pictures on a desktop window and a phone.
+
 ## D1252 (2026-10-24): a long drive, measured; the uploads a frame bounded
 
 The owner, on the bay side after D1245: smoother, "but if I drive for a

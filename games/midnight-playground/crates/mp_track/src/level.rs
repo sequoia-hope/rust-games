@@ -204,7 +204,15 @@ pub struct Branch {
     pub zone: u8,
     /// The branch's own elevation smoothing; the level's when `None`.
     pub elevation_smooth: Option<f64>,
+    /// How high the road stands over its own ground at a point, where it
+    /// runs on a viaduct (stage 8a, D1248): `None` for none. The Track
+    /// ramps up to it no steeper than an overpass's grade and comes down to
+    /// meet the roads at its ends.
+    pub lift: Option<LiftFn>,
 }
+
+/// A branch's lift over its ground at (x, z) ([`Branch::lift`]).
+pub type LiftFn = Arc<dyn Fn(f64, f64) -> f64 + Send + Sync>;
 
 impl fmt::Debug for Branch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

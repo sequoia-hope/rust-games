@@ -146,7 +146,7 @@ fn merge(parts: &[BufferGeometry]) -> BufferGeometry {
 }
 
 /// Windswept Monterey cypress, leaning toward local +X (inland).
-fn cypress_geometry(variant: u32) -> BufferGeometry {
+pub(crate) fn cypress_geometry(variant: u32) -> BufferGeometry {
     let mut rng = Mulberry32::new(900 + variant);
     let mut parts = Vec::new();
     let mut trunk = prep(cyl(0.22, 0.38, 3.2, 6.0, true));
@@ -212,7 +212,7 @@ fn bush_geometry() -> BufferGeometry {
 
 /// Monterey pine: a taller, straighter trunk under an irregular dome of
 /// dark needle clumps.
-fn pine_geometry(variant: u32) -> BufferGeometry {
+pub(crate) fn pine_geometry(variant: u32) -> BufferGeometry {
     let mut rng = Mulberry32::new(700 + variant);
     let mut parts = Vec::new();
     let mut trunk = prep(cyl(0.2, 0.42, 8.5, 6.0, true));
@@ -1144,6 +1144,12 @@ impl Build<'_> {
                         * (1.0 - smoothstep(0.4, 0.75, sv.slope))
                 };
                 if r < pc {
+                    // An open level's trees are the simulation's: the
+                    // planting places them by this rule and the Land kit
+                    // draws them (stage 7d, D1248).
+                    if t.open_ground.is_some() {
+                        continue;
+                    }
                     if !self.clear_of_road(px, pz, 4.5) {
                         continue;
                     }
@@ -1537,6 +1543,12 @@ impl Build<'_> {
         };
         let b = t.bounds;
         let mut x = b.min_x - 350.0;
+        // An open level's outcrops are the simulation's: the planting
+        // places them by this rule and the Land kit draws them (stage 7d,
+        // D1248).
+        if t.open_ground.is_some() {
+            x = f64::INFINITY;
+        }
         while x < terrain.x1() + 200.0 {
             let mut z = b.min_z - 350.0;
             while z < b.max_z + 350.0 {

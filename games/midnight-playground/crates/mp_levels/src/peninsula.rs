@@ -238,6 +238,10 @@ pub const BAYSIDE: [(&str, &str, &str, u8, &str); 17] = bay![
     ("sf-market", "Market Street", "street", 5),
     ("sf-geary", "Geary Boulevard", "street", 5),
 ];
+/// Where San Francisco begins at the plan's scale (z, north being minus),
+/// and how high its freeways stand on their viaducts (stage 8a).
+const SF_LINE: f64 = -13_300.0;
+const SF_DECK: f64 = 8.0;
 /// The roads before the bay side's: the loop and its two branches, which
 /// keep the coast's own kits and get no city buildings.
 pub const FIRST_BAYSIDE: usize = 3;
@@ -584,6 +588,7 @@ pub fn level() -> Level {
                     road: "mountain",
                     zone: 3,
                     elevation_smooth: None,
+                    lift: None,
                 },
                 Branch {
                     id: "stage",
@@ -597,6 +602,7 @@ pub fn level() -> Level {
                     road: "valley",
                     zone: 0,
                     elevation_smooth: None,
+                    lift: None,
                 },
             ];
             // The bay side (stage 6).
@@ -609,6 +615,11 @@ pub fn level() -> Level {
                     road,
                     zone,
                     elevation_smooth: None,
+                    // The freeways through San Francisco on viaducts, as
+                    // 101's and 280's run there (stage 8a).
+                    lift: (road == "freeway").then(|| -> mp_track::level::LiftFn {
+                        Arc::new(|_, z| if z < SF_LINE { SF_DECK } else { 0.0 })
+                    }),
                 });
             }
             b

@@ -18,6 +18,7 @@
 //! smoke, sparks, skid marks, flames and headlight pools are `Effects.js`'s
 //! ([`effects`], drawn by [`fx`], WP 4.4).
 
+pub mod atlas;
 pub mod audio;
 pub mod beacons;
 pub mod camera;
@@ -248,6 +249,8 @@ pub struct Play {
     headlight: f64,
     /// The radio widget's buttons and the taps on them (D1160).
     pub radio: radio_widget::Taps,
+    /// The minimap's and the atlas's buttons and the taps on them (D1251).
+    pub atlas: atlas::Taps,
 }
 
 /// A car's root entity.
@@ -283,6 +286,7 @@ pub fn plugin(app: &mut App) {
         stop: false,
         headlight: 0.0,
         radio: radio_widget::Taps::default(),
+        atlas: atlas::Taps::default(),
     })
     .add_systems(Startup, (hud::spawn, touch_ui::spawn, nametags::spawn))
     .add_systems(
@@ -307,6 +311,7 @@ pub fn plugin(app: &mut App) {
             touch_ui::sizes,
             nametags::update,
             radio_widget::update,
+            atlas::update,
         )
             .after(draw)
             .run_if(in_state(AppState::Running)),
@@ -318,6 +323,7 @@ pub fn plugin(app: &mut App) {
             .before(crate::render::lighting::pack_globals),
     );
     audio::plugin(app);
+    atlas::plugin(app);
     guide::plugin(app);
     beacons::plugin(app);
     hud::plugin(app);
@@ -603,6 +609,7 @@ fn read_input(
 ) {
     let play = &mut *play;
     let radio = &mut play.radio;
+    let atlas_taps = &mut play.atlas;
     let scale = f64::from(play.touch_scale);
     let css = f64::from(play.css_scale);
     let touch_ui = play.touch_ui;
@@ -675,8 +682,21 @@ fn read_input(
             None => false,
         }
     };
+    // So do the minimap's and the atlas's (D1251).
+    let on_atlas = |taps: &mut atlas::Taps, p: Vec2| -> bool {
+        let (x, y) = (p.x * scale as f32, p.y * scale as f32);
+        match taps.hit(x, y) {
+            Some(b) => {
+                taps.queued.push(b);
+                true
+            }
+            None => false,
+        }
+    };
     for t in touches.read() {
-        if t.phase == TouchPhase::Started && race.mode == Mode::Race && on_radio(radio, t.position)
+        if t.phase == TouchPhase::Started
+            && race.mode == Mode::Race
+            && (on_radio(radio, t.position) || on_atlas(atlas_taps, t.position))
         {
             continue;
         }
@@ -695,7 +715,10 @@ fn read_input(
             continue;
         }
         let Some(p) = *last_cursor else { continue };
-        if b.state == ButtonState::Pressed && race.mode == Mode::Race && on_radio(radio, p) {
+        if b.state == ButtonState::Pressed
+            && race.mode == Mode::Race
+            && (on_radio(radio, p) || on_atlas(atlas_taps, p))
+        {
             continue;
         }
         if touch_ui {
@@ -1166,6 +1189,7 @@ pub(crate) mod tests {
             stop: false,
             headlight: 0.0,
             radio: radio_widget::Taps::default(),
+            atlas: atlas::Taps::default(),
         }
     }
 }
