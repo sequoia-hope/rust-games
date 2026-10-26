@@ -29,11 +29,11 @@ own requirements: `docs/AUDIO.md`.
 
 | Where | What |
 |---|---|
-| `crates/mw_sim` | the simulation: the mech (`mech.rs`), its motor, driver and thermal model (`actuator.rs`), the Rapier world (`sim.rs`), the ground (`terrain.rs`), the training environment: observations, rewards, curriculum, pushes, damage (`env.rs`) |
+| `crates/mw_sim` | the simulation: the mech (`mech.rs`), its motor, driver and thermal model (`actuator.rs`), the Rapier world (`sim.rs`), the ground (`terrain.rs`), the training environment: observations, rewards, curriculum, pushes, damage (`env.rs`), the game's loose rubble and fixed walls (`rubble.rs`; training never adds them) |
 | `crates/mw_sim_py` | `mw_sim` as the Python module `mw_sim_py`: a batch of envs stepped in parallel |
 | `crates/mw_policy` | the trained networks in plain Rust, from their weight blobs; the parity test against PyTorch |
 | `crates/mw_audio` | simulation-driven sound effects (`docs/AUDIO.md`): footfalls, foot slip, 12-joint actuator drive/strain/heat/derate/trip/fault, projectile hull ring, fall crash, body creak, wind; zero dependencies so it also builds as a standalone `AudioWorklet` wasm |
-| `crates/mw_demo` | the Bevy client: the training viewer and the tech demos; `web/` is its page (`index.html` the kit's loader, `ui.js` the controls, curves and inspector) |
+| `crates/mw_demo` | the Bevy client: the training viewer, the tech demos and the first level (`level.rs`: the base, the landslide, the objective; `player.rs`: keys, mouse look, first/third-person camera); `web/` is its page (`index.html` the kit's loader, `ui.js` the controls, curves, inspector, objective and Web Audio) |
 | `train/` | PPO (`train.py`), the networks and their export (`policy.py`), the estimator's distillation (`estimator.py`), `build.sh` |
 | `checkpoints/<run>/` | a training run's output (git-ignored): checkpoints, `metrics.jsonl`, coverage; `runs.json` lists the runs |
 | `assets/policies/` | the policies the demos ship (committed; the parity test reads them) |
@@ -57,9 +57,27 @@ own requirements: `docs/AUDIO.md`.
 | A policy walking, all in Rust | `EPISODES=64 cargo run --release -p mw_policy --example eval -- <blob> [m/s] [estimator blob]` (told / estimated / told-nominal body; falls, speed, joint acceleration) |
 | Pictures (server up; `npm install` once) | `node tools/page-shot.mjs --url <server>/ --query mode=impact --name x --steps 'wait:3000,stage:{"cmd":"walk","forward":0.6},wait:8000'` (whole page, WebGL2), `node tools/shot.mjs --url <server>/` (canvas only) |
 
-The page takes `?mode=viewer|impact|damage|calibration`. On the dev server
-the viewer reads the trainer's `checkpoints/` as it writes them, so a run
-in progress can be watched.
+The page takes `?mode=viewer|impact|path|damage|calibration|level`. On the
+dev server the viewer reads the trainer's `checkpoints/` as it writes them,
+so a run in progress can be watched.
+
+**The level** (`?mode=level`, the "Play: landslide" button): the mech starts
+at the home base and walks east along the marker posts to a pass a slide
+has filled with rubble; clearing it opens the route. The rubble is loose
+rock in the mech's own Rapier world (`mw_sim::rubble`), so the feet and hull
+push it for real, and the blade (E/Space, the page's Shove button) throws
+what is in front of the mech. The pass is clear when no rock's centre is
+left in its blocking volume (`level::BLOCKING`). Keys: W/S walk (Shift
+faster), A/D turn, V first/third person, R start over; the mouse looks once
+the game is clicked (pointer lock) or while dragging.
+
+**Sound** starts on the page's first gesture (browsers allow audio only
+inside one), with a note on the page until then. Both worklets take their
+wasm as a compiled module in `processorOptions`: `mw-audio-worklet.js`
+(the effects) and the music engine's `music-worklet.js` (the orchestral
+score as a one-station table, tuned with its `station` parameter).
+`__mech.audioState()` reports the context, both players and the output's
+level.
 
 ## Rapier lessons (2026-10-23; the dev log has the details)
 

@@ -17,9 +17,9 @@ use crate::lanes::Lanes;
 pub struct Inspector(pub bool);
 
 #[derive(Component)]
-struct LinkView {
-    lane: usize,
-    link: usize,
+pub(crate) struct LinkView {
+    pub(crate) lane: usize,
+    pub(crate) link: usize,
 }
 
 /// What a lane's drawing is built from: its links' shapes and its tool.

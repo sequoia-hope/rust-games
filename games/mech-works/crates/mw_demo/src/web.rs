@@ -74,5 +74,6 @@ fn publish(st: Res<Status>, range: Res<Range>) {
     }
     bridge::set("telemetry", st.telemetry.as_str());
     bridge::set("audio", st.audio.as_str());
+    bridge::set("level", st.level.as_str());
     bridge::set("hits", range.hits as f64);
 }

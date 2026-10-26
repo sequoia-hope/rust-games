@@ -33,10 +33,12 @@ export async function start(glue_, G_, params_, page_) {
   wireImpact();
   wireDamage();
   wireCalibration();
+  wireLevel();
   wireAudioGestures();
   setMode(mode);
   await findData();
   setInterval(readTelemetry, 100);
+  setInterval(readLevel, 100);
   setInterval(() => { if (mode === 'viewer' && run) loadCurves(); }, 15000);
   requestAnimationFrame(pumpAudio);
   window.addEventListener('keydown', (e) => {
@@ -64,6 +66,9 @@ function setMode(m) {
     applyLanes();
   }
   if (m === 'damage' || m === 'calibration' || m === 'path') setInspector(true);
+  if (m === 'level') { setInspector(false); if (!G.touch) $('game').focus({ preventScroll: true }); }
+  if (m !== 'level' && document.pointerLockElement) document.exitPointerLock();
+  $('objective').hidden = m !== 'level';
 }
 
 // ── Common controls ───────────────────────────────────────────────────────
@@ -121,6 +126,45 @@ function setInspector(on) {
   send({ cmd: 'inspector', on });
 }
 const toggleInspector = () => setInspector(!inspectorOn);
+
+// ── The level ─────────────────────────────────────────────────────────────
+// The client runs it (level.rs, player.rs); the page shows the objective,
+// gives the touch screen buttons for what the keys do, and locks the
+// pointer on a click so the mouse can look around.
+
+function wireLevel() {
+  // The keys reach the client through the canvas: give it the focus back
+  // after a button.
+  const canvas = $('game');
+  const back = () => { if (!G.touch) canvas.focus({ preventScroll: true }); };
+  $('lv-view').onclick = () => { uiClick(0); send({ cmd: 'view' }); back(); };
+  $('lv-shove').onclick = () => { send({ cmd: 'shove' }); back(); };
+  $('lv-restart').onclick = () => { uiClick(0); send({ cmd: 'reset' }); back(); };
+  canvas.addEventListener('click', () => {
+    if (mode !== 'level' || document.pointerLockElement === canvas || G.touch) return;
+    try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch { /* no pointer lock */ }
+  });
+  document.addEventListener('pointerlockchange', () => {
+    send({ cmd: 'pointer', locked: document.pointerLockElement === canvas });
+  });
+}
+
+let lastStage = null;
+function readLevel() {
+  if (mode !== 'level' || !G.level) return;
+  let l;
+  try { l = JSON.parse(G.level); } catch { return; }
+  const el = $('objective');
+  const done = l.stage === 'done';
+  el.classList.toggle('done', done);
+  $('obj-title').textContent = l.title;
+  $('obj-hint').textContent = l.hint;
+  const frac = done ? 1 : l.total ? Math.max(0, Math.min(1, 1 - l.left / l.total)) : 0;
+  $('obj-bar').hidden = l.stage !== 'clear' && l.stage !== 'done';
+  $('obj-bar').firstElementChild.style.width = `${(100 * frac).toFixed(1)}%`;
+  if ($('lv-status')) $('lv-status').textContent = `${done ? 'Route open' : `${l.left} of ${l.total} rocks still in the lane`} · ${l.shoves} shoves · ${l.falls} falls`;
+  if (l.stage !== lastStage) { lastStage = l.stage; G.levelStage = l.stage; }
+}
 
 // ── Training data ─────────────────────────────────────────────────────────
 
@@ -446,8 +490,8 @@ function readTelemetry() {
   if (t.obstacles !== undefined && $('pobs')) $('pobs').textContent = t.obstacles;
 
   // Keep UI sliders/buttons synced with staged commands and keyboard keys.
-  syncSlider('fwd', 'fwd-v', t.forward, (v) => v.toFixed(2) + ' m/s');
-  syncSlider('yaw', 'yaw-v', t.yaw, (v) => v.toFixed(2) + ' rad/s');
+  syncSlider('fwd', 'fwd-v', t.command?.forward, (v) => v.toFixed(2) + ' m/s');
+  syncSlider('yaw', 'yaw-v', t.command?.yaw, (v) => v.toFixed(2) + ' rad/s');
   syncSlider('speed', 'speed-v', t.speedScale, (v) => v.toFixed(2) + '×');
   syncSlider('dust', 'dust-v', t.dust, (v) => `${Math.round(100 * v)}%`);
   if (t.paused !== undefined && $('pause')) $('pause').classList.toggle('on', !!t.paused);
@@ -518,87 +562,135 @@ function drawInspector(t) {
 }
 
 // ── Web Audio: mw_audio (physics-driven SFX) + music (orchestral score) ───
+//
+// Both run as AudioWorklets on their own small wasm (no wasm-bindgen): the
+// page compiles each module and hands it over in processorOptions (a
+// worklet scope cannot fetch). Browsers start audio only inside a user
+// gesture, so nothing plays until the first click, tap or key on the page;
+// until then the page says so (#sound-gate). Music is on unless the viewer
+// turned it off (remembered in this browser); the score is the music
+// engine's orchestral station, the same player the other games' radios use
+// (crates/music/web/music-worklet.js).
 
 const SCORE_STATIONS = JSON.stringify([{
   key: 'orchestral',
   name: 'Walker Score',
   freq: 'SCORE',
-  tagline: 'Procedural orchestral score',
-  dj: '',
+  dj: null,
   genres: [['orchestral', 1.0]],
+  seed: 2026,
 }]);
+const MUSIC_GAIN = 0.42, SFX_GAIN = 0.85;
+const MUSIC_PREF = 'mech-works.music';
 
 let audioCtx = null;
-let sfxOn = false, sfxReady = false, sfxPort = null, sfxFallback = null, sfxGain = null;
-let musicOn = false, musicReady = false, musicPort = null, musicFallback = null, musicGain = null;
+let audioError = null;
+let sfxOn = false, sfxReady = false, sfxPort = null, sfxGain = null;
+let musicOn = readMusicPref(), musicReady = false, musicNode = null, musicGain = null, musicTune = 0;
 let lastAudioSeq = 0;
+
+function readMusicPref() {
+  try { return localStorage.getItem(MUSIC_PREF) !== 'off'; } catch { return true; }
+}
 
 function ensureAudioCtx() {
   if (!audioCtx) {
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
+    if (!AC) { audioError = 'this browser has no Web Audio'; return null; }
+    if (!window.isSecureContext || !window.AudioWorkletNode) {
+      audioError = 'sound needs a secure page (https or localhost)';
+      return null;
+    }
+    // iOS: a playback session, so the Silent switch does not mute the game.
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* older Safari */ }
     audioCtx = new AC({ latencyHint: 'interactive' });
+    audioCtx.onstatechange = showSoundGate;
   }
+  // Inside the gesture: this is what the autoplay policy waits for.
   if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
   return audioCtx;
 }
 
+// The page's own note: what it would take for sound to play.
+function showSoundGate() {
+  const el = $('sound-gate');
+  if (!el) return;
+  const running = audioCtx && audioCtx.state === 'running';
+  el.hidden = running || (!sfxOn && !musicOn && !audioError);
+  el.textContent = audioError ? `No sound: ${audioError}.` : 'Click, tap or press a key to start the sound.';
+  el.classList.toggle('err', !!audioError);
+}
+
 function wireAudioGestures() {
-  // Auto-enable physics SFX on the user's first gesture on the page.
+  // The first gesture on the page starts the sound: the effects, and the
+  // music unless it was turned off.
   const wake = () => {
-    window.removeEventListener('pointerdown', wake);
-    window.removeEventListener('keydown', wake);
+    window.removeEventListener('pointerdown', wake, true);
+    window.removeEventListener('keydown', wake, true);
     if (!sfxOn) toggleSfx(true);
+    if (musicOn) initMusic();
+    showSoundGate();
   };
-  window.addEventListener('pointerdown', wake, { passive: true });
-  window.addEventListener('keydown', wake, { passive: true });
+  window.addEventListener('pointerdown', wake, { capture: true, passive: true });
+  window.addEventListener('keydown', wake, { capture: true, passive: true });
+  if ($('toggle-music')) $('toggle-music').classList.toggle('on', musicOn);
+  showSoundGate();
+  // A status for tests and for looking: what the audio graph is doing.
+  G.audioState = () => ({
+    context: audioCtx ? audioCtx.state : 'none',
+    sfx: sfxOn ? (sfxPort ? 'running' : 'starting') : 'off',
+    music: musicOn ? (musicNode ? 'running' : 'starting') : 'off',
+    error: audioError,
+    level: meterLevel(),
+  });
+}
+
+// The output's loudness, for checking that something plays (RMS, 0..1).
+let analyser = null, analyserBuf = null;
+function meterLevel() {
+  if (!analyser) return 0;
+  analyser.getFloatTimeDomainData(analyserBuf);
+  let e = 0;
+  for (const v of analyserBuf) e += v * v;
+  return Math.sqrt(e / analyserBuf.length);
+}
+function output(ctx) {
+  if (!analyser) {
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyserBuf = new Float32Array(analyser.fftSize);
+    analyser.connect(ctx.destination);
+  }
+  return analyser;
 }
 
 async function initSfx() {
   if (sfxReady) return;
   sfxReady = true;
   const ctx = ensureAudioCtx();
-  if (!ctx) return;
+  if (!ctx) { showSoundGate(); return; }
   sfxGain = ctx.createGain();
-  sfxGain.gain.value = sfxOn ? 0.85 : 0.0;
-  sfxGain.connect(ctx.destination);
-
+  sfxGain.gain.value = sfxOn ? SFX_GAIN : 0.0;
+  sfxGain.connect(output(ctx));
   try {
-    const wasmBytes = await (await fetch('mw_audio.wasm')).arrayBuffer();
-    if (ctx.audioWorklet) {
-      await ctx.audioWorklet.addModule('mw-audio-worklet.js');
-      const node = new AudioWorkletNode(ctx, 'mw-sfx', {
-        numberOfInputs: 0,
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-      });
-      node.connect(sfxGain);
-      node.port.postMessage({ wasmBytes }, [wasmBytes]);
-      sfxPort = node.port;
-      return;
-    }
-    // Fallback for non-secure (http://) origins without AudioWorklet:
-    const { instance } = await WebAssembly.instantiate(wasmBytes, {});
-    const wasm = instance.exports;
-    wasm.mw_audio_init(ctx.sampleRate);
-    const proc = ctx.createScriptProcessor(512, 0, 2);
-    const frames = 512;
-    const ptr = wasm.mw_audio_alloc_f32(frames * 2);
-    proc.onaudioprocess = (ev) => {
-      const L = ev.outputBuffer.getChannelData(0);
-      const R = ev.outputBuffer.getChannelData(1);
-      if (!sfxOn) { L.fill(0); R.fill(0); return; }
-      wasm.mw_audio_render(ptr, frames);
-      const view = new Float32Array(wasm.memory.buffer, ptr, frames * 2);
-      for (let i = 0; i < frames; i++) {
-        L[i] = view[i * 2];
-        R[i] = view[i * 2 + 1];
-      }
-    };
-    proc.connect(sfxGain);
-    sfxFallback = wasm;
+    const [module] = await Promise.all([
+      WebAssembly.compileStreaming ? WebAssembly.compileStreaming(fetch('mw_audio.wasm'))
+        : fetch('mw_audio.wasm').then((r) => r.arrayBuffer()).then((b) => WebAssembly.compile(b)),
+      ctx.audioWorklet.addModule('mw-audio-worklet.js'),
+    ]);
+    const node = new AudioWorkletNode(ctx, 'mw-sfx', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      processorOptions: { module, seed: (Date.now() & 0x7fffffff) || 1 },
+    });
+    node.onprocessorerror = (e) => { audioError = 'the sound effects stopped'; console.warn('mw-sfx', e); showSoundGate(); };
+    node.connect(sfxGain);
+    sfxPort = node.port;
   } catch (e) {
+    audioError = 'the sound effects could not start';
     console.warn('mw_audio init failed:', e);
+    showSoundGate();
   }
 }
 
@@ -606,53 +698,41 @@ async function initMusic() {
   if (musicReady) return;
   musicReady = true;
   const ctx = ensureAudioCtx();
-  if (!ctx) return;
+  if (!ctx) { showSoundGate(); return; }
   musicGain = ctx.createGain();
-  musicGain.gain.value = musicOn ? 0.42 : 0.0;
-  musicGain.connect(ctx.destination);
-
+  musicGain.gain.value = musicOn ? MUSIC_GAIN : 0.0;
+  musicGain.connect(output(ctx));
   try {
-    const wasmBytes = await (await fetch('music.wasm')).arrayBuffer();
-    if (ctx.audioWorklet) {
-      await ctx.audioWorklet.addModule('music-worklet.js');
-      const node = new AudioWorkletNode(ctx, 'music-radio', {
-        numberOfInputs: 0,
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-      });
-      node.connect(musicGain);
-      node.port.postMessage({ wasmBytes, stationsJson: SCORE_STATIONS }, [wasmBytes]);
-      node.port.postMessage({ station: 0 });
-      node.port.postMessage({ playing: musicOn });
-      musicPort = node.port;
-      return;
-    }
-    const { instance } = await WebAssembly.instantiate(wasmBytes, {});
-    const wasm = instance.exports;
-    const enc = new TextEncoder().encode(SCORE_STATIONS);
-    const jptr = wasm.music_alloc_bytes(enc.length);
-    new Uint8Array(wasm.memory.buffer, jptr, enc.length).set(enc);
-    wasm.music_init_stations(ctx.sampleRate, ((Date.now() & 0xffffffff) >>> 0) || 1, jptr, enc.length);
-    wasm.music_set_station(0);
-    const proc = ctx.createScriptProcessor(1024, 0, 2);
-    const frames = 1024;
-    const ptr = wasm.music_alloc_f32(frames * 2);
-    proc.onaudioprocess = (ev) => {
-      const L = ev.outputBuffer.getChannelData(0);
-      const R = ev.outputBuffer.getChannelData(1);
-      if (!musicOn) { L.fill(0); R.fill(0); return; }
-      wasm.music_render(ptr, frames);
-      const view = new Float32Array(wasm.memory.buffer, ptr, frames * 2);
-      for (let i = 0; i < frames; i++) {
-        L[i] = view[i * 2];
-        R[i] = view[i * 2 + 1];
-      }
-    };
-    proc.connect(musicGain);
-    musicFallback = wasm;
+    const [module] = await Promise.all([
+      WebAssembly.compileStreaming ? WebAssembly.compileStreaming(fetch('music.wasm'))
+        : fetch('music.wasm').then((r) => r.arrayBuffer()).then((b) => WebAssembly.compile(b)),
+      ctx.audioWorklet.addModule('music-worklet.js'),
+    ]);
+    musicNode = new AudioWorkletNode(ctx, 'music-radio', {
+      numberOfInputs: 0,
+      outputChannelCount: [2],
+      processorOptions: { module, seed: (Date.now() & 0x7fffffff) || 1, stations: new TextEncoder().encode(SCORE_STATIONS) },
+    });
+    musicNode.onprocessorerror = (e) => { audioError = 'the music stopped'; console.warn('music-radio', e); showSoundGate(); };
+    musicNode.connect(musicGain);
+    tuneMusic();
   } catch (e) {
+    audioError = 'the music could not start';
     console.warn('music init failed:', e);
+    showSoundGate();
   }
+}
+
+// The score plays the station's schedule at the wall clock's time; off,
+// the player is tuned away (-1) and costs nothing.
+function tuneMusic() {
+  if (!musicNode || !audioCtx) return;
+  const p = (k) => musicNode.parameters.get(k);
+  const now = Date.now() / 1000, day = Math.floor(now / 86400);
+  p('wallDay').setValueAtTime(day, audioCtx.currentTime);
+  p('wallSec').setValueAtTime(now - day * 86400, audioCtx.currentTime);
+  p('tune').setValueAtTime(++musicTune, audioCtx.currentTime);
+  p('station').setValueAtTime(musicOn ? 0 : -1, audioCtx.currentTime);
 }
 
 function toggleSfx(force) {
@@ -660,66 +740,33 @@ function toggleSfx(force) {
   if ($('toggle-sfx')) $('toggle-sfx').classList.toggle('on', sfxOn);
   if (sfxOn) initSfx();
   if (sfxGain && audioCtx) {
-    sfxGain.gain.setTargetAtTime(sfxOn ? 0.85 : 0.0, audioCtx.currentTime, 0.02);
+    sfxGain.gain.setTargetAtTime(sfxOn ? SFX_GAIN : 0.0, audioCtx.currentTime, 0.02);
   }
+  showSoundGate();
 }
 
 function toggleMusic(force) {
   musicOn = force !== undefined ? force : !musicOn;
+  try { localStorage.setItem(MUSIC_PREF, musicOn ? 'on' : 'off'); } catch { /* private window */ }
   if ($('toggle-music')) $('toggle-music').classList.toggle('on', musicOn);
   if (musicOn) initMusic();
-  if (musicPort) musicPort.postMessage({ playing: musicOn });
+  tuneMusic();
   if (musicGain && audioCtx) {
-    musicGain.gain.setTargetAtTime(musicOn ? 0.42 : 0.0, audioCtx.currentTime, 0.04);
+    musicGain.gain.setTargetAtTime(musicOn ? MUSIC_GAIN : 0.0, audioCtx.currentTime, 0.04);
   }
+  showSoundGate();
 }
 
 function uiClick(kind = 0) {
-  if (!sfxOn) return;
-  if (sfxPort) sfxPort.postMessage({ ui: kind });
-  else if (sfxFallback && sfxFallback.mw_audio_push_ui) sfxFallback.mw_audio_push_ui(kind);
-}
-
-function pushFallbackStep(wasm, s) {
-  const ptr = wasm.mw_audio_step_buf_ptr();
-  const buf = new Float32Array(wasm.memory.buffer, ptr, 65);
-  buf[0] = s.dt ?? 0.002;
-  buf[1] = s.body_mass ?? 4200;
-  buf[2] = s.foot_force ? s.foot_force[0] : 0;
-  buf[3] = s.foot_force ? s.foot_force[1] : 0;
-  buf[4] = s.foot_slip ? s.foot_slip[0] : 0;
-  buf[5] = s.foot_slip ? s.foot_slip[1] : 0;
-  buf[6] = s.foot_on && s.foot_on[0] ? 1 : 0;
-  buf[7] = s.foot_on && s.foot_on[1] ? 1 : 0;
-  for (let j = 0; j < 12; j++) {
-    buf[8 + j] = s.torque ? s.torque[j] : 0;
-    buf[20 + j] = s.qd ? s.qd[j] : 0;
-    buf[32 + j] = s.temp ? s.temp[j] : 30;
-    buf[44 + j] = (s.tripped && (s.tripped & (1 << j))) ? 1 : 0;
-  }
-  buf[56] = s.at_limit_mask ?? 0;
-  buf[57] = s.overcurrent_mask ?? 0;
-  buf[58] = s.fell ? 1 : 0;
-  buf[59] = s.torso_acc ?? 0;
-  buf[60] = s.torso_omega ?? 0;
-  buf[61] = s.wind ?? 0.25;
-  const imp = s.impacts && s.impacts.length ? s.impacts[0] : null;
-  buf[62] = imp ? imp[0] : 0;
-  buf[63] = imp ? imp[1] : 0;
-  buf[64] = imp ? imp[2] : 0;
-  wasm.mw_audio_push_step();
+  if (sfxOn && sfxPort) sfxPort.postMessage({ ui: kind });
 }
 
 function pumpAudio() {
   requestAnimationFrame(pumpAudio);
-  if (!sfxOn || !G || !G.audio) return;
+  if (!sfxOn || !sfxPort || !G || !G.audio) return;
   let pkt;
   try { pkt = JSON.parse(G.audio); } catch { return; }
   if (!pkt || !pkt.seq || pkt.seq === lastAudioSeq || !Array.isArray(pkt.steps)) return;
   lastAudioSeq = pkt.seq;
-  if (sfxPort) {
-    sfxPort.postMessage({ steps: pkt.steps });
-  } else if (sfxFallback) {
-    for (const s of pkt.steps) pushFallbackStep(sfxFallback, s);
-  }
+  sfxPort.postMessage({ steps: pkt.steps });
 }

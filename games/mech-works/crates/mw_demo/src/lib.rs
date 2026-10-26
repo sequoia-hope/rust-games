@@ -11,6 +11,8 @@
 pub mod camera;
 pub mod impact;
 pub mod lanes;
+pub mod level;
+pub mod player;
 pub mod scene;
 pub mod view;
 
@@ -55,6 +57,9 @@ pub enum Mode {
     Damage,
     /// Demo 4: swap a part, watch it calibrate.
     Calibration,
+    /// The first playable level: walk out from the base and clear a
+    /// landslide off the route (`level`).
+    Level,
 }
 
 impl Mode {
@@ -64,6 +69,7 @@ impl Mode {
             "path" | "endless" => Self::Path,
             "damage" => Self::Damage,
             "calibration" => Self::Calibration,
+            "level" | "play" => Self::Level,
             _ => Self::Viewer,
         }
     }
@@ -76,6 +82,8 @@ pub struct Status {
     pub telemetry: String,
     /// Batched per-step audio frames since the last display frame, as JSON.
     pub audio: String,
+    /// The level's objective and progress, as JSON (empty outside a level).
+    pub level: String,
 }
 
 pub fn app(mode: Mode) -> App {
@@ -114,6 +122,8 @@ pub fn game(app: &mut App, mode: Mode) {
     view::plugin(app);
     camera::plugin(app);
     impact::plugin(app);
+    level::plugin(app);
+    player::plugin(app);
 }
 
 /// Commands the lanes do not handle, peeled off before they see them.
@@ -121,6 +131,7 @@ fn page_commands(
     mut inspector: ResMut<view::Inspector>,
     mut range: ResMut<impact::Range>,
     mut orbit: ResMut<camera::Orbit>,
+    mut view: ResMut<player::PlayerView>,
     mut mode: ResMut<Mode>,
 ) {
     let Some(list) = crate::COMMANDS.take() else {
@@ -138,6 +149,9 @@ fn page_commands(
             }
             Some("range") | Some("fire") => range.apply(&v),
             Some("camera") => orbit.apply(&v),
+            Some("view") | Some("pointer") => {
+                player::apply(&mut view, &v);
+            }
             Some("mode") => {
                 *mode = Mode::parse(v.get("mode").and_then(|m| m.as_str()).unwrap_or(""));
                 // Also pass to lanes so it switches between flat ground and the endless path.

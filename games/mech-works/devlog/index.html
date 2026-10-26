@@ -27,6 +27,38 @@
 <h1>MECH WORKS</h1>
 <p class="sub">Dev log: what was built, what was found, what is next. Newest first. Spec: <code>docs/SPEC.md</code>.</p>
 
+<article id="2026-10-25-level">
+<h2>The first level: a landslide across the route</h2>
+<time>2026-10-25</time>
+
+<p>The first thing to play, at <code>?mode=level</code> (the <b>Play: landslide</b> button). The mech starts at the home base on the gravel lot, walks east along the marker posts, and finds a narrow pass under the hill filled by a slide. Clearing the route's lane through the pass opens the way: <i>Leave the base → Reach the landslide → Clear the rubble → Route open</i>, with the objective at the top of the page and a chime at each step.</p>
+<img src="img/2026-10-25-level-site.jpg" alt="From the cockpit: the pass between two spurs of hill, full of rubble">
+<p class="cap">From the cockpit (first person, the default), arriving at the pass. The rubble is 48 chipped rocks, each a convex body in the mech's own Rapier world.</p>
+
+<h3>How the rubble works, and why this way</h3>
+<p>The simplest mechanic that keeps the physics honest: the rocks are dynamic convex hulls in the same Rapier world as the mech (<code>mw_sim::rubble</code>), so the feet and hull push them for real, and the heap (three layers, about 1.5 m) trips a mech that just walks in. The pass's sides and the play area's edges are fixed boxes under the hills. The mech's <b>blade</b> (E or Space, or the page's Shove button) gives every rock in a box ahead of the torso a push along the heading, with a little lift and spread; heavier rocks move less. Held down while walking, it ploughs. The route counts as open when no rock's centre is left in its lane through the pass: rock shoved against the cliffs is out of the way. Training never adds rocks or walls, so it steps exactly as before. Swapping the mechanic later means replacing <code>Level::before_step</code> (the shove) and <code>Level::blocked</code> (the test).</p>
+<img src="img/2026-10-25-level-clearing.jpg" alt="Third person: the mech ploughing through the rubble">
+<p class="cap">Third person (V), mid-clear: the lane is down to five rocks after one pass with the blade.</p>
+<p>After a fall the mech stands up again at the last place it stood upright with no rock within 3 m, facing the way it faced there. (Standing it up where it fell, inside the heap, threw it over the pass's wall in a first try.)</p>
+
+<h3>Playing it</h3>
+<table>
+<tr><th>Keys</th><td>W/S walk (Shift faster), A/D turn: the policy's walk command while held. E or Space: the blade. V: first or third person. R: start over. P: pause.</td></tr>
+<tr><th>Mouse</th><td>A click on the game locks the pointer to look around (Esc lets go); dragging looks too. The wheel zooms the third-person view, which keeps clear of the hills.</td></tr>
+<tr><th>Touch</th><td>One finger looks, two pinch; the Walk sliders walk and the panel's buttons shove, switch the view and start over.</td></tr>
+</table>
+<p>Measured: the shipped policy (<code>teacher-v3</code>), steered as a player would (<code>examples/rubble_walk.rs</code>, natively), opens the route in 96 s of simulated time with 156 shoves and no falls; in headless Chrome, driven with the keyboard, the whole level from the base took 110 s at 2× time.</p>
+<img src="img/2026-10-25-level-open.jpg" alt="Route open: the pass clear, rocks pushed aside">
+<p class="cap">Route open: the lane clear, the rocks against the pass's sides and beyond it.</p>
+
+<h3>Sound: why there was none</h3>
+<p>Neither the music nor the effects had ever played in a browser. It was not the autoplay policy: after the first click the AudioContext was running, but both AudioWorklet processors were created without <code>processorOptions</code> (the page posted raw wasm bytes over the port, which the processors never read), so the output stayed at exactly zero. The score's station table also lacked its required <code>seed</code>, and the music was off by default. Now the page compiles each wasm and hands the module over as the processors expect, tunes the music engine's orchestral station on its <code>station</code> parameter, starts both on the first click, tap or key (with a note on the page until then), and remembers if the viewer turns the music off. <code>__mech.audioState()</code> reports the context, both players and the output level: 0.010 RMS after a click in the viewer, 0.003 with the music off.</p>
+<p>New effects in <code>mw_audio</code>: a stone knock for each rock that hits something (sized by its impulse, panned and attenuated from the cockpit), a grinding gravel bed for rock sliding and rolling, a two-note chime for an objective, and the blade's strike on rock as a hull ring. Footfalls and the wind were already there; the level runs a light desert wind.</p>
+
+<h3>Not done yet</h3>
+<p>Nobody has listened to the new sounds: they are checked by tests and levels only. In headless Chrome every mode renders much darker than the pictures further down this log (the public site's build too), so the pictures here are dark; whether a real browser shows the same is not checked. The hills off the pass are scenery: the play area's edges are invisible walls at their feet.</p>
+</article>
+
 <article id="2026-10-23-m5-m6-audio">
 <h2>M5, M6, and Audio: the endless path, eroded hillside, and physics-driven sound</h2>
 <time>2026-10-23, night</time>
