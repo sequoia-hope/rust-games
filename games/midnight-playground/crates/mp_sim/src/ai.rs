@@ -120,10 +120,13 @@ impl AiDriver {
     /// put back on top of each other, on their own lines, and stayed stuck.
     /// The views are this tick's, with the rivals before it already moved.
     fn replace_lat(&self, t: &Track, ctx: &AiCtx, lat_t: f64) -> f64 {
+        let road = self.k.road;
         let back = model::replace_s(t, self.k.s);
         let lim = t.frame(back).hw * 0.5;
         let me = &self.k.v;
-        let near = |o: &AgentView| t.ds(back, o.s).abs() < me.half_l + o.half_l + 2.0;
+        let near = |o: &AgentView| {
+            (road == 0 || o.road == road) && t.ds(back, o.s).abs() < me.half_l + o.half_l + 2.0
+        };
         let others = || {
             ctx.cars
                 .iter()
@@ -153,12 +156,16 @@ impl AiDriver {
         .unwrap_or(clamp(lat_t, -lim, lim))
     }
 
-    pub fn update(&mut self, t: &Track, dt: f64, ctx: &AiCtx, rng: &mut dyn Rng) {
-        let f = self.k.frame(t);
+    pub fn update(&mut self, net: &Track, dt: f64, ctx: &AiCtx, rng: &mut dyn Rng) {
+        let road = self.k.road;
+        let t = net.road(road);
+        let f = self.k.frame(net);
         if !ctx.started {
             match &mut self.sim {
-                Some(sim) => sim.drive(&mut self.k, t, dt, 0.0, 0.0, 0.0, 0.0, false, 0.0, false),
-                None => self.k.write_pos(t),
+                Some(sim) => {
+                    sim.drive(&mut self.k, net, dt, 0.0, 0.0, 0.0, 0.0, false, 0.0, false);
+                }
+                None => self.k.write_pos(net),
             }
             return;
         }
@@ -221,13 +228,16 @@ impl AiDriver {
         // Look ahead for cars in the way.
         let my_w = self.k.v.half_w;
         let me = self.seeker();
-        let block = find_block(t, &me, ctx.cars, ctx.me, lat_t, &|_| false);
+        let block = find_block(t, &me, ctx.cars, ctx.me, lat_t, &|i| {
+            road != 0 && ctx.cars[i].road != road
+        });
         // Parking: queue behind anything in our lane, but still go round a car
         // we're closing on fast.
         if park.is_some() {
             for (i, o) in ctx.cars.iter().enumerate() {
                 let ds = o.s - s;
                 if Some(i) == ctx.me
+                    || (road != 0 && o.road != road)
                     || o.dir != 1
                     || ds <= 0.0
                     || ds > 40.0
@@ -274,7 +284,11 @@ impl AiDriver {
         // or we're tucked in behind it, drop back instead. (Not roadblock
         // pieces: we aim for their gap, through the sawhorses.)
         for (i, o) in ctx.cars.iter().enumerate() {
-            if Some(i) == ctx.me || o.dir != 1 || o.gap_lat.is_some() {
+            if Some(i) == ctx.me
+                || (road != 0 && o.road != road)
+                || o.dir != 1
+                || o.gap_lat.is_some()
+            {
                 continue;
             }
             let ds = t.ds(s, o.s); // > 0: o is ahead
@@ -326,7 +340,11 @@ impl AiDriver {
             // Nor can it swerve round a car as sharply: whatever is in its
             // path now, it keeps a speed it could still stop behind.
             for (i, o) in ctx.cars.iter().enumerate() {
-                if Some(i) == ctx.me || o.dir != 1 || o.gap_lat.is_some() {
+                if Some(i) == ctx.me
+                    || (road != 0 && o.road != road)
+                    || o.dir != 1
+                    || o.gap_lat.is_some()
+                {
                     continue;
                 }
                 let gap = t.ds(s, o.s) - self.k.v.half_l - o.half_l;
@@ -351,7 +369,7 @@ impl AiDriver {
             let sim = self.sim.as_mut().expect("a sim rival");
             sim.drive(
                 &mut self.k,
-                t,
+                net,
                 dt,
                 v_t,
                 want,
@@ -361,7 +379,7 @@ impl AiDriver {
                 self.spiked,
                 true,
             );
-            if !self.finished && self.k.s >= t.finish_s {
+            if road == 0 && !self.finished && self.k.s >= t.finish_s {
                 self.finished = true;
                 self.finish_time = Some(ctx.time);
             }
@@ -404,8 +422,8 @@ impl AiDriver {
         };
         self.k.v.accel_lat = self.k.speed * self.k.speed * f.kappa;
 
-        self.k.advance(t, dt);
-        if !self.finished && self.k.s >= t.finish_s {
+        self.k.advance(net, dt);
+        if road == 0 && !self.finished && self.k.s >= t.finish_s {
             self.finished = true;
             self.finish_time = Some(ctx.time);
         }

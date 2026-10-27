@@ -139,6 +139,12 @@ pub struct Viewer {
     /// The nearest route position (m) and its zone.
     pub s: f64,
     pub zone: String,
+    /// Atlas-backed levels (`peninsula`, `south_coast`): the nearest corridor
+    /// id, display name, and station along it (m).
+    pub atlas: bool,
+    pub corridor_id: String,
+    pub corridor: String,
+    pub corridor_s: f64,
     /// The route's length for the slider, the level's lowest road height,
     /// its box (min x, max x, min z, max z), the height that shows it all.
     pub route_len: f64,
@@ -217,6 +223,10 @@ impl Viewer {
             pose: zero,
             s: 0.0,
             zone: String::new(),
+            atlas: atlas_latlon(&o.level, 0.0, 0.0).is_some(),
+            corridor_id: String::new(),
+            corridor: String::new(),
+            corridor_s: 0.0,
             route_len: 1.0,
             ground: 0.0,
             bounds: [0.0; 4],
@@ -269,8 +279,18 @@ impl Viewer {
             ground = ground.min(f.y);
             s += 5.0;
         }
+        for br in &track.branches {
+            let mut bs = 0.0;
+            while bs <= br.track.length {
+                let f = br.track.frame(bs);
+                b = [b[0].min(f.x), b[1].max(f.x), b[2].min(f.z), b[3].max(f.z)];
+                ground = ground.min(f.y);
+                bs += 20.0;
+            }
+        }
         self.bounds = b;
         self.ground = if ground.is_finite() { ground } else { 0.0 };
+        self.atlas = atlas_latlon(&self.level, 0.0, 0.0).is_some();
         let aspect = self.view.0 / self.view.1.max(1.0);
         self.fit = cams::fit_height(b[1] - b[0], b[3] - b[2], aspect);
         let l = self.link.clone();
@@ -307,6 +327,15 @@ impl Viewer {
         self.anim = l.anim.unwrap_or(true);
         self.tod = l.t.map(|t| t.clamp(0.0, 1.0));
         self.mode = l.mode;
+        let start_p = self.mode_pose(self.mode, track);
+        self.pose = start_p;
+        let (r0, rs0) = nearest_road(track, start_p.pos.x, start_p.pos.z);
+        let (cid, cname) = corridor_info(&self.level, track, r0);
+        self.corridor_id = cid.to_owned();
+        self.corridor = cname.to_owned();
+        self.corridor_s = rs0;
+        self.s = nearest_s(track, start_p.pos.x, start_p.pos.z, 0.0);
+        self.zone = zone_at(track.road(r0), rs0).to_owned();
         self.dirty = true;
     }
 
@@ -752,6 +781,15 @@ impl Viewer {
         let p = self.pose;
         let c = stats::counts();
         let f = &self.ride;
+        let atlas = atlas_latlon(&self.level, p.pos.x, p.pos.z).map(|(lat, lon)| {
+            serde_json::json!({
+                "corridor": self.corridor_id,
+                "corridorName": self.corridor,
+                "corridorS": self.corridor_s,
+                "lat": lat,
+                "lon": lon,
+            })
+        });
         serde_json::json!({
             "ready": self.started && status.ready,
             "level": self.level,
@@ -765,6 +803,7 @@ impl Viewer {
             "s": self.s,
             "routeLength": self.route_len,
             "zone": self.zone,
+            "atlas": atlas,
             "fog": self.fog,
             "far": self.far,
             "anim": self.anim,
@@ -845,10 +884,66 @@ pub fn nearest_s(track: &Track, x: f64, z: f64, _hint: f64) -> f64 {
     track.project_window(x, z, best as f64, 12).s
 }
 
-/// The road's height nearest (x, z).
+/// Real WGS84 `(lat, lon)` for game `(x, z)` on atlas-backed levels
+/// (`docs/vision/atlas.md` 2.2: Half Moon Bay origin, 0.5 game scale).
+pub fn atlas_latlon(level_id: &str, x: f64, z: f64) -> Option<(f64, f64)> {
+    if !matches!(level_id, "peninsula" | "south_coast") {
+        return None;
+    }
+    const ORIGIN_LAT: f64 = 37.46802;
+    const ORIGIN_LON: f64 = -122.43350;
+    const M_PER_DEG_LAT: f64 = 110_986.441_587_133_19;
+    const M_PER_DEG_LON: f64 = 88_463.227_503_651_36;
+    const SCALE: f64 = 0.5;
+    let (rx, rz) = (x / SCALE, z / SCALE);
+    Some((
+        ORIGIN_LAT - rz / M_PER_DEG_LAT,
+        ORIGIN_LON + rx / M_PER_DEG_LON,
+    ))
+}
+
+/// The nearest road of the network (`0` is the level's road, `1 + k` is
+/// `branches[k]`) and the route position `s` along it.
+pub fn nearest_road(track: &Track, x: f64, z: f64) -> (usize, f64) {
+    let s0 = nearest_s(track, x, z, 0.0);
+    let f0 = track.frame(s0);
+    let mut best = (0usize, s0, (x - f0.x).powi(2) + (z - f0.z).powi(2));
+    for (k, br) in track.branches.iter().enumerate() {
+        let sb = nearest_s(&br.track, x, z, 0.0);
+        let fb = br.track.frame(sb);
+        let d2 = (x - fb.x).powi(2) + (z - fb.z).powi(2);
+        if d2 < best.2 {
+            best = (k + 1, sb, d2);
+        }
+    }
+    (best.0, best.1)
+}
+
+/// Corridor `(id, display_name)` for road index `road`.
+pub fn corridor_info<'a>(level_id: &str, track: &'a Track, road: usize) -> (&'a str, &'a str) {
+    if road > 0
+        && let Some(b) = track.branches.get(road - 1)
+    {
+        return (b.id, b.name);
+    }
+    match level_id {
+        "peninsula" => ("the-loop", "The Loop"),
+        "south_coast" => ("first-race", "Highway 1: South Coast"),
+        _ => ("", track.level.title),
+    }
+}
+
+/// The road's height nearest (x, z), or the open ground when far from any road.
 fn ground_at(track: &Track, x: f64, z: f64) -> f64 {
-    let s = nearest_s(track, x, z, 0.0);
-    track.frame(s).y
+    let (r, s) = nearest_road(track, x, z);
+    let f = track.road(r).frame(s);
+    if let Some(g) = &track.level.ground {
+        let d2 = (x - f.x).powi(2) + (z - f.z).powi(2);
+        if d2 > 60.0 * 60.0 {
+            return g(x, z);
+        }
+    }
+    f.y
 }
 
 /// The zone at route position `s`.
@@ -973,17 +1068,26 @@ fn drive(
         }
     };
     v.pose = pose;
-    // The route position, the zone.
+    // The route position, the corridor and the zone.
     let s = nearest_s(track, pose.pos.x, pose.pos.z, v.s);
     if (s - v.s).abs() > 1e-6 {
         v.s = s;
     }
-    let zone = zone_at(track, s);
+    let (r, rs) = nearest_road(track, pose.pos.x, pose.pos.z);
+    let (cid, cname) = corridor_info(&v.level, track, r);
+    if v.corridor_id != cid {
+        v.corridor_id = cid.to_owned();
+    }
+    if v.corridor != cname {
+        v.corridor = cname.to_owned();
+    }
+    v.corridor_s = rs;
+    let zone = zone_at(track.road(r), rs);
     if zone != v.zone {
         v.zone = zone.to_owned();
     }
     // The camera, its near and far planes.
-    let ground_y = track.frame(s).y;
+    let ground_y = ground_at(track, pose.pos.x, pose.pos.z);
     if let Ok((mut t, mut proj)) = cam.single_mut() {
         *t = ride_pose.unwrap_or_else(|| pose.transform());
         if let Projection::Perspective(p) = &mut *proj {
@@ -1256,5 +1360,40 @@ mod tests {
         v.set_mode(Mode::Free, &t);
         assert!(!v.fog && !v.far);
         assert!(!on(&Options::from_query("view=god&level=models")));
+    }
+
+    #[test]
+    fn the_viewer_places_atlas_levels_on_the_real_peninsula() {
+        // Origin (0, 0) in game space is Half Moon Bay's Highway 1 / 92 junction.
+        let (lat, lon) = atlas_latlon("peninsula", 0.0, 0.0).expect("peninsula is atlas-backed");
+        assert!((lat - 37.46802).abs() < 1e-6 && (lon + 122.43350).abs() < 1e-6);
+        assert!(atlas_latlon("south_coast", 0.0, 0.0).is_some());
+        assert!(atlas_latlon("sierra", 0.0, 0.0).is_none());
+
+        let t = track("peninsula");
+        let o = Options::from_query("view=god&level=peninsula&mode=overview");
+        let mut v = Viewer::new(&o, false);
+        v.start(&t);
+        assert!(v.atlas);
+        // Overview bounds span north to San Francisco (-z < -17_000 m), not just the loop.
+        assert!(v.bounds[2] < -17_000.0, "bounds: {:?}", v.bounds);
+        // A point on a northern branch resolves to that corridor and reads out its lat/lon.
+        let sf = t
+            .branches
+            .iter()
+            .position(|b| b.id == "sf-lombard")
+            .expect("sf-lombard");
+        let f = t.branches[sf].track.frame(500.0);
+        let (r, rs) = nearest_road(&t, f.x, f.z);
+        assert_eq!(r, sf + 1);
+        assert!((rs - 500.0).abs() < 2.0);
+        v.pose = Pose::new(DVec3::new(f.x, f.y + 30.0, f.z), 0.0, -0.3);
+        let (cid, cname) = corridor_info("peninsula", &t, r);
+        v.corridor_id = cid.to_owned();
+        v.corridor = cname.to_owned();
+        v.corridor_s = rs;
+        let text = panel::readout(&v);
+        assert!(text.contains("Lombard Street"), "{text}");
+        assert!(text.contains("37.80"), "{text}");
     }
 }

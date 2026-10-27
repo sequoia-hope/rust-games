@@ -116,6 +116,11 @@ fn s_near(text: &str, x: f64, z: f64) -> f64 {
     best.1 as f64 * c.step
 }
 
+fn corridor_len(text: &str) -> f64 {
+    let c = Corridor::parse(text).expect("the committed corridor parses");
+    (c.x.len() - 1) as f64 * c.step
+}
+
 fn bay_text(id: &str) -> &'static str {
     BAYSIDE
         .iter()
@@ -124,11 +129,13 @@ fn bay_text(id: &str) -> &'static str {
         .expect("a bay side road")
 }
 
-/// Where a cruise can start (stage 6f): the crest as ever, and the bay
-/// side's towns, on El Camino where it runs through them (the real
-/// places at the plan's scale of a half), and Lombard Street.
+/// Where a cruise can start (stage 6f): the crest as ever, Pacifica on the
+/// north coast, the bay side's towns on El Camino, Ocean Beach on the Great
+/// Highway, and Lombard Street.
 pub fn starts(crest: f64) -> Vec<StartSpot> {
     let ecr = bay_text("el-camino");
+    let north = bay_text("coast-north");
+    let ocean = bay_text("sf-great-highway");
     vec![
         StartSpot {
             id: "crest",
@@ -136,6 +143,13 @@ pub fn starts(crest: f64) -> Vec<StartSpot> {
             place: "THE CREST ABOVE THE SEA",
             road: "",
             s: crest + 60.0,
+        },
+        StartSpot {
+            id: "pacifica",
+            name: "Pacifica",
+            place: "LINDA MAR",
+            road: "coast-north",
+            s: s_near(north, -2987.0, -7246.0),
         },
         StartSpot {
             id: "redwood-city",
@@ -164,6 +178,13 @@ pub fn starts(crest: f64) -> Vec<StartSpot> {
             place: "MISSION STREET",
             road: "el-camino",
             s: -1600.0,
+        },
+        StartSpot {
+            id: "ocean-beach",
+            name: "Ocean Beach",
+            place: "THE GREAT HIGHWAY",
+            road: "sf-great-highway",
+            s: s_near(ocean, -3174.0, -14838.0),
         },
         StartSpot {
             id: "lombard",
@@ -201,6 +222,8 @@ pub const CORRIDORS: [(&str, &str); 4] = [
 pub const TUNITAS: &str = include_str!("../../../assets/atlas/peninsula/corridors/tunitas.txt");
 pub const STAGE_ROAD: &str =
     include_str!("../../../assets/atlas/peninsula/corridors/stage-road.txt");
+pub const PESCADERO_CREEK: &str =
+    include_str!("../../../assets/atlas/peninsula/corridors/pescadero-creek.txt");
 /// The ground under the loop's and its branches' box (805 kB, zlib) and
 /// its land cover (17 kB): inflated once, the first time a level asks.
 pub const GROUND: &[u8] =
@@ -213,17 +236,21 @@ macro_rules! bay {
     };
 }
 
-/// The bay side's roads (docs/vision/peninsula.md, stage 6): id, name,
-/// road type, zone and corridor, in the order they are built, greatest
-/// first, so each starts on a road listed before it (the loop, 84 east,
-/// the freeways, 92 east, which ends on 101, El Camino, the streets
-/// across, then San Francisco's, the Embarcadero before Market, which
-/// starts by it).
-pub const BAYSIDE: [(&str, &str, &str, u8, &str); 17] = bay![
+/// The bay side's and north coast's roads (docs/vision/peninsula.md, stage 6):
+/// id, name, road type, zone and corridor, in the order they are built,
+/// greatest first, so each starts on a road listed before it (the loop, 84
+/// east, the freeways, 92 east, Cañada Road, Highway 1 north and its ridge
+/// links, El Camino, the streets across, then San Francisco's: the Great
+/// Highway and the Embarcadero before Market and Geary).
+pub const BAYSIDE: [(&str, &str, &str, u8, &str); 22] = bay![
     ("hwy-84-east", "Woodside Road", "valley", 4),
     ("i-280", "Interstate 280", "freeway", 4),
     ("us-101", "Highway 101", "freeway", 4),
     ("hwy-92-east", "Highway 92", "boulevard", 4),
+    ("canada-road", "Cañada Road", "valley", 2),
+    ("coast-north", "Highway 1 North", "coastal", 6),
+    ("skyline-north", "Skyline Boulevard", "mountain", 3),
+    ("sharp-park-road", "Sharp Park Road", "mountain", 3),
     ("el-camino", "El Camino Real", "street", 4),
     ("ralston", "Ralston Avenue", "street", 4),
     ("hillsdale", "Hillsdale Boulevard", "street", 4),
@@ -231,6 +258,7 @@ pub const BAYSIDE: [(&str, &str, &str, u8, &str); 17] = bay![
     ("broadway", "Broadway", "street", 4),
     ("millbrae", "Millbrae Avenue", "street", 4),
     ("san-bruno", "San Bruno Avenue", "street", 4),
+    ("sf-great-highway", "Great Highway", "boulevard", 5),
     ("sf-19th-ave", "19th Avenue", "street", 5),
     ("sf-lombard", "Lombard Street", "street", 5),
     ("sf-van-ness", "Van Ness Avenue", "street", 5),
@@ -242,9 +270,9 @@ pub const BAYSIDE: [(&str, &str, &str, u8, &str); 17] = bay![
 /// and how high its freeways stand on their viaducts (stage 8a).
 const SF_LINE: f64 = -13_300.0;
 const SF_DECK: f64 = 8.0;
-/// The roads before the bay side's: the loop and its two branches, which
-/// keep the coast's own kits and get no city buildings.
-pub const FIRST_BAYSIDE: usize = 3;
+/// The roads before the bay side's: the loop and its three southern redwood
+/// branches, which keep the coast's own kits and get no city buildings.
+pub const FIRST_BAYSIDE: usize = 4;
 /// The ground, cover and city grid under the bay side's box (stage 6b).
 pub const BAY_GROUND: &[u8] =
     include_bytes!("../../../assets/atlas/peninsula/corridors/bayside.ground.bin");
@@ -408,11 +436,11 @@ const DELIVERY_SPARE: f64 = 20.0;
 /// How far into Stage Road the store's drop is (metres).
 const STORE_IN: f64 = 60.0;
 
-/// The loop's events at places (stage 5): the plan's two races and two
-/// trials, each from one corridor's start to the next's, and a delivery
-/// from the garage in Half Moon Bay to the San Gregorio General Store at
-/// Stage Road's mouth. A start sits a little past its junction, so the
-/// grid forms on the road the event runs.
+/// The open world's events at places (stage 5, expanded across the network):
+/// the loop's two races, two trials and store delivery, and five events on
+/// the north coast, the redwood climbs, Crystal Springs, El Camino Real and
+/// San Francisco. A start sits a little past its junction, so the grid forms
+/// on the road the event runs.
 pub fn events(l: &Loop, town: f64, crest: f64) -> Vec<EventSpot> {
     let (s92, s35, s84) = (l.joins[1], l.joins[2], l.joins[3]);
     let past = 60.0;
@@ -425,11 +453,27 @@ pub fn events(l: &Loop, town: f64, crest: f64) -> Vec<EventSpot> {
     // then the last of 84 to Stage Road's mouth.
     let mouth = pk_math::kernel::hypot(drop[0] - l.x[0], drop[1] - l.z[0]);
     let short = garage + mouth * 1.4;
+
+    let coast_n = bay_text("coast-north");
+    let pacifica_s = s_near(coast_n, -2987.0, -7246.0);
+    let tun_end = corridor_len(TUNITAS) - 180.0;
+    let canada_end = corridor_len(bay_text("canada-road")) - 180.0;
+    let ecr_end = corridor_len(bay_text("el-camino")) - 180.0;
+
+    let lomb_s = s_near(bay_text("sf-lombard"), -113.0, -18412.0);
+    let emb_text = bay_text("sf-embarcadero");
+    let emb = Corridor::parse(emb_text).expect("the committed corridor parses");
+    let ferry_s = s_near(emb_text, 1809.0, -18085.0);
+    let fk = ((ferry_s / emb.step).round() as usize).min(emb.x.len() - 1);
+    let ferry_drop = [emb.x[fk], emb.z[fk]];
+    let ferry_short = 3700.0;
+
     vec![
         EventSpot {
             id: "first-race",
             name: "Midnight on the Coast",
             kind: EventKind::Race,
+            road: "",
             // Where a cruise begins (the level's start), so the first
             // marker is the one the car stands on.
             s: crest + 60.0,
@@ -442,6 +486,7 @@ pub fn events(l: &Loop, town: f64, crest: f64) -> Vec<EventSpot> {
             id: "pumpkin-run",
             name: "Over the Hill",
             kind: EventKind::Race,
+            road: "",
             s: s92 + past,
             finish: s35,
             drop: None,
@@ -452,6 +497,7 @@ pub fn events(l: &Loop, town: f64, crest: f64) -> Vec<EventSpot> {
             id: "skyline-dawn",
             name: "Skyline at Dawn",
             kind: EventKind::TimeTrial,
+            road: "",
             s: s35 + past,
             finish: s84,
             drop: None,
@@ -463,6 +509,7 @@ pub fn events(l: &Loop, town: f64, crest: f64) -> Vec<EventSpot> {
             id: "redwood-descent",
             name: "The Redwood Descent",
             kind: EventKind::TimeTrial,
+            road: "",
             s: s84 + past,
             // Just short of the junction with Highway 1, where the lap
             // closes.
@@ -475,11 +522,67 @@ pub fn events(l: &Loop, town: f64, crest: f64) -> Vec<EventSpot> {
             id: "store-run",
             name: "The Store Run",
             kind: EventKind::Delivery,
+            road: "",
             s: garage,
             finish: garage,
             drop: Some(drop),
             place: "SAN GREGORIO STORE",
             time: js_round5(short / DELIVERY_PACE + DELIVERY_SPARE),
+        },
+        EventSpot {
+            id: "devils-slide-run",
+            name: "Devil's Slide",
+            kind: EventKind::Race,
+            road: "coast-north",
+            s: 80.0,
+            finish: pacifica_s,
+            drop: None,
+            place: "PACIFICA",
+            time: 0.0,
+        },
+        EventSpot {
+            id: "tunitas-climb",
+            name: "The Tunitas Climb",
+            kind: EventKind::TimeTrial,
+            road: "tunitas",
+            s: 80.0,
+            finish: tun_end,
+            drop: None,
+            place: "KINGS MOUNTAIN",
+            time: 0.0,
+        },
+        EventSpot {
+            id: "crystal-springs-run",
+            name: "Crystal Springs",
+            kind: EventKind::TimeTrial,
+            road: "canada-road",
+            s: 80.0,
+            finish: canada_end,
+            drop: None,
+            place: "CRYSTAL SPRINGS",
+            time: 0.0,
+        },
+        EventSpot {
+            id: "kings-road",
+            name: "The King's Highway",
+            kind: EventKind::Race,
+            road: "el-camino",
+            s: 80.0,
+            finish: ecr_end,
+            drop: None,
+            place: "SAN FRANCISCO",
+            time: 0.0,
+        },
+        EventSpot {
+            id: "ferry-express",
+            name: "The Ferry Express",
+            kind: EventKind::Delivery,
+            road: "sf-lombard",
+            s: lomb_s,
+            finish: lomb_s,
+            drop: Some(ferry_drop),
+            place: "FERRY BUILDING",
+            time: js_round5(ferry_short / DELIVERY_PACE + DELIVERY_SPARE),
         },
     ]
 }
@@ -604,6 +707,21 @@ pub fn level() -> Level {
                     elevation_smooth: None,
                     lift: None,
                 },
+                Branch {
+                    id: "pescadero-creek",
+                    name: "Pescadero Creek Road",
+                    path: {
+                        let c = Arc::new(
+                            Corridor::parse(PESCADERO_CREEK)
+                                .expect("the committed corridor parses"),
+                        );
+                        Arc::new(move || Ok(crate::south_coast::path(&c)))
+                    },
+                    road: "mountain",
+                    zone: 3,
+                    elevation_smooth: None,
+                    lift: None,
+                },
             ];
             // The bay side (stage 6).
             for &(id, name, road, zone, text) in &BAYSIDE {
@@ -675,8 +793,8 @@ pub fn level() -> Level {
             )
             .blend(300.)
             .fog(0.0013, 0.4),
-            // The bay side and the city (stage 6): the Town kit's
-            // buildings, clear nights.
+            // The bay side, the city and the north coast (stage 6): the Town
+            // kit's buildings where the land is built up.
             zone(
                 "bay",
                 "THE BAY SIDE",
@@ -695,6 +813,16 @@ pub fn level() -> Level {
                 "#e05a8a",
             )
             .blend(300.),
+            zone(
+                "midcoast",
+                "THE NORTH COAST",
+                "Devil's Slide and Pacifica",
+                "coast",
+                "Town",
+                "#6fa8b8",
+            )
+            .blend(300.)
+            .fog(0.0006, 0.2),
         ],
         // Night the whole way round: the moon on the sea from the coast,
         // the fog on the ridge.
@@ -765,6 +893,17 @@ pub fn level() -> Level {
                 0.5,
                 [9, 14]
             ),
+            traffic!(
+                [120, 260],
+                [
+                    ("sedan", 0.35),
+                    ("hatch", 0.3),
+                    ("van", 0.2),
+                    ("pickup", 0.15)
+                ],
+                0.65,
+                [12, 17]
+            ),
         ],
         // No police yet: Hot Pursuit is not offered on a circuit (the
         // pursuit measures a point-to-point race), and the loop is one lap.
@@ -816,12 +955,12 @@ mod tests {
         let lv = level();
         assert!(lv.is_loop());
         assert_eq!(lv.laps, Some(1));
-        // The loop's four, and the bay side's two (stage 6).
-        assert_eq!(lv.zones.len(), 6);
+        // The loop's four, the bay side's two, and the north coast (stage 6).
+        assert_eq!(lv.zones.len(), 7);
         let t = mp_track::Track::new(&lv).unwrap();
         assert!(t.is_loop);
         assert!(t.length > 34_000.0 && t.length < 36_000.0, "{}", t.length);
-        assert_eq!(t.zones.len(), 6);
+        assert_eq!(t.zones.len(), 7);
         // Skyline is the highest stretch of the lap.
         let top = (0..t.n)
             .max_by(|&a, &b| t.py[a].total_cmp(&t.py[b]))
@@ -836,12 +975,13 @@ mod tests {
 
     /// Tunitas Creek Road leaves Highway 1 and meets Skyline, so its far
     /// end is open and fitted to the ridge road; Stage Road leaves 84 at
-    /// San Gregorio and ends at Pescadero.
+    /// San Gregorio to Pescadero, where Pescadero Creek Road carries on
+    /// through the redwoods back to 84.
     #[test]
     fn the_branches_leave_the_loop_and_tunitas_meets_skyline() {
         let lv = level();
         let t = mp_track::Track::new(&lv).unwrap();
-        assert_eq!(t.branches.len(), 2 + BAYSIDE.len());
+        assert_eq!(t.branches.len(), 3 + BAYSIDE.len());
         let tun = &t.branches[0];
         assert_eq!(tun.id, "tunitas");
         assert!(tun.track.open_end, "Tunitas ends on Skyline");
@@ -855,8 +995,9 @@ mod tests {
         let q = t.project(x, z, end);
         assert!((f64::from(tun.track.py[n]) - t.surface_y(q.s, q.lat)).abs() < 0.05);
         assert_eq!(tun.track.road_end(), f64::INFINITY);
-        // The network (stage 6c): both leave Highway 1's loop, Tunitas
-        // ends on it, and nothing crosses.
+        // The southern redwood network: Tunitas and Stage Road leave the
+        // loop, Stage Road flows into Pescadero Creek Road at Pescadero,
+        // and Pescadero Creek Road rejoins Highway 84 on the loop.
         let js: Vec<_> = t
             .junctions
             .iter()
@@ -864,12 +1005,25 @@ mod tests {
             .map(|j| (j.road, j.other, j.kind))
             .collect();
         use mp_track::JunctionKind::{End, Start};
-        assert_eq!(js, [(1, 0, Start), (1, 0, End), (2, 0, Start)]);
+        assert_eq!(
+            js,
+            [
+                (1, 0, Start),
+                (1, 0, End),
+                (2, 0, Start),
+                (3, 2, Start),
+                (3, 0, End),
+                (2, 3, End)
+            ]
+        );
         let stage = &t.branches[1];
         assert_eq!(stage.id, "stage");
-        assert!(!stage.track.open_end && stage.end.is_none());
-        assert!(stage.track.road_end().is_finite());
+        assert!(stage.track.open_end && stage.end_road == Some(3));
         assert!(stage.track.length > 5000.0 && stage.track.length < 6500.0);
+        let pesc = &t.branches[2];
+        assert_eq!(pesc.id, "pescadero-creek");
+        assert!(pesc.track.open_end && pesc.end_road == Some(0));
+        assert!(pesc.track.length > 9000.0 && pesc.track.length < 11_500.0);
         // The fog: the sky key's on the coast, the ridge's on Skyline,
         // blended between.
         let (coast, _) = t.fog_at(t.zones[0].s0 + 2000.0, 0.00038);
@@ -880,8 +1034,8 @@ mod tests {
         assert!(mid > 0.0007 && mid < 0.0013, "{mid}");
     }
 
-    /// The plan's events and the delivery, in lap order, each on the
-    /// corridor it runs.
+    /// The plan's events across the loop, the coast, the ridge and the
+    /// city, each on the corridor it runs.
     #[test]
     fn the_events_sit_on_their_roads() {
         let lv = level();
@@ -894,15 +1048,28 @@ mod tests {
                 "pumpkin-run",
                 "skyline-dawn",
                 "redwood-descent",
-                "store-run"
+                "store-run",
+                "devils-slide-run",
+                "tunitas-climb",
+                "crystal-springs-run",
+                "kings-road",
+                "ferry-express",
             ]
         );
         for e in &lv.events {
+            let r = t.road_index(e.road).expect(e.id);
+            let rt = t.road(r);
             eprintln!(
-                "{} {:?}: s {:.0} finish {:.0} time {} drop {:?}",
-                e.id, e.kind, e.s, e.finish, e.time, e.drop
+                "{} {:?} on road {r} ({}): s {:.0} finish {:.0} / {:.0} time {} drop {:?}",
+                e.id, e.kind, e.road, e.s, e.finish, rt.length, e.time, e.drop
             );
-            assert!(e.s > 0.0 && e.s < t.length, "{}", e.id);
+            assert!(e.s > 0.0 && e.s < rt.length, "{}", e.id);
+            if !rt.is_loop {
+                assert!(e.finish > 0.0 && e.finish < rt.length, "{}", e.id);
+            }
+            if e.kind != EventKind::Delivery {
+                assert!(e.finish > e.s + 500.0, "{}", e.id);
+            }
         }
         let zone = |s: f64| t.frame(s).zone;
         assert_eq!(
@@ -912,12 +1079,22 @@ mod tests {
         assert_eq!(zone(lv.events[1].s), 2);
         assert_eq!(zone(lv.events[2].s), 3);
         assert_eq!(zone(lv.events[4].s), 1, "the garage is in town");
-        // The drop is on Stage Road, by its mouth.
+        // The store delivery's drop is on Stage Road, by its mouth.
         let d = lv.events[4].drop.unwrap();
         let stage = &t.branches[1].track;
         let q = stage.project(d[0], d[1], STORE_IN);
         assert!(q.lat.abs() < 1.0 && q.s < 100.0, "{q:?}");
         assert!(lv.events[4].time > 200.0 && lv.events[4].time < 500.0);
+        // The Ferry Express drop sits on The Embarcadero at the Ferry Building.
+        let fd = lv.events[9].drop.unwrap();
+        let emb_r = t.road_index("sf-embarcadero").unwrap();
+        let emb = t.road(emb_r);
+        let fq = emb.project(fd[0], fd[1], emb.length * 0.5);
+        assert!(
+            fq.lat.abs() < 4.0 && fq.s > 200.0 && fq.s < emb.length,
+            "{fq:?}"
+        );
+        assert!(lv.events[9].time > 100.0 && lv.events[9].time < 300.0);
     }
 
     #[test]
