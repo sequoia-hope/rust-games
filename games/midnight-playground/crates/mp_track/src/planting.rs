@@ -524,6 +524,20 @@ impl Planting {
             }
             let mut s = 0.0;
             while s < road.length {
+                let c = (s as usize) / crate::CHUNK_SAMPLES;
+                let chunk_end = ((c + 1) * crate::CHUNK_SAMPLES) as f64;
+                if chunk_end <= road.length
+                    && let Some(cb) = road.chunk_bounds.get(c)
+                    && (cb[1] < x0 - pad - 1e-3
+                        || cb[0] > x1 + pad + 1e-3
+                        || cb[3] < z0 - pad - 1e-3
+                        || cb[2] > z1 + pad + 1e-3)
+                {
+                    let step = POST * 8.0;
+                    let steps = ((chunk_end - s) / step).ceil().max(1.0);
+                    s += steps * step;
+                    continue;
+                }
                 let f = road.frame(s);
                 // Only the road near the box matters.
                 if f.x < x0 - pad || f.x > x1 + pad || f.z < z0 - pad || f.z > z1 + pad {
@@ -698,10 +712,10 @@ fn choose(cover: Cover, d: f64, clump: f64, r: f64) -> Option<Kind> {
 /// The roads near (x, z), each's distance from (x, z) and frame there:
 /// across from the road, or past an open end from the end itself.
 fn each_road(t: &Track, x: f64, z: f64, radius: f64, mut f: impl FnMut(f64, f64, &crate::Frame)) {
-    for r in t.net.roads_near(x, z, radius + 2.0) {
+    t.net.for_each_road_near(x, z, radius + 2.0, |r| {
         let rt = t.road(r);
         let d = rt.distance_to_road(x, z, radius);
-        let Some(s) = d.s else { continue };
+        let Some(s) = d.s else { return true };
         let inside = rt.is_loop || (0.0..=rt.length).contains(&s);
         let fr = rt.frame(if rt.is_loop {
             rt.wrap(s)
@@ -714,7 +728,8 @@ fn each_road(t: &Track, x: f64, z: f64, radius: f64, mut f: impl FnMut(f64, f64,
             kernel::hypot(x - fr.x, z - fr.z)
         };
         f(dd, d.lat, &fr);
-    }
+        true
+    });
 }
 
 /// How far (x, z) lies outside the nearest road of the network, from its

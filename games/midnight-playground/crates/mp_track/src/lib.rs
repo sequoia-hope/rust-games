@@ -22,7 +22,7 @@ pub use network::{Junction, JunctionKind, NetIndex};
 pub use props::{PropPush, Props, Shape, Solid};
 pub use road_types::{ROAD_TYPES, RoadType, road_index, road_type};
 pub use track::{
-    BRANCH_FIT, BRANCH_LIFT, Bounds, BranchTrack, EDGE_RUN, FOG_BLEND, FenceGap, Frame, KERB,
-    KERB_RUN, OPEN_BAND, OPEN_DROP, OPEN_POW, OPEN_R0, Projection, RUNOFF_FLAT, RoadDistance, Tag,
-    Track, TrackZone, WALK, WALK_RUN, fog_drift, trapezoid, zone_fog,
+    BRANCH_FIT, BRANCH_LIFT, Bounds, BranchTrack, CHUNK_SAMPLES, EDGE_RUN, FOG_BLEND, FenceGap,
+    Frame, KERB, KERB_RUN, OPEN_BAND, OPEN_DROP, OPEN_POW, OPEN_R0, Projection, RUNOFF_FLAT,
+    RoadDistance, Tag, Track, TrackZone, WALK, WALK_RUN, fog_drift, trapezoid, zone_fog,
 };
