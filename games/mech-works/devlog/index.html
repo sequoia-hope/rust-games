@@ -27,6 +27,34 @@
 <h1>MECH WORKS</h1>
 <p class="sub">Dev log: what was built, what was found, what is next. Newest first. Spec: <code>docs/SPEC.md</code>.</p>
 
+<article id="2026-10-27-level-polish">
+<h2>The level: light from behind, solid hills, gamepads, and how badly the mech turns</h2>
+<time>2026-10-27</time>
+
+<p><b>Too dark.</b> The sun stood in the east, the way the level walks, so everything ahead of the pilot (the pass's spurs, the rubble, the mech's own back in third person) faced away from it and showed only the sky fill. In the level the sun now stands high behind the base, over the pilot's shoulder (<code>scene::LEVEL_SUN_DIR</code>), the sky fill moves opposite it, and the ambient light is brighter (520, from 280). The other modes keep their light.</p>
+<img src="img/2026-10-27-level-before-third.jpg" alt="Before: the spurs and the mech's back dark against the light">
+<p class="cap">Before: walking toward the sun. The spurs, the boulders and the mech's back are in their own shade.</p>
+<img src="img/2026-10-27-level-after-third.jpg" alt="After: the same view lit from behind">
+<p class="cap">After: the same view, the sun behind the base.</p>
+
+<p><b>The dune you could walk through.</b> The sandy slope north of the route is the near hillside's toe: it starts at z 13.5 and is already more than a metre high well before the play area's invisible wall at z 21, and it had no collider (nor did the far ridge's toe, nor the boulders washed out at its fans). The hillsides' heights now come from one place (<code>scene::hills()</code>, eroded once) for both the mesh and, in the level, a Rapier height field of the same heights; the fan boulders (<code>scene::boulders()</code>) are fixed convex hulls of their meshes' shape. A test drops boxes on the highest toe inside the play area and on the biggest boulder and checks they land on them. The policy still cannot see the hills (its height scan reads the flat ground under them), so climbing one is likely to stumble it, but it no longer walks through them. The third-person camera stays above the hills too.</p>
+<img src="img/2026-10-27-level-after-first.jpg" alt="From the cockpit: the route east, the pass lit">
+<p class="cap">From the cockpit, after. The slope on the right is now solid.</p>
+
+<p><b>Gamepads</b> (<code>gamepad.rs</code>): read from the browser's Gamepad API on the web, gilrs natively. Left stick (or d-pad) walks and turns, the right trigger or a click of the left stick walks faster, the right stick looks; A or RB works the blade, Y changes the view, a click of the right stick looks ahead again, Back starts over, Start pauses. Like the keys, the stick owns the walk command only while in use, so the page's sliders still work.</p>
+
+<h3>Does the walk reward turning?</h3>
+<p>Yes, but weakly. The reward tracks the yaw rate with <code>0.6·exp(−(ω<sub>cmd</sub>−ω)²/0.25)</code> beside <code>2.0·exp(−|v<sub>cmd</sub>−v|²/0.25)</code> for speed. Commands only go up to ±0.4 rad/s, and with that kernel a mech that does not turn at all still collects 53% of the yaw term, so turning is worth at most about 0.28 of the 3.5 or so a step earns. The eval now asks for a turn too (<code>YAW=0.4</code>) and measures it along the heading:</p>
+<table>
+<tr><th>Asked</th><th>Got (nominal body)</th><th>Got (random bodies)</th></tr>
+<tr><td>1.0 m/s, no turn</td><td>0.96 m/s</td><td>0.94 m/s, 1/16 fell</td></tr>
+<tr><td>1.0 m/s, 0.4 rad/s</td><td>0.98 m/s, <b>0.11 rad/s</b></td><td>0.93 m/s, 0.14 rad/s, 2/16 fell</td></tr>
+<tr><td>1.5 m/s, no turn</td><td>1.32 m/s</td><td>1.31 m/s, 1/16 fell</td></tr>
+<tr><td>1.5 m/s, 0.4 rad/s</td><td>1.37 m/s, <b>0.10 rad/s</b></td><td>1.32 m/s, 0.11 rad/s, 1/16 fell</td></tr>
+</table>
+<p>So it turns at a quarter of what it is asked, and tops out near 1.3 m/s. The fix is a retrain (a fine-tune from <code>teacher-v3</code>, then the estimator again): a heavier, sharper yaw term, a wider yaw range in the commands (the keys ask for 0.4 rad/s, a pilot wants more), and a higher top speed. Not started here.</p>
+</article>
+
 <article id="2026-10-25-level">
 <h2>The first level: a landslide across the route</h2>
 <time>2026-10-25</time>
