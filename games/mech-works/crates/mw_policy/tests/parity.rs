@@ -107,9 +107,9 @@ fn deterministic_replay_and_terrain_path_walk() {
 
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/policies");
     let mut policy =
-        Policy::from_bytes(&std::fs::read(dir.join("teacher-v3.bin")).unwrap()).unwrap();
+        Policy::from_bytes(&std::fs::read(dir.join("teacher-v4.bin")).unwrap()).unwrap();
     let mut est =
-        Estimator::from_bytes(&std::fs::read(dir.join("teacher-v3.estimator.bin")).unwrap())
+        Estimator::from_bytes(&std::fs::read(dir.join("teacher-v4.estimator.bin")).unwrap())
             .unwrap();
 
     // 1. Deterministic replay check: two runs from the same seed and body produce

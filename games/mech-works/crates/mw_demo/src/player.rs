@@ -28,9 +28,9 @@ use crate::view::LinkView;
 /// Walk speeds the keys ask for, m/s, and the turn rate, rad/s (the
 /// policy's command range).
 const WALK: f32 = 1.0;
-const RUN: f32 = 1.5;
+const RUN: f32 = 2.0;
 const BACK: f32 = -0.3;
-const TURN: f32 = 0.4;
+const TURN: f32 = 0.8;
 
 /// How fast the right stick looks, rad/s at full tilt.
 const PAD_LOOK: Vec2 = Vec2::new(2.4, 1.6);

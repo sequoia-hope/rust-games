@@ -220,9 +220,14 @@ impl Env {
         if r.f32() < 0.1 {
             return Command::default();
         }
+        let yaw = r.range(-0.9, 0.9) * s.min(1.0);
+        // Some turns on the spot, which a walk forward never teaches.
+        if r.f32() < 0.1 {
+            return Command { forward: 0.0, yaw };
+        }
         Command {
-            forward: r.range(-0.3 * s, 1.5 * s),
-            yaw: r.range(-0.4, 0.4) * s.min(1.0),
+            forward: r.range(-0.3 * s, 2.0 * s),
+            yaw,
         }
     }
 
@@ -474,6 +479,7 @@ impl Env {
 
         let cmd = self.command;
         let lin_err = (cmd.forward - vf).powi(2) + vs * vs;
+        let yaw_err = (cmd.yaw - yaw_rate).powi(2);
         let feet = self.feet();
         let contacts = self.sim.foot_contacts();
         let desired = self.desired_stance();
@@ -526,8 +532,11 @@ impl Env {
 
         let dt = POLICY_DT;
         let terms = [
-            2.0 * (-lin_err / 0.25).exp(),
-            0.6 * (-(cmd.yaw - yaw_rate).powi(2) / 0.25).exp(),
+            // Each tracking term is a broad kernel, which still pulls when far
+            // off, plus a sharp one, which pays only for being close: with the
+            // broad one alone a mech that never turned kept half the yaw term.
+            2.0 * (-lin_err / 0.25).exp() + 0.6 * (-lin_err / 0.04).exp(),
+            0.6 * (-yaw_err / 0.25).exp() + 1.0 * (-yaw_err / 0.04).exp(),
             -(v_world.y * v_world.y),
             -0.05 * (w.x * w.x + w.z * w.z),
             -5.0 * (g.x * g.x + g.z * g.z),

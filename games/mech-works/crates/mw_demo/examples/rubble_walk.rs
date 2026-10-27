@@ -13,7 +13,7 @@ fn main() {
     let blob = args.first().cloned().unwrap_or_else(|| {
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/policies/teacher-v3.bin"
+            "/../../assets/policies/teacher-v4.bin"
         )
         .into()
     });
@@ -53,7 +53,7 @@ fn main() {
         let want = (-(mw_demo::level::ROUTE_Z - p.z)).atan2(2.5 * dir);
         let err = (want - heading + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
             - std::f32::consts::PI;
-        lane.env.command.yaw = (1.5 * err).clamp(-0.4, 0.4);
+        lane.env.command.yaw = (1.5 * err).clamp(-0.8, 0.8);
         // Facing well away from where it should go: turn nearly in place.
         lane.env.command.forward = if err.abs() > 0.8 { 0.15 } else { 1.0 };
         level.attach(lane);
