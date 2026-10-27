@@ -234,6 +234,8 @@ pub struct World {
     /// Build only a section of the level (the menu's flyover, D740):
     /// `None` builds it whole, as the JS does ([`crate::section`]).
     pub section: Option<crate::section::Section>,
+    /// Optional shared lazy `(side_l, side_r)` cache per road of the network.
+    pub road_sides: Option<crate::road::SharedRoadSides>,
 }
 
 impl World {
@@ -265,6 +267,7 @@ impl World {
             level_data: None,
             on_countdown: None,
             section: None,
+            road_sides: None,
         }
     }
 

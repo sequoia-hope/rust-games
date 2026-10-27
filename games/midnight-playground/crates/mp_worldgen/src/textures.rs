@@ -12,7 +12,8 @@
 // Index loops stay index loops (DECISIONS D52).
 #![allow(clippy::needless_range_loop)]
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
 
 use mp_scene::{TextureDesc, TextureSource, three};
 use pk_canvas::Canvas;
@@ -95,10 +96,14 @@ impl Texture {
     }
 }
 
+/// Shared deterministic picture cache across streamed sections of a [`crate::stream::Planned`] world.
+pub type SharedTextures = Arc<Mutex<BTreeMap<String, Arc<Cached>>>>;
+
 /// The module's cache: one texture per key, in the order made.
 #[derive(Default)]
 pub struct TextureCache {
     entries: Vec<(String, Arc<Cached>)>,
+    shared: Option<SharedTextures>,
 }
 
 /// What a generator returns.
@@ -131,6 +136,14 @@ impl TextureCache {
         TextureCache::default()
     }
 
+    /// Creates a cache backed by a cross-section [`SharedTextures`] store.
+    pub fn with_shared(shared: SharedTextures) -> TextureCache {
+        TextureCache {
+            entries: Vec::new(),
+            shared: Some(shared),
+        }
+    }
+
     /// The cached picture under `key`, made by `make` the first time: for
     /// the caches other texture modules keep (`city/cityTextures.js`), under
     /// keys of their own.
@@ -140,17 +153,37 @@ impl TextureCache {
 
     /// The cached picture under `key`, if made.
     pub fn lookup(&self, key: &str) -> Option<Arc<Cached>> {
-        self.entries
-            .iter()
-            .find(|(k, _)| k == key)
-            .map(|(_, v)| v.clone())
+        if let Some((_, v)) = self.entries.iter().find(|(k, _)| k == key) {
+            return Some(v.clone());
+        }
+        if !key.starts_with("sign:")
+            && let Some(sh) = &self.shared
+            && let Some(v) = sh.lock().expect("shared textures lock").get(key)
+        {
+            return Some(v.clone());
+        }
+        None
     }
 
     fn cached(&mut self, key: String, make: impl FnOnce() -> Cached) -> Arc<Cached> {
         if let Some((_, v)) = self.entries.iter().find(|(k, _)| *k == key) {
             return v.clone();
         }
+        let shareable = !key.starts_with("sign:");
+        if shareable
+            && let Some(sh) = &self.shared
+            && let Some(v) = sh.lock().expect("shared textures lock").get(&key).cloned()
+        {
+            self.entries.push((key, v.clone()));
+            return v;
+        }
         let v = Arc::new(make());
+        if shareable && let Some(sh) = &self.shared {
+            sh.lock()
+                .expect("shared textures lock")
+                .entry(key.clone())
+                .or_insert_with(|| v.clone());
+        }
         self.entries.push((key, v.clone()));
         v
     }

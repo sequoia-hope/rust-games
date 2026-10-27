@@ -22,7 +22,7 @@
 //! `f64`, so the arithmetic matches the JS bit for bit.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use mp_track::level::GroundFn;
 use mp_track::{Level, OPEN_BAND, OPEN_POW, OPEN_R0, RUNOFF_FLAT, Track};
@@ -342,6 +342,7 @@ pub struct Terrain {
     near_grid: Arc<NearGrid>,
     open: Option<Vec<Open>>,
     cw: Option<CanyonWidths>,
+    tiles_cache: Arc<OnceLock<Vec<Tile>>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -454,7 +455,13 @@ impl Terrain {
             near_grid: Arc::default(),
             open: None,
             cw: None,
+            tiles_cache: Arc::default(),
         })
+    }
+
+    /// Drops the cached [`Terrain::tile_list`] when bounds or fields change.
+    pub fn invalidate_tiles(&mut self) {
+        self.tiles_cache = Arc::default();
     }
 
     /// Zone boundary x positions (Level 1 scenery reads these by name).
@@ -765,6 +772,7 @@ impl Terrain {
 
     /// `buildFields()`.
     pub fn build_fields(&mut self, t: &Track) {
+        self.tiles_cache = Arc::default();
         // Far field.
         let fw = js::round((self.max_x - self.min_x) / FAR) as usize + 1;
         let fh = js::round((self.max_z - self.min_z) / FAR) as usize + 1;
@@ -1095,6 +1103,27 @@ impl Terrain {
         }
     }
 
+    /// Bilinear far-field distance `d` alone (for callers that do not read
+    /// `y`, `s`, `side`, `lat` or `open`).
+    pub fn far_d(&self, x: f64, z: f64) -> f64 {
+        let f = &self.far;
+        let gx = clamp((x - self.min_x) / FAR, 0.0, f.fw as f64 - 1.001);
+        let gz = clamp((z - self.min_z) / FAR, 0.0, f.fh as f64 - 1.001);
+        let i = gx.floor();
+        let j = gz.floor();
+        let tx = gx - i;
+        let tz = gz - j;
+        let k00 = j as usize * f.fw + i as usize;
+        let k10 = k00 + 1;
+        let k01 = k00 + f.fw;
+        let k11 = k01 + 1;
+        lerp(
+            lerp(f64::from(f.fd[k00]), f64::from(f.fd[k10]), tx),
+            lerp(f64::from(f.fd[k01]), f64::from(f.fd[k11]), tx),
+            tz,
+        )
+    }
+
     // ── Landforms per zone ─────────────────────────────────────────
 
     /// `landform(x, z)`: the zones' landforms blended by x.
@@ -1111,7 +1140,23 @@ impl Terrain {
             return g(x, z);
         }
         let w = self.zone_weights(x);
-        let detail = fbm(&self.noise2, x / 90.0, z / 90.0, 3) * 3.0;
+        let needs_detail = (0..w.n).any(|k| {
+            w.w[k] > 0.001
+                && matches!(
+                    self.forms[k],
+                    Form::Mountain
+                        | Form::Valley
+                        | Form::Coast
+                        | Form::Beach
+                        | Form::Canyon
+                        | Form::Desert
+                )
+        });
+        let detail = if needs_detail {
+            fbm(&self.noise2, x / 90.0, z / 90.0, 3) * 3.0
+        } else {
+            0.0
+        };
         let mut h = 0.0;
         for k in 0..w.n {
             if w.w[k] > 0.001 {
@@ -1173,24 +1218,36 @@ impl Terrain {
         let wall = (18.0 + 150.0 * (1.0 - kernel::exp(-d / 90.0))) * (0.62 + 0.7 * rocky);
         let drop = -130.0 * (1.0 - kernel::exp(-d / 160.0)) * (0.7 + 0.5 * rocky);
         let local = lerp(wall, drop, open);
-        let rp = ridged_with(n, x / 1900.0 + 3.3, z / 1900.0, 5, 2.0, 0.45);
-        let peaks = smoothstep(250.0, 1600.0, d)
-            * (180.0 + 420.0 * rp * rp * 1.6 + 120.0 * fbm(n2, x / 2500.0, z / 2500.0, 3));
+        let sp = smoothstep(250.0, 1600.0, d);
+        let peaks = if sp > 0.0 {
+            let rp = ridged_with(n, x / 1900.0 + 3.3, z / 1900.0, 5, 2.0, 0.45);
+            sp * (180.0 + 420.0 * rp * rp * 1.6 + 120.0 * fbm(n2, x / 2500.0, z / 2500.0, 3))
+        } else {
+            0.0
+        };
         f.y + local * (1.0 - smoothstep(600.0, 1400.0, d)) + peaks + detail * 2.0
     }
 
     pub fn form_valley(&self, x: f64, z: f64, f: &FarSample, detail: f64) -> f64 {
         let (n, d) = (&self.noise, f.d);
         let roll = fbm(n, x / 380.0, z / 380.0, 3) * 7.0 * smoothstep(15.0, 90.0, d);
-        let hills = smoothstep(260.0, 1500.0, d)
-            * (40.0 + 380.0 * ridged(n, x / 1700.0 + 9.1, z / 1700.0, 5));
+        let sh = smoothstep(260.0, 1500.0, d);
+        let hills = if sh > 0.0 {
+            sh * (40.0 + 380.0 * ridged(n, x / 1700.0 + 9.1, z / 1700.0, 5))
+        } else {
+            0.0
+        };
         f.y - 1.2 + roll + hills + detail * 0.4
     }
 
     pub fn form_city(&self, x: f64, z: f64, f: &FarSample, _detail: f64, k: usize) -> f64 {
         let (n, d) = (&self.noise, f.d);
-        let hills = smoothstep(1300.0, 2600.0, d)
-            * (90.0 + 320.0 * ridged(n, x / 1500.0 + 4.2, z / 1500.0, 4));
+        let sh = smoothstep(1300.0, 2600.0, d);
+        let hills = if sh > 0.0 {
+            sh * (90.0 + 320.0 * ridged(n, x / 1500.0 + 4.2, z / 1500.0, 4))
+        } else {
+            0.0
+        };
         self.flat_y[k].unwrap_or(f64::NAN) - 0.25 + hills
     }
 
@@ -1214,10 +1271,15 @@ impl Terrain {
         // (Sea stacks and arches are placed as meshes by Coast.js.)
         let hs = lerp(f.y - 1.0, floor, cliff) + detail * 1.5 * cliff;
         let rocky = 0.5 + 0.5 * fbm(n, x / 300.0, z / 300.0, 3);
+        let sh = smoothstep(400.0, 1800.0, d);
+        let hills = if sh > 0.0 {
+            sh * (120.0 + 260.0 * ridged(n, x / 1500.0 + 2.2, z / 1500.0, 5))
+        } else {
+            0.0
+        };
         let hl = f.y
             + (10.0 + 150.0 * (1.0 - kernel::exp(-d / 140.0))) * (0.55 + 0.8 * rocky)
-            + smoothstep(400.0, 1800.0, d)
-                * (120.0 + 260.0 * ridged(n, x / 1500.0 + 2.2, z / 1500.0, 5))
+            + hills
             + detail * 2.0;
         lerp(hl, hs, self.sea_side(f))
     }
@@ -1230,10 +1292,13 @@ impl Terrain {
         let sand = smoothstep(16.0, 150.0, d);
         let hs = lerp(f.y - 1.6, sea - 2.5, sand) - 9.0 * smoothstep(160.0, 520.0, d)
             + fbm(n2, x / 40.0, z / 40.0, 2) * 0.35 * sand;
-        let hl = f.y - 0.4
-            + smoothstep(420.0, 1600.0, d)
-                * (60.0 + 240.0 * ridged(n, x / 1400.0 + 5.1, z / 1400.0, 5))
-            + detail * 0.3 * smoothstep(300.0, 500.0, d);
+        let sh = smoothstep(420.0, 1600.0, d);
+        let hills = if sh > 0.0 {
+            sh * (60.0 + 240.0 * ridged(n, x / 1400.0 + 5.1, z / 1400.0, 5))
+        } else {
+            0.0
+        };
+        let hl = f.y - 0.4 + hills + detail * 0.3 * smoothstep(300.0, 500.0, d);
         lerp(hl, hs, self.sea_side(f))
     }
 
@@ -1244,9 +1309,12 @@ impl Terrain {
         let sea = self.sea_y.unwrap_or(0.0);
         let water = sea - 14.0;
         let mut h = self.flat_y[k].unwrap_or(f64::NAN) - 0.3;
-        h += (1.0 - self.sea_side(f))
-            * smoothstep(900.0, 2200.0, d)
-            * (100.0 + 220.0 * ridged(n, x / 1600.0 + 8.8, z / 1600.0, 5));
+        let sh = smoothstep(900.0, 2200.0, d);
+        if sh > 0.0 {
+            h += (1.0 - self.sea_side(f))
+                * sh
+                * (100.0 + 220.0 * ridged(n, x / 1600.0 + 8.8, z / 1600.0, 5));
+        }
         h = lerp(h, water, smoothstep(175.0, 195.0, d) * self.sea_side(f));
         for c in &self.channels {
             let m = smoothstep(c.s0, c.s0 + 90.0, f.s) * (1.0 - smoothstep(c.s1 - 90.0, c.s1, f.s));
@@ -1258,8 +1326,12 @@ impl Terrain {
     /// Downtown Streets: the level's own ground function (level.ground(x, z)).
     pub fn form_streets(&self, x: f64, z: f64, f: &FarSample) -> f64 {
         let d = f.d;
-        let hills = smoothstep(1200.0, 2400.0, d)
-            * (60.0 + 260.0 * ridged(&self.noise, x / 1500.0 + 6.1, z / 1500.0, 4));
+        let sh = smoothstep(1200.0, 2400.0, d);
+        let hills = if sh > 0.0 {
+            sh * (60.0 + 260.0 * ridged(&self.noise, x / 1500.0 + 6.1, z / 1500.0, 4))
+        } else {
+            0.0
+        };
         (match &self.ground {
             Some(g) => g(x, z),
             None => f.y,
@@ -1394,10 +1466,14 @@ impl Terrain {
             * smoothstep(0.15, 0.6, fbm(n, x / 230.0 + 1.7, z / 230.0 - 2.3, 2))
             * smoothstep(reach, reach + 60.0, u);
         // Beyond the rim: benchland rising in steps toward the far ranges.
-        wall += smoothstep(200.0, 900.0, d)
-            * (30.0 + 70.0 * (0.5 + 0.5 * fbm(n2, x / 900.0, z / 900.0, 3)));
-        wall += smoothstep(1300.0, 2600.0, d)
-            * (120.0 + 380.0 * ridged(n, x / 1700.0 + 6.6, z / 1700.0, 5));
+        let sb = smoothstep(200.0, 900.0, d);
+        if sb > 0.0 {
+            wall += sb * (30.0 + 70.0 * (0.5 + 0.5 * fbm(n2, x / 900.0, z / 900.0, 3)));
+        }
+        let sr = smoothstep(1300.0, 2600.0, d);
+        if sr > 0.0 {
+            wall += sr * (120.0 + 380.0 * ridged(n, x / 1700.0 + 6.6, z / 1700.0, 5));
+        }
         let y = f.y + wall + detail * 0.6;
         // Terrace the rock; the canyon floor stays smooth sand.
         let rock = smoothstep(3.0, 12.0, wall);
@@ -1414,8 +1490,13 @@ impl Terrain {
             + fbm(n, x / 380.0, z / 380.0, 3) * 4.5 * smoothstep(25.0, 140.0, d)
             + detail * 0.35 * smoothstep(20.0, 60.0, d);
         // Mesas: a thresholded noise field gives flat tops and sheer terraced sides.
-        let m = fbm(n2, x / 1100.0 + 17.3, z / 1100.0 - 4.2, 3);
-        let mesa = smoothstep(0.2, 0.3, m) * smoothstep(500.0, 800.0, d);
+        let sd = smoothstep(500.0, 800.0, d);
+        let mesa = if sd > 0.0 {
+            let m = fbm(n2, x / 1100.0 + 17.3, z / 1100.0 - 4.2, 3);
+            smoothstep(0.2, 0.3, m) * sd
+        } else {
+            0.0
+        };
         if mesa > 0.0 {
             let top = f.y + 70.0 + 90.0 * (0.5 + 0.5 * n.noise(x / 2300.0, z / 2300.0));
             let y = lerp(h, top, mesa);
@@ -1425,8 +1506,10 @@ impl Terrain {
                 smoothstep(0.05, 0.4, mesa) * (1.0 - smoothstep(0.9, 1.0, mesa)),
             );
         }
-        h += smoothstep(1500.0, 2800.0, d)
-            * (140.0 + 420.0 * ridged(n, x / 1600.0 + 2.7, z / 1600.0, 5));
+        let sr = smoothstep(1500.0, 2800.0, d);
+        if sr > 0.0 {
+            h += sr * (140.0 + 420.0 * ridged(n, x / 1600.0 + 2.7, z / 1600.0, 5));
+        }
         if let Some(r) = &self.desert_rail
             && f.s > r.s0
             && f.s < r.s1
@@ -1443,10 +1526,13 @@ impl Terrain {
         let (n, d) = (&self.noise, f.d);
         let shore = 700.0 + 500.0 * (0.5 + 0.5 * fbm(n, x / 1400.0 + 9.1, z / 1400.0, 2));
         let fan = smoothstep(shore, shore + 900.0, d);
-        f.y - 0.35
-            + fan * fan * 60.0
-            + smoothstep(shore + 500.0, shore + 2200.0, d)
-                * (160.0 + 420.0 * ridged(n, x / 1500.0 + 1.9, z / 1500.0, 5))
+        let sh = smoothstep(shore + 500.0, shore + 2200.0, d);
+        let hills = if sh > 0.0 {
+            sh * (160.0 + 420.0 * ridged(n, x / 1500.0 + 1.9, z / 1500.0, 5))
+        } else {
+            0.0
+        };
+        f.y - 0.35 + fan * fan * 60.0 + hills
     }
 
     /// Full terrain height at a world point.
@@ -1454,10 +1540,14 @@ impl Terrain {
         let mut h = self.landform(x, z);
         // Modifiers (farm pads, creek) act on the landform only.
         for f in &self.flattens {
+            let rad = f.r + f.falloff;
+            if (x - f.x).abs() >= rad || (z - f.z).abs() >= rad {
+                continue;
+            }
             let d = kernel::hypot(x - f.x, z - f.z);
-            if d < f.r + f.falloff {
+            if d < rad {
                 let target = f.y.or(f.y_resolved).unwrap_or(f64::NAN);
-                h = lerp(target, h, smoothstep(f.r, f.r + f.falloff, d));
+                h = lerp(target, h, smoothstep(f.r, rad, d));
             }
         }
         for c in &self.carves {
@@ -1465,7 +1555,50 @@ impl Terrain {
                 h -= Self::carve_depth(c, x, z);
             }
         }
+        h = self.blend_road(x, z, h);
+        for c in &self.carves {
+            if c.under_road {
+                h -= Self::carve_depth(c, x, z);
+            }
+        }
+        h
+    }
 
+    /// Full terrain height when the caller has already narrowed `flattens` and
+    /// `carves` to indices overlapping the query tile (in original order).
+    pub fn height_at_filtered(
+        &self,
+        x: f64,
+        z: f64,
+        flattens: &[usize],
+        carves_before: &[usize],
+        carves_after: &[usize],
+    ) -> f64 {
+        let mut h = self.landform(x, z);
+        for &fi in flattens {
+            let f = &self.flattens[fi];
+            let rad = f.r + f.falloff;
+            if (x - f.x).abs() >= rad || (z - f.z).abs() >= rad {
+                continue;
+            }
+            let d = kernel::hypot(x - f.x, z - f.z);
+            if d < rad {
+                let target = f.y.or(f.y_resolved).unwrap_or(f64::NAN);
+                h = lerp(target, h, smoothstep(f.r, rad, d));
+            }
+        }
+        for &ci in carves_before {
+            h -= Self::carve_depth(&self.carves[ci], x, z);
+        }
+        h = self.blend_road(x, z, h);
+        for &ci in carves_after {
+            h -= Self::carve_depth(&self.carves[ci], x, z);
+        }
+        h
+    }
+
+    #[inline]
+    fn blend_road(&self, x: f64, z: f64, mut h: f64) -> f64 {
         // Road influence (bilinear over near-field nodes).
         let gx = x / NEAR;
         let gz = z / NEAR;
@@ -1491,11 +1624,6 @@ impl Terrain {
         }
         if k > 0.0 && sw > 0.0 {
             h = lerp(h, swh / sw, k);
-        }
-        for c in &self.carves {
-            if c.under_road {
-                h -= Self::carve_depth(c, x, z);
-            }
         }
         h
     }
@@ -1582,6 +1710,12 @@ impl Terrain {
     /// Returns plain values per tile so the builder can run anywhere; the
     /// mesh side (`terrain_mesh`) turns them into geometry.
     pub fn tile_list(&self) -> Vec<Tile> {
+        self.tiles_cache
+            .get_or_init(|| self.compute_tile_list())
+            .clone()
+    }
+
+    fn compute_tile_list(&self) -> Vec<Tile> {
         let mut tiles = Vec::new();
         let nx = js::round((self.max_x - self.min_x) / TILE) as i64;
         let nz = js::round((self.max_z - self.min_z) / TILE) as i64;
@@ -1595,8 +1729,7 @@ impl Terrain {
                     for b in (0..=8).step_by(2) {
                         dmin = js::min(
                             dmin,
-                            self.far(x0 + f64::from(a) * 32.0, z0 + f64::from(b) * 32.0)
-                                .d,
+                            self.far_d(x0 + f64::from(a) * 32.0, z0 + f64::from(b) * 32.0),
                         );
                     }
                 }

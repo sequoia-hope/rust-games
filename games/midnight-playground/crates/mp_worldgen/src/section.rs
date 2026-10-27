@@ -101,6 +101,20 @@ impl Place {
                 let mut s = 0.5;
                 let mut open: Option<f64> = None;
                 while s < end {
+                    if open.is_none() {
+                        let c = (s as usize) / mp_track::CHUNK_SAMPLES;
+                        let s_next = ((c + 1) * mp_track::CHUNK_SAMPLES) as f64 + 0.5;
+                        if s_next <= t.length.min(end)
+                            && let Some(cb) = t.chunk_bounds.get(c)
+                            && (cb[1] < x0 - 1e-3
+                                || cb[0] >= x1 + 1e-3
+                                || cb[3] < z0 - 1e-3
+                                || cb[2] >= z1 + 1e-3)
+                        {
+                            s = s_next;
+                            continue;
+                        }
+                    }
                     let f = t.frame(s);
                     let a = s - 0.5;
                     let here = f.x >= x0 && f.x < x1 && f.z >= z0 && f.z < z1;
@@ -690,24 +704,13 @@ pub fn clear_branch_tarmac(w: &mut World) {
         .branches
         .iter()
         .map(|b| {
-            let mut bx = [
-                f64::INFINITY,
-                f64::INFINITY,
-                f64::NEG_INFINITY,
-                f64::NEG_INFINITY,
-            ];
-            let mut s = 0.0;
-            while s <= b.track.length {
-                let f = b.track.frame(s);
-                bx = [
-                    bx[0].min(f.x),
-                    bx[1].min(f.z),
-                    bx[2].max(f.x),
-                    bx[3].max(f.z),
-                ];
-                s += 5.0;
-            }
-            [bx[0] - 20.0, bx[1] - 20.0, bx[2] + 20.0, bx[3] + 20.0]
+            let tb = b.track.bounds;
+            [
+                tb.min_x - 20.0,
+                tb.min_z - 20.0,
+                tb.max_x + 20.0,
+                tb.max_z + 20.0,
+            ]
         })
         .collect();
     let on_branch = |v: &Vector3| {
