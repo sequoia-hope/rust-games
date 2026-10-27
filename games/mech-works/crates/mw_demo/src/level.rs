@@ -29,7 +29,10 @@ use bevy::math::Affine2;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use mw_sim::env::POLICY_DT;
-use mw_sim::rapier3d::prelude::{PhysicsWorld, Vector};
+use mw_sim::rapier3d::prelude::{
+    Array2, ColliderBuilder, Group, InteractionGroups, InteractionTestMode, PhysicsWorld, Pose,
+    RigidBodyBuilder, Rotation, Vector,
+};
 use mw_sim::rng::Rng;
 use mw_sim::rubble::{Rubble, Volume, Wall};
 use mw_sim::sim::{self, BodyPose};
@@ -201,7 +204,8 @@ impl Level {
         self.left > 0
     }
 
-    /// Puts the walls and the rubble into the lane's world, once per world.
+    /// Puts the walls, the hills, the boulders at their toe and the rubble
+    /// into the lane's world, once per world.
     pub fn attach(&mut self, lane: &mut Lane) {
         if self.attached == Some(lane.generation) {
             return;
@@ -211,6 +215,7 @@ impl Level {
         for w in walls() {
             w.insert(world, friction);
         }
+        insert_scenery(world, friction);
         self.rubble.insert(world, friction);
         self.attached = Some(lane.generation);
     }
@@ -345,7 +350,7 @@ impl Level {
         let (title, hint) = match self.stage {
             Stage::Leave => (
                 "Leave the base".to_string(),
-                "Walk out along the orange posts. W to walk, A/D to turn, V to change the view."
+                "Walk out along the orange posts. W to walk, A/D to turn, V to change the view (on a gamepad: the left stick walks and turns, the right stick looks, Y changes the view)."
                     .to_string(),
             ),
             Stage::Travel => (
@@ -358,7 +363,7 @@ impl Level {
                     self.left,
                     if self.left == 1 { "rock" } else { "rocks" }
                 ),
-                "Shove the rocks out of the route's lane (E or Space), through the pass or against its sides."
+                "Shove the rocks out of the route's lane (E or Space, A on a gamepad), through the pass or against its sides."
                     .to_string(),
             ),
             Stage::Done => (
@@ -390,6 +395,74 @@ fn torso_ground(lane: &Lane) -> ([f32; 3], [f32; 2]) {
     let f = t.rotation() * Vector::X;
     let l = f.x.hypot(f.z).max(1e-4);
     ([p.x, p.y, p.z], [f.x / l, f.z / l])
+}
+
+/// The scenery the mech can walk into: the hillsides either side of the lot
+/// (their toes reach into the play area well before the walls), as height
+/// fields of the very heights they are drawn with, and the boulders washed
+/// out at their fans. Fixed, like the walls.
+fn insert_scenery(world: &mut PhysicsWorld, friction: f32) {
+    let groups = InteractionGroups::new(Group::GROUP_2, Group::GROUP_1, InteractionTestMode::And);
+    for hill in crate::scene::hills() {
+        // Parry's height field: rows along z from its -z edge, columns
+        // along x, centred on its body.
+        let mut zx = Array2::zeros(hill.nz, hill.nx);
+        for row in 0..hill.nz {
+            let iz = if hill.dir_z > 0.0 {
+                row
+            } else {
+                hill.nz - 1 - row
+            };
+            for ix in 0..hill.nx {
+                zx[(row, ix)] = hill.h[iz * hill.nx + ix];
+            }
+        }
+        let cz = hill.start_z + 0.5 * hill.dir_z * hill.depth_z;
+        let body =
+            world.insert_body(RigidBodyBuilder::fixed().translation(Vector::new(0.0, 0.0, cz)));
+        world.insert_collider(
+            ColliderBuilder::heightfield(zx, Vector::new(hill.width_x, 1.0, hill.depth_z))
+                .friction(friction)
+                .collision_groups(groups),
+            Some(body),
+        );
+    }
+    // A boulder's mesh is a chipped unit icosahedron: its hull, scaled.
+    let phi = 0.5 * (1.0 + 5.0f32.sqrt());
+    let ico: Vec<Vec3> = [
+        [-1.0, phi, 0.0],
+        [1.0, phi, 0.0],
+        [-1.0, -phi, 0.0],
+        [1.0, -phi, 0.0],
+        [0.0, -1.0, phi],
+        [0.0, 1.0, phi],
+        [0.0, -1.0, -phi],
+        [0.0, 1.0, -phi],
+        [phi, 0.0, -1.0],
+        [phi, 0.0, 1.0],
+        [-phi, 0.0, -1.0],
+        [-phi, 0.0, 1.0],
+    ]
+    .map(|v| Vec3::from(v).normalize())
+    .to_vec();
+    for b in crate::scene::boulders() {
+        let pts: Vec<Vector> = ico
+            .iter()
+            .map(|v| Vector::from((*v * b.scale).to_array()))
+            .collect();
+        let Some(collider) = ColliderBuilder::convex_hull(&pts) else {
+            continue;
+        };
+        let [x, y, z, w] = b.rotation.to_array();
+        let body = world.insert_body(RigidBodyBuilder::fixed().pose(Pose::from_parts(
+            Vector::from(b.position.to_array()),
+            Rotation::from_xyzw(x, y, z, w),
+        )));
+        world.insert_collider(
+            collider.friction(friction).collision_groups(groups),
+            Some(body),
+        );
+    }
 }
 
 /// Lets a new pile fall and come to rest in a world of its own (the ground
@@ -907,6 +980,65 @@ mod tests {
         // The spurs reach the play area's edges: no way round.
         assert!(north.centre[2] + north.half[2] >= w[2].centre[2] - w[2].half[2] - 1e-4);
         assert!(south.centre[2] - south.half[2] <= w[3].centre[2] + w[3].half[2] + 1e-4);
+    }
+
+    /// The hills' toes and the boulders at them are solid: a ball dropped on
+    /// the highest ground the near hill reaches inside the play area, and
+    /// one on a boulder, land on them, not on the lot under them.
+    #[test]
+    fn the_hills_and_their_boulders_are_solid() {
+        let hill = &crate::scene::hills()[0];
+        let north_wall = walls()[2].centre[2] - walls()[2].half[2];
+        let mut best = (0.0, 0.0, 0.0);
+        let mut z = hill.start_z;
+        while z < north_wall {
+            for i in 0..200 {
+                let x = -60.0 + i as f32;
+                let h = hill.height(x, z);
+                if h > best.2 {
+                    best = (x, z, h);
+                }
+            }
+            z += 0.5;
+        }
+        // The dune the mech used to walk through.
+        assert!(best.2 > 1.0, "the toe only reaches {:.2} m", best.2);
+        let b = crate::scene::boulders()
+            .iter()
+            .max_by(|a, b| a.scale.y.total_cmp(&b.scale.y))
+            .unwrap();
+        let top = b.position.y + b.scale.y * 0.8;
+
+        let mut world = PhysicsWorld::new();
+        world.gravity = Vector::new(0.0, sim::GRAVITY, 0.0);
+        world.integration_parameters.dt = sim::DT;
+        Terrain::flat(400.0).insert(&mut world, 0.9);
+        insert_scenery(&mut world, 0.9);
+        let r = 0.2;
+        let ball = |world: &mut PhysicsWorld, x: f32, y: f32, z: f32| {
+            let h =
+                world.insert_body(RigidBodyBuilder::dynamic().translation(Vector::new(x, y, z)));
+            world.insert_collider(ColliderBuilder::cuboid(r, r, r).friction(1.0), Some(h));
+            h
+        };
+        let on_hill = ball(&mut world, best.0, best.2 + 1.0, best.1);
+        let on_rock = ball(&mut world, b.position.x, top + 1.0, b.position.z);
+        // Long enough to land (1 m takes 0.45 s), too short to slide far.
+        for _ in 0..(0.8 / sim::DT) as usize {
+            world.step();
+        }
+        let y = |h: mw_sim::rapier3d::prelude::RigidBodyHandle| world.bodies[h].translation().y;
+        assert!(
+            y(on_hill) > best.2 - 0.5,
+            "the ball fell through the hill to {:.2} (ground {:.2})",
+            y(on_hill),
+            best.2
+        );
+        assert!(
+            y(on_rock) > r + 0.1,
+            "the ball fell through the boulder to {:.2}",
+            y(on_rock)
+        );
     }
 
     /// The objective flow, driven without a policy: the mech is carried

@@ -8,7 +8,9 @@
 //! freely once the pointer is locked (a click on the game: the page asks
 //! for the lock on the web, the client grabs the cursor natively; Esc lets
 //! go). On a touch screen one finger looks, two pinch the third-person
-//! view, and the page's Walk sliders and buttons walk and shove.
+//! view, and the page's Walk sliders and buttons walk and shove. A gamepad
+//! does all of it (`gamepad` has the layout): the left stick walks and
+//! turns, the right stick looks.
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -19,6 +21,7 @@ use mw_sim::env::Command;
 
 use crate::Mode;
 use crate::camera::MainCamera;
+use crate::gamepad::{PadFrame, button};
 use crate::lanes::{Lanes, apply as apply_command};
 use crate::view::LinkView;
 
@@ -28,6 +31,9 @@ const WALK: f32 = 1.0;
 const RUN: f32 = 1.5;
 const BACK: f32 = -0.3;
 const TURN: f32 = 0.4;
+
+/// How fast the right stick looks, rad/s at full tilt.
+const PAD_LOOK: Vec2 = Vec2::new(2.4, 1.6);
 
 /// The cockpit, in the torso's frame: forward of its middle and above its
 /// top plate, m.
@@ -86,7 +92,7 @@ pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerView>().add_systems(
         Update,
         (
-            keys.before(crate::lanes::step_lanes),
+            (keys, pad).chain().before(crate::lanes::step_lanes),
             (look, follow, hide_own_hull)
                 .chain()
                 .after(crate::lanes::step_lanes),
@@ -145,7 +151,74 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, mut lanes: ResMut<Lanes>, mut view: Res
     }
 }
 
+/// The walk command from a pad's left stick (or d-pad): up walks, faster
+/// with the right trigger or the stick clicked, down backs, sideways turns.
+pub fn pad_command(p: &PadFrame) -> Command {
+    let mut s = p.left;
+    if p.held(button::UP) {
+        s.y = 1.0;
+    } else if p.held(button::DOWN) {
+        s.y = -1.0;
+    }
+    if p.held(button::LEFT) {
+        s.x = -1.0;
+    } else if p.held(button::RIGHT) {
+        s.x = 1.0;
+    }
+    let fast = if p.held(button::L3) { 1.0 } else { p.throttle };
+    Command {
+        forward: if s.y > 0.0 {
+            s.y * (WALK + (RUN - WALK) * fast)
+        } else {
+            -s.y * BACK
+        },
+        yaw: -s.x * TURN,
+    }
+}
+
+/// The pad's buttons and walking (the right stick looks, in `look`).
+fn pad(
+    p: Res<PadFrame>,
+    mut lanes: ResMut<Lanes>,
+    mut view: ResMut<PlayerView>,
+    mut walking: Local<bool>,
+) {
+    // Like the keys, the stick owns the command only while in use, and once
+    // more as it comes back to rest (to stop the mech).
+    let c = pad_command(&p);
+    let now = c != Command::default();
+    if (now || *walking) && c != lanes.command {
+        let v = serde_json::json!({"cmd": "walk", "forward": c.forward, "yaw": c.yaw});
+        apply_command(&mut lanes, &v);
+    }
+    *walking = now;
+    if p.held(button::SOUTH | button::RB)
+        && let Some(level) = &mut lanes.level
+    {
+        level.want_shove = true;
+    }
+    if p.just_pressed(button::NORTH) {
+        let first = !view.first_person;
+        apply(
+            &mut view,
+            &serde_json::json!({"cmd": "view", "first": first}),
+        );
+    }
+    if p.just_pressed(button::R3) {
+        view.look_yaw = 0.0;
+        view.look_pitch = if view.first_person { -0.12 } else { 0.0 };
+    }
+    if p.just_pressed(button::SELECT) {
+        lanes.reset_all();
+    }
+    if p.just_pressed(button::START) {
+        lanes.paused = !lanes.paused;
+    }
+}
+
 fn look(
+    time: Res<Time>,
+    pad: Res<PadFrame>,
     mut view: ResMut<PlayerView>,
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
@@ -159,6 +232,8 @@ fn look(
     {
         d += motion.delta * 0.0025;
     }
+    // The right stick, up to look up (the mouse's y is down).
+    d += Vec2::new(pad.right.x, -pad.right.y) * PAD_LOOK * time.delta_secs();
     let active: Vec<_> = touches.iter().collect();
     let mut zoom = match scroll.unit {
         MouseScrollUnit::Line => (-scroll.delta.y * 0.1).exp(),
@@ -227,7 +302,12 @@ fn follow(
         let p = 0.28 + view.look_pitch;
         let dir = Vec3::new(a.cos() * p.cos(), p.sin(), -a.sin() * p.cos());
         let eye = focus + dir * clear_distance(focus, dir, view.distance);
-        *tf = Transform::from_translation(Vec3::new(eye.x, eye.y.max(0.6), eye.z))
+        // Above the ground, the hills' toes included.
+        let ground = crate::scene::hills()
+            .iter()
+            .map(|h| h.height(eye.x, eye.z))
+            .fold(0.0, f32::max);
+        *tf = Transform::from_translation(Vec3::new(eye.x, eye.y.max(ground + 0.6), eye.z))
             .looking_at(focus, Vec3::Y);
     }
 }

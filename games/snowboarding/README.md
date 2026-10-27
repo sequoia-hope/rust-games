@@ -1,8 +1,9 @@
 # Snowboarding
 
-A 1080°-style snowboarding game in Rust, Bevy 0.19 and WebAssembly. Race a
-CPU rider down the mountain, or ride alone against the clock or for trick
-points. You can carve, ollie, spin, flip and grab, but you have to land it.
+A 1080°-style snowboarding game in Rust, Bevy 0.19 and WebAssembly. Drop in
+off the summit start ramp to race a CPU rider down the mountain, or ride alone
+against the clock or for trick points. You can carve, ollie, spin, flip and
+grab, but you have to land it.
 
 - **Match Race**: one on one against a CPU rider (who rubber-bands a little).
 - **Time Attack**: you and the clock, with checkpoint splits.
@@ -115,17 +116,19 @@ seen on.
 ## Layout
 
 - `crates/sb_sim`: the game with no engine. It holds course generation
-  (a winding centreline with a height function over (s, u)), rider physics
-  at a fixed 1/120 s tick, trick naming and scoring, CPU riders, and the race
-  session.
+  (a winding centreline with a height function over (s, u) and a steep summit
+  start ramp), rider physics at a fixed 1/120 s tick, trick naming and
+  scoring, CPU riders, and the race session (countdown, scripted start-ramp
+  drop-in, checkpoints and results).
 - `crates/sb_radio`: Ten-Eighty FM's announcers: the script, and the
   director that decides from the run's events when they speak and what
   about. Engine-free, tested on its own.
 - `crates/sb_game`: the Bevy client. It handles terrain meshing from the
   sim's height function, the sky, trees and gates, the rider's IK-posed
-  body, the chase camera, snow particles, the HUD and menus, input
-  (keyboard, gamepad, touch), captions, and Web Audio sound (effects, the
-  music worklet and the announcers' clips, ducking the music under them).
+  body, the intro/drop-in/chase camera, snow spray, falling snow and shader
+  wind streaks, the HUD and menus, input (keyboard, gamepad, touch),
+  captions, and Web Audio sound (effects, the music worklet and the
+  announcers' clips, ducking the music under them).
 - `xtask`: `cargo xtask web` builds the WebGPU and WebGL2 wasm files,
   wasm-opt, precompression and `build.json`.
 

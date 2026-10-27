@@ -368,13 +368,60 @@ fn every_course_and_mode_rides_and_quits() {
             h.seconds(4.5);
             assert!(
                 matches!(h.run_state(), Some(State::Running)),
-                "{course:?} {mode:?}: running after the countdown"
+                "{course:?} {mode:?}: running after the countdown and drop-in"
             );
             h.hold(KeyCode::ArrowLeft, 20);
             h.hold(KeyCode::Space, 30);
             h.seconds(1.0);
             h.quit();
         }
+    }
+}
+
+#[test]
+fn drop_in_screen_changes_pause_restart_and_quit() {
+    let mut h = Harness::query("");
+    for course in CourseId::ALL {
+        h.setup().course = course;
+        h.frames(2);
+        h.ride();
+        h.until(3.4, "entering the drop-in", |h| {
+            matches!(h.run_state(), Some(State::DropIn(_)))
+        });
+        h.frames(2);
+        assert_eq!(
+            h.app.world().resource::<crate::status::Status>().state,
+            "drop-in"
+        );
+        // Pause and resume mid-drop-in.
+        h.pause();
+        assert_eq!(
+            h.app.world().resource::<crate::status::Status>().state,
+            "paused"
+        );
+        h.key(KeyCode::Escape);
+        h.frames(2);
+        assert!(!h.paused());
+        // Let the drop-in finish and hand off to normal riding at speed.
+        h.until(1.5, "handing off to running", |h| {
+            h.run_state() == Some(State::Running)
+        });
+        let st = h.app.world().resource::<crate::status::Status>();
+        assert_eq!(st.state, "running");
+        assert!(
+            st.speed > 17.0,
+            "{course:?}: speed {} m/s after drop-in",
+            st.speed
+        );
+        // Restart into Countdown, enter DropIn again, and quit mid-drop-in.
+        h.pause();
+        h.keys(&[KeyCode::ArrowDown, KeyCode::Enter]);
+        h.frames(2);
+        assert!(matches!(h.run_state(), Some(State::Countdown(_))));
+        h.until(3.4, "re-entering the drop-in", |h| {
+            matches!(h.run_state(), Some(State::DropIn(_)))
+        });
+        h.quit();
     }
 }
 
