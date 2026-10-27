@@ -48,6 +48,8 @@ pub struct Route {
     pub from: String,
     pub via: Vec<String>,
     pub to: String,
+    /// Whether the route has been built into a playable road corridor.
+    pub built: bool,
     /// Game metres per real metre, when not the plan's.
     pub scale: Option<f64>,
     pub note: Option<String>,
@@ -166,6 +168,7 @@ impl Plan {
                 from: req(&r, "from", &format!("route `{id}`"))?,
                 via: strings(&r["via"]),
                 to: req(&r, "to", &format!("route `{id}`"))?,
+                built: r["built"].as_bool().unwrap_or(false),
                 scale: r["scale"].as_f64(),
                 note: text(&r, "note"),
                 id,
@@ -255,7 +258,8 @@ impl Plan {
         }
         for c in &self.circuits {
             for r in &c.routes {
-                route(r, &format!("circuit `{}`", c.id))?;
+                let id = r.strip_prefix('-').unwrap_or(r);
+                route(id, &format!("circuit `{}`", c.id))?;
             }
         }
         let mut ids: Vec<&str> = self

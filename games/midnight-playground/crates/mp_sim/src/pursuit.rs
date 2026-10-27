@@ -644,11 +644,19 @@ impl Pursuit {
     /// After collisions: pin the bodies to their track positions
     /// (`for (const u of pu.bodies()) u.writePos()`).
     pub fn write_pos(&mut self, t: &Track) {
-        for a in self.bodies() {
-            match a {
-                PAgent::Police(i) => self.police_mut(i).k.write_pos(t),
-                PAgent::Sawhorse(i) => self.sawhorses[i].write_pos(t),
-                PAgent::Other(_) => {}
+        for u in &mut self.units {
+            if u.active {
+                u.k.write_pos(t);
+            }
+        }
+        for u in &mut self.block_cars {
+            if u.active {
+                u.k.write_pos(t);
+            }
+        }
+        for s in &mut self.sawhorses {
+            if s.active && !s.broken {
+                s.write_pos(t);
             }
         }
     }
@@ -991,13 +999,14 @@ impl Pursuit {
         self.assign_behaviours(t, racers, rng);
         self.bust_meters(t, racers, dt);
 
+        let mut views: Vec<AgentView> = cars.iter().map(|a| self.view_of(a)).collect();
         let cap = self.player_top * HEAT[self.heat as usize].speed;
         for i in 0..self.units.len() {
             if !self.units[i].active {
                 continue;
             }
             self.units[i].cap = cap * self.units[i].spec.top;
-            self.update_police(t, dt, cars, racers, i);
+            self.update_police(t, dt, &mut views, racers, i);
             let u = &mut self.units[i];
             u.siren = match u.mode {
                 Mode::Parked => Siren::Off,
@@ -1019,7 +1028,7 @@ impl Pursuit {
         let n = self.units.len();
         for i in 0..self.block_cars.len() {
             if self.block_cars[i].active {
-                self.update_police(t, dt, cars, racers, n + i);
+                self.update_police(t, dt, &mut views, racers, n + i);
             }
         }
         for i in 0..self.sawhorses.len() {
@@ -1036,22 +1045,27 @@ impl Pursuit {
         &mut self,
         t: &Track,
         dt: f64,
-        cars: &[PAgent],
+        views: &mut [AgentView],
         racers: &dyn Racers,
         pi: usize,
     ) {
-        let views: Vec<AgentView> = cars.iter().map(|a| self.view_of(a)).collect();
         let me = views.iter().position(|v| v.id == BodyId::Police(pi));
         let target = self.police(pi).target.map(|ri| {
             let id = self.racers[ri].id;
             racers.body(id).view(id)
         });
         let ctx = PoliceCtx {
-            cars: &views,
+            cars: views,
             me,
             target,
         };
         self.police_mut(pi).update(t, dt, &ctx);
+        if let Some(m) = me {
+            views[m] = AgentView {
+                id: BodyId::Police(pi),
+                ..self.police(pi).view()
+            };
+        }
     }
 
     fn on_finished(&mut self, t: &Track, racers: &dyn Racers, ri: usize) {

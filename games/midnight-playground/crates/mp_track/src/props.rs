@@ -203,11 +203,23 @@ impl Solid {
 /// planting with the tiles planted so far.
 #[derive(Default)]
 pub struct Props {
-    fixed: Vec<Solid>,
-    cells: BTreeMap<(i64, i64), Vec<u32>>,
+    fixed: Arc<Vec<Solid>>,
+    grid: Arc<FixedGrid>,
     planting: Option<Planting>,
     town: Option<Town>,
     tiles: Mutex<Tiles>,
+}
+
+#[derive(Default)]
+struct FixedGrid {
+    min_a: i64,
+    max_a: i64,
+    min_b: i64,
+    max_b: i64,
+    w: usize,
+    h: usize,
+    offsets: Vec<u32>,
+    items: Vec<u32>,
 }
 
 /// The planted tiles so far, by tile.
@@ -242,9 +254,47 @@ impl Props {
                 }
             }
         }
+        let grid = if cells.is_empty() {
+            FixedGrid::default()
+        } else {
+            let (mut min_a, mut max_a, mut min_b, mut max_b) =
+                (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
+            for &(a, b) in cells.keys() {
+                min_a = min_a.min(a);
+                max_a = max_a.max(a);
+                min_b = min_b.min(b);
+                max_b = max_b.max(b);
+            }
+            let w = (max_a - min_a + 1) as usize;
+            let h = (max_b - min_b + 1) as usize;
+            let mut offsets = vec![0u32; w * h + 1];
+            for (&(a, b), v) in &cells {
+                let idx = (a - min_a) as usize * h + (b - min_b) as usize;
+                offsets[idx + 1] = v.len() as u32;
+            }
+            for i in 0..w * h {
+                offsets[i + 1] += offsets[i];
+            }
+            let mut items = vec![0u32; offsets[w * h] as usize];
+            for (&(a, b), v) in &cells {
+                let idx = (a - min_a) as usize * h + (b - min_b) as usize;
+                let start = offsets[idx] as usize;
+                items[start..start + v.len()].copy_from_slice(v);
+            }
+            FixedGrid {
+                min_a,
+                max_a,
+                min_b,
+                max_b,
+                w,
+                h,
+                offsets,
+                items,
+            }
+        };
         Props {
-            fixed,
-            cells,
+            fixed: Arc::new(fixed),
+            grid: Arc::new(grid),
             planting,
             town: None,
             tiles: Mutex::new(BTreeMap::new()),
@@ -293,34 +343,79 @@ impl Props {
         v
     }
 
-    /// The fixed solids whose cells reach within `r` of (x, z), each once,
-    /// in index order (not yet culled by distance).
+    #[cfg(test)]
     fn fixed_near(&self, x: f64, z: f64, r: f64) -> Vec<Solid> {
         let mut out = Vec::new();
-        if !self.fixed.is_empty() {
-            let (a0, b0) = Self::key(x - r, z - r);
-            let (a1, b1) = Self::key(x + r, z + r);
-            let mut ids: Vec<u32> = Vec::new();
-            for a in a0..=a1 {
-                for b in b0..=b1 {
-                    if let Some(v) = self.cells.get(&(a, b)) {
-                        for &i in v {
-                            if let Err(k) = ids.binary_search(&i) {
-                                ids.insert(k, i);
-                            }
+        self.for_each_fixed_near(x, z, r, |s| out.push(*s));
+        out
+    }
+
+    fn for_each_fixed_near(&self, x: f64, z: f64, r: f64, mut f: impl FnMut(&Solid)) {
+        let g = &*self.grid;
+        if g.w == 0 {
+            return;
+        }
+        let (a0, b0) = Self::key(x - r, z - r);
+        let (a1, b1) = Self::key(x + r, z + r);
+        let (a0, a1) = (a0.max(g.min_a), a1.min(g.max_a));
+        let (b0, b1) = (b0.max(g.min_b), b1.min(g.max_b));
+        if a0 > a1 || b0 > b1 {
+            return;
+        }
+        if a0 == a1 && b0 == b1 {
+            let idx = (a0 - g.min_a) as usize * g.h + (b0 - g.min_b) as usize;
+            for &i in &g.items[g.offsets[idx] as usize..g.offsets[idx + 1] as usize] {
+                f(&self.fixed[i as usize]);
+            }
+            return;
+        }
+        let mut stack = [0u32; 32];
+        let mut len = 0usize;
+        let mut heap: Option<Vec<u32>> = None;
+        for a in a0..=a1 {
+            let row = (a - g.min_a) as usize * g.h;
+            for b in b0..=b1 {
+                let idx = row + (b - g.min_b) as usize;
+                for &i in &g.items[g.offsets[idx] as usize..g.offsets[idx + 1] as usize] {
+                    if let Some(v) = &mut heap {
+                        if let Err(k) = v.binary_search(&i) {
+                            v.insert(k, i);
+                        }
+                    } else if let Err(k) = stack[..len].binary_search(&i) {
+                        if len < stack.len() {
+                            stack.copy_within(k..len, k + 1);
+                            stack[k] = i;
+                            len += 1;
+                        } else {
+                            let mut v = Vec::with_capacity(64);
+                            v.extend_from_slice(&stack[..len]);
+                            v.insert(k, i);
+                            heap = Some(v);
                         }
                     }
                 }
             }
-            out.extend(ids.into_iter().map(|i| self.fixed[i as usize]));
         }
-        out
+        let ids: &[u32] = match &heap {
+            Some(v) => v,
+            None => &stack[..len],
+        };
+        for &i in ids {
+            f(&self.fixed[i as usize]);
+        }
     }
 
-    /// Every solid whose circle reaches within `r` of (x, z): the fixed
-    /// ones in index order, then the planted ones tile by tile.
-    pub fn near(&self, t: &Track, x: f64, z: f64, r: f64) -> Vec<Solid> {
-        let mut out = self.fixed_near(x, z, r);
+    fn for_each_near(&self, t: &Track, x: f64, z: f64, r: f64, mut f: impl FnMut(&Solid)) {
+        let within = |s: &Solid| {
+            let (dx, dz) = (x - s.x, z - s.z);
+            let rr = r + s.radius();
+            dx * dx + dz * dz <= rr * rr
+        };
+        self.for_each_fixed_near(x, z, r, |s| {
+            if within(s) {
+                f(s);
+            }
+        });
         if self.planting.is_some() {
             let pad = r + SPILL;
             let (i0, i1) = (
@@ -333,15 +428,22 @@ impl Props {
             );
             for j in j0..=j1 {
                 for i in i0..=i1 {
-                    out.extend(self.tile(t, i, j).iter().copied());
+                    let tile = self.tile(t, i, j);
+                    for s in tile.iter() {
+                        if within(s) {
+                            f(s);
+                        }
+                    }
                 }
             }
         }
-        out.retain(|s| {
-            let (dx, dz) = (x - s.x, z - s.z);
-            let rr = r + s.radius();
-            dx * dx + dz * dz <= rr * rr
-        });
+    }
+
+    /// Every solid whose circle reaches within `r` of (x, z): the fixed
+    /// ones in index order, then the planted ones tile by tile.
+    pub fn near(&self, t: &Track, x: f64, z: f64, r: f64) -> Vec<Solid> {
+        let mut out = Vec::new();
+        self.for_each_near(t, x, z, r, |s| out.push(*s));
         out
     }
 
@@ -359,18 +461,21 @@ impl Props {
         hw: f64,
         hl: f64,
     ) -> Option<PropPush> {
+        if self.is_empty() {
+            return None;
+        }
         let reach = (hw * hw + hl * hl).sqrt();
         let mut best: Option<PropPush> = None;
-        for p in self.near(t, x, z, reach) {
+        self.for_each_near(t, x, z, reach, |p| {
             if y > p.y + p.height {
-                continue;
+                return;
             }
             if let Some(q) = p.push_out(x, z, c, s, hw, hl)
                 && best.is_none_or(|b| q.depth > b.depth)
             {
                 best = Some(q);
             }
-        }
+        });
         best
     }
 }
@@ -379,7 +484,7 @@ impl Clone for Props {
     fn clone(&self) -> Props {
         Props {
             fixed: self.fixed.clone(),
-            cells: self.cells.clone(),
+            grid: self.grid.clone(),
             planting: self.planting.clone(),
             town: self.town.clone(),
             tiles: Mutex::new(BTreeMap::new()),

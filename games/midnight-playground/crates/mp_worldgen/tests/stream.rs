@@ -27,7 +27,7 @@ fn planned() -> Planned {
             // the road's sections are what these tests are about.
             let mut l = common::level("peninsula");
             l.stream_cell = None;
-            l.branches.truncate(mp_levels::peninsula::FIRST_BAYSIDE - 1);
+            l.branches.truncate(2);
             l.buildings = None;
             l
         },

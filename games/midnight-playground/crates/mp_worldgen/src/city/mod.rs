@@ -160,11 +160,34 @@ struct Spot {
 }
 
 /// One of `freewayHits`.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Hit {
     lat: f64,
     y: f64,
     back: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct Hits {
+    buf: [Hit; 3],
+    len: usize,
+}
+
+impl Hits {
+    #[inline]
+    fn push(&mut self, h: Hit) {
+        self.buf[self.len] = h;
+        self.len += 1;
+    }
+}
+
+impl std::ops::Deref for Hits {
+    type Target = [Hit];
+
+    #[inline]
+    fn deref(&self) -> &[Hit] {
+        &self.buf[..self.len]
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -971,11 +994,11 @@ impl<'w> Build<'w> {
     // ── Lookups ───────────────────────────────────────────────────
 
     /// Signed lateral offsets of (x,z) from every nearby bit of freeway.
-    fn freeway_hits(&self, x: f64, z: f64) -> Vec<Hit> {
+    fn freeway_hits(&self, x: f64, z: f64) -> Hits {
         let t = self.track;
-        let mut out = Vec::new();
+        let mut out = Hits::default();
         // The far field is coarse (32 m) — only ask the track when plausibly close.
-        if self.terrain.far(x, z).d < 175.0 {
+        if self.terrain.far_d(x, z) < 175.0 {
             let r = t.distance_to_road(x, z, 120.0);
             if r.d < 1e8
                 && let Some(s) = r.s
@@ -1025,7 +1048,7 @@ impl<'w> Build<'w> {
 
     /// Would a street here run through the freeway at grade?
     fn street_blocked(&self, x: f64, z: f64) -> bool {
-        for h in self.freeway_hits(x, z) {
+        for h in &*self.freeway_hits(x, z) {
             let lo = -37.0;
             let hi = if h.back { -6.0 } else { 15.5 };
             if h.lat > lo && h.lat < hi && h.y < self.flat_y + 3.5 {
@@ -2363,7 +2386,9 @@ impl<'w> Build<'w> {
         let near_fw = if hits.is_empty() {
             999.0
         } else {
-            js::min_n(&hits.iter().map(|h| h.lat.abs()).collect::<Vec<_>>())
+            hits.iter()
+                .map(|h| h.lat.abs())
+                .fold(f64::INFINITY, js::min)
         };
         // Roof clutter and trim only where it will be seen up close: along the
         // freeway. Further out, the silhouette is what counts.

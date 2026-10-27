@@ -83,19 +83,22 @@ pub enum Dyn {
 
 #[derive(Component)]
 pub struct OverlayRoot;
-#[derive(Component)]
-pub struct Seg(usize);
-#[derive(Component)]
-pub struct Mark(usize);
-#[derive(Component)]
-pub struct Label(usize);
+#[derive(Component, Clone, Copy)]
+pub enum OvItem {
+    Seg(usize),
+    BranchSeg(usize, usize),
+    Mark(usize),
+    Label(usize),
+    BranchLabel(usize),
+}
 #[derive(Component)]
 pub struct Cross;
 #[derive(Component)]
 pub struct Knob;
 
-/// Route segments drawn on the overview.
+/// Route segments drawn on the overview, and per branch corridor.
 const SEGS: usize = 240;
+const BRANCH_SEGS: usize = 28;
 /// The stick's radius and its distance from the corner, CSS px.
 const STICK_R: f32 = 52.0;
 const STICK_IN: f32 = 26.0;
@@ -290,7 +293,19 @@ fn speed_text(v: &Viewer) -> String {
 }
 
 fn route_text(v: &Viewer) -> String {
-    format!("{:.2} km  {}", v.s / 1000.0, v.zone)
+    if v.atlas
+        && !v.corridor.is_empty()
+        && !matches!(v.corridor_id.as_str(), "" | "the-loop" | "first-race")
+    {
+        format!(
+            "{:.2} km  {} ({})",
+            v.corridor_s / 1000.0,
+            v.zone,
+            v.corridor
+        )
+    } else {
+        format!("{:.2} km  {}", v.s / 1000.0, v.zone)
+    }
 }
 
 fn tod_text(v: &Viewer, track: Option<&Track>) -> String {
@@ -319,6 +334,16 @@ fn mem_mb() -> Option<f64> {
 pub fn readout(v: &Viewer) -> String {
     let p = v.pose;
     let c = super::stats::counts();
+    let atlas =
+        super::atlas_latlon(v.level(), p.pos.x, p.pos.z).map_or(String::new(), |(lat, lon)| {
+            format!(
+                "atlas {} {:.2} km  {:.5}, {:.5}\n",
+                v.corridor,
+                v.corridor_s / 1000.0,
+                lat,
+                lon,
+            )
+        });
     let mem = mem_mb().map_or(String::new(), |m| {
         if cfg!(target_arch = "wasm32") {
             format!("wasm {m:.0} MB")
@@ -327,13 +352,14 @@ pub fn readout(v: &Viewer) -> String {
         }
     });
     format!(
-        "x {:.1}  y {:.1}  z {:.1}\nyaw {:.0}\u{b0}  pitch {:.0}\u{b0}  route {:.0} m\n{:.1} ms (worst {:.0})  {:.0} fps\n{} draws  {:.2} M tris (shadow {}, {:.2} M)\n{}",
+        "x {:.1}  y {:.1}  z {:.1}\nyaw {:.0}\u{b0}  pitch {:.0}\u{b0}  route {:.0} m\n{}{:.1} ms (worst {:.0})  {:.0} fps\n{} draws  {:.2} M tris (shadow {}, {:.2} M)\n{}",
         p.pos.x,
         p.pos.y,
         p.pos.z,
         p.yaw.to_degrees(),
         p.pitch.to_degrees(),
         v.s,
+        atlas,
         v.frame_ms,
         v.worst_ms,
         1000.0 / v.frame_ms.max(0.1),
@@ -726,8 +752,8 @@ pub fn refresh(
     }
 }
 
-/// The overview's route, zone marks and names, and the middle of the
-/// screen.
+/// The overview's route, branch corridors, zone marks and names, and the
+/// middle of the screen.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn overlay(
     mut commands: Commands,
@@ -735,18 +761,8 @@ pub fn overlay(
     tr: Res<TrackRes>,
     status: Res<Status>,
     root: Query<Entity, With<OverlayRoot>>,
-    mut segs: Query<(&Seg, &mut UiTransform, &mut Visibility), (Without<Mark>, Without<Label>)>,
-    mut marks: Query<(&Mark, &mut UiTransform, &mut Visibility), (Without<Seg>, Without<Label>)>,
-    mut labels: Query<(&Label, &mut UiTransform, &mut Visibility), (Without<Seg>, Without<Mark>)>,
-    mut root_vis: Query<
-        &mut Visibility,
-        (
-            With<OverlayRoot>,
-            Without<Seg>,
-            Without<Mark>,
-            Without<Label>,
-        ),
-    >,
+    mut items: Query<(&OvItem, &mut UiTransform, &mut Visibility), Without<OverlayRoot>>,
+    mut root_vis: Query<&mut Visibility, With<OverlayRoot>>,
     fonts: Option<Res<w::UiFonts>>,
     mut last: Local<Option<(Pose, (f64, f64))>>,
 ) {
@@ -757,7 +773,8 @@ pub fn overlay(
     let bp = bp(&v);
     let k = bp.k;
     if root.is_empty() {
-        // Built once: the segments, then a mark and a name per zone.
+        // Built once: the branches, the main route's segments, then a mark
+        // and a name per zone, and a pill per named branch corridor.
         commands
             .spawn((
                 Node {
@@ -773,6 +790,24 @@ pub fn overlay(
                 OverlayRoot,
             ))
             .with_children(|p| {
+                for b in 0..track.branches.len() {
+                    for s in 0..BRANCH_SEGS {
+                        p.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Px(0.0),
+                                top: Val::Px(0.0),
+                                width: Val::Px(1.0),
+                                height: Val::Px(2.0 * k),
+                                ..default()
+                            },
+                            BackgroundColor(w::rgba(0x3ad7ff, 0.52)),
+                            UiTransform::IDENTITY,
+                            Visibility::Hidden,
+                            OvItem::BranchSeg(b, s),
+                        ));
+                    }
+                }
                 for i in 0..SEGS {
                     p.spawn((
                         Node {
@@ -786,7 +821,7 @@ pub fn overlay(
                         BackgroundColor(w::rgba(0x3ad7ff, 0.9)),
                         UiTransform::IDENTITY,
                         Visibility::Hidden,
-                        Seg(i),
+                        OvItem::Seg(i),
                     ));
                 }
                 for (i, z) in track.zones.iter().enumerate() {
@@ -802,7 +837,7 @@ pub fn overlay(
                         BackgroundColor(w::gold()),
                         UiTransform::IDENTITY,
                         Visibility::Hidden,
-                        Mark(i),
+                        OvItem::Mark(i),
                     ));
                     p.spawn((
                         Node {
@@ -816,7 +851,7 @@ pub fn overlay(
                         BackgroundColor(w::rgba(0x080a12, 0.7)),
                         UiTransform::IDENTITY,
                         Visibility::Hidden,
-                        Label(i),
+                        OvItem::Label(i),
                         VControl::new(
                             format!("vw-zone-{i}"),
                             None,
@@ -831,6 +866,37 @@ pub fn overlay(
                                 T::new(12.0).bold().c(w::gold()),
                                 k,
                             ),
+                            TextLayout::no_wrap(),
+                        ));
+                    });
+                }
+                for (b, br) in track.branches.iter().enumerate() {
+                    if br.name.is_empty() {
+                        continue;
+                    }
+                    p.spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            left: Val::Px(0.0),
+                            top: Val::Px(0.0),
+                            padding: UiRect::axes(bp.px(5.0), bp.px(1.0)),
+                            border_radius: w::pill(),
+                            ..default()
+                        },
+                        BackgroundColor(w::rgba(0x080a12, 0.62)),
+                        UiTransform::IDENTITY,
+                        Visibility::Hidden,
+                        OvItem::BranchLabel(b),
+                        VControl::new(
+                            format!("vw-branch-{}", br.id),
+                            None,
+                            serde_json::json!(br.name),
+                            false,
+                        ),
+                    ))
+                    .with_children(|p| {
+                        p.spawn((
+                            w::text(br.name, T::new(10.5).c(w::accent2()), k),
                             TextLayout::no_wrap(),
                         ));
                     });
@@ -896,6 +962,20 @@ pub fn overlay(
             at(s).map(|(x, y)| Vec2::new(x as f32, y as f32))
         })
         .collect();
+    let branch_pts: Vec<Vec<Option<Vec2>>> = track
+        .branches
+        .iter()
+        .map(|br| {
+            let bl = br.track.length.max(1.0);
+            (0..=BRANCH_SEGS)
+                .map(|i| {
+                    let f = br.track.frame(bl * i as f64 / BRANCH_SEGS as f64);
+                    cams::project(&pose, vw, vh, DVec3::new(f.x, f.y, f.z))
+                        .map(|(x, y)| Vec2::new(x as f32, y as f32))
+                })
+                .collect()
+        })
+        .collect();
     let line = |a: Vec2, b: Vec2, thick: f32, t: &mut UiTransform| {
         let mid = (a + b) / 2.0;
         let d = b - a;
@@ -905,60 +985,93 @@ pub fn overlay(
             rotation: Rot2::radians(d.y.atan2(d.x)),
         };
     };
-    for (seg, mut t, mut vis) in &mut segs {
-        let (Some(a), Some(b)) = (pts[seg.0], pts[seg.0 + 1]) else {
-            *vis = Visibility::Hidden;
-            continue;
-        };
-        line(a, b, 3.0 * k, &mut t);
-        *vis = Visibility::Inherited;
-    }
-    for (m, mut t, mut vis) in &mut marks {
-        let Some(z) = track.zones.get(m.0) else {
-            continue;
-        };
-        let f = track.frame(z.s0);
-        let half = f.hw + 24.0;
-        let a = cams::project(
-            &pose,
-            vw,
-            vh,
-            DVec3::new(f.x - f.rx * half, f.y, f.z - f.rz * half),
-        );
-        let b = cams::project(
-            &pose,
-            vw,
-            vh,
-            DVec3::new(f.x + f.rx * half, f.y, f.z + f.rz * half),
-        );
-        match (a, b) {
-            (Some(a), Some(b)) => {
-                let (a, b) = (
-                    Vec2::new(a.0 as f32, a.1 as f32),
-                    Vec2::new(b.0 as f32, b.1 as f32),
+    for (item, mut t, mut vis) in &mut items {
+        match *item {
+            OvItem::Seg(i) => {
+                let (Some(a), Some(b)) = (pts[i], pts[i + 1]) else {
+                    *vis = Visibility::Hidden;
+                    continue;
+                };
+                line(a, b, 3.0 * k, &mut t);
+                *vis = Visibility::Inherited;
+            }
+            OvItem::BranchSeg(bi, si) => {
+                let Some(bp_pts) = branch_pts.get(bi) else {
+                    *vis = Visibility::Hidden;
+                    continue;
+                };
+                let (Some(a), Some(b)) = (bp_pts[si], bp_pts[si + 1]) else {
+                    *vis = Visibility::Hidden;
+                    continue;
+                };
+                line(a, b, 2.0 * k, &mut t);
+                *vis = Visibility::Inherited;
+            }
+            OvItem::Mark(mi) => {
+                let Some(z) = track.zones.get(mi) else {
+                    continue;
+                };
+                let f = track.frame(z.s0);
+                let half = f.hw + 24.0;
+                let a = cams::project(
+                    &pose,
+                    vw,
+                    vh,
+                    DVec3::new(f.x - f.rx * half, f.y, f.z - f.rz * half),
                 );
-                // At least 18 CSS px across, centred.
-                let mid = (a + b) / 2.0;
-                let d = (b - a).normalize_or(Vec2::X) * ((b - a).length().max(18.0 * k) / 2.0);
-                line(mid - d, mid + d, 3.0 * k, &mut t);
-                *vis = Visibility::Inherited;
-            }
-            _ => *vis = Visibility::Hidden,
-        }
-    }
-    for (l, mut t, mut vis) in &mut labels {
-        let Some(z) = track.zones.get(l.0) else {
-            continue;
-        };
-        match at(z.s0) {
-            Some((x, y)) => {
-                let tr = Val2::px(x as f32 + 10.0 * k, y as f32 - 9.0 * k);
-                if t.translation != tr {
-                    t.translation = tr;
+                let b = cams::project(
+                    &pose,
+                    vw,
+                    vh,
+                    DVec3::new(f.x + f.rx * half, f.y, f.z + f.rz * half),
+                );
+                match (a, b) {
+                    (Some(a), Some(b)) => {
+                        let (a, b) = (
+                            Vec2::new(a.0 as f32, a.1 as f32),
+                            Vec2::new(b.0 as f32, b.1 as f32),
+                        );
+                        let mid = (a + b) / 2.0;
+                        let d =
+                            (b - a).normalize_or(Vec2::X) * ((b - a).length().max(18.0 * k) / 2.0);
+                        line(mid - d, mid + d, 3.0 * k, &mut t);
+                        *vis = Visibility::Inherited;
+                    }
+                    _ => *vis = Visibility::Hidden,
                 }
-                *vis = Visibility::Inherited;
             }
-            None => *vis = Visibility::Hidden,
+            OvItem::Label(li) => {
+                let Some(z) = track.zones.get(li) else {
+                    continue;
+                };
+                match at(z.s0) {
+                    Some((x, y)) => {
+                        let tr = Val2::px(x as f32 + 10.0 * k, y as f32 - 9.0 * k);
+                        if t.translation != tr {
+                            t.translation = tr;
+                        }
+                        *vis = Visibility::Inherited;
+                    }
+                    None => *vis = Visibility::Hidden,
+                }
+            }
+            OvItem::BranchLabel(bi) => {
+                let Some(br) = track.branches.get(bi) else {
+                    *vis = Visibility::Hidden;
+                    continue;
+                };
+                let f = br.track.frame(br.track.length * 0.5);
+                match cams::project(&pose, vw, vh, DVec3::new(f.x, f.y, f.z)) {
+                    Some((x, y)) => {
+                        let tr = Val2::px(x as f32 + 6.0 * k, y as f32 - 7.0 * k);
+                        if t.translation != tr {
+                            t.translation = tr;
+                        }
+                        *vis = Visibility::Inherited;
+                    }
+                    None => *vis = Visibility::Hidden,
+                }
+            }
         }
     }
 }

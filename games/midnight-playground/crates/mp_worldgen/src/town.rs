@@ -276,6 +276,9 @@ fn sidewalks(world: &World, chunks: &mut Chunks) {
         if r == 0 {
             continue;
         }
+        if world.section.as_ref().is_some_and(|sec| !sec.has_road(r)) {
+            continue;
+        }
         let mut s = 0.0;
         while s + 4.0 <= t.length {
             let held = world

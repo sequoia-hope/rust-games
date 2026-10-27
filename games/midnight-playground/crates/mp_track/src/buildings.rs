@@ -62,7 +62,20 @@ impl Footprint {
 #[derive(Clone, Debug, Default)]
 pub struct Buildings {
     pub list: Vec<Footprint>,
-    cells: BTreeMap<(i64, i64), Vec<u32>>,
+    grid: BuildingGrid,
+    has_garages: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct BuildingGrid {
+    min_a: i64,
+    max_a: i64,
+    min_b: i64,
+    max_b: i64,
+    w: usize,
+    h: usize,
+    offsets: Vec<u32>,
+    items: Vec<u32>,
 }
 
 /// How a box pushes out of a building: the direction (unit, horizontal)
@@ -88,7 +101,9 @@ impl Buildings {
 
     pub fn new(list: Vec<Footprint>) -> Buildings {
         let mut cells: BTreeMap<(i64, i64), Vec<u32>> = BTreeMap::new();
+        let mut has_garages = false;
         for (i, f) in list.iter().enumerate() {
+            has_garages |= f.garage.is_some();
             let r = f.radius();
             let (a0, b0) = Self::key(f.x - r, f.z - r);
             let (a1, b1) = Self::key(f.x + r, f.z + r);
@@ -98,43 +113,145 @@ impl Buildings {
                 }
             }
         }
-        Buildings { list, cells }
+        let grid = if cells.is_empty() {
+            BuildingGrid::default()
+        } else {
+            let (mut min_a, mut max_a, mut min_b, mut max_b) =
+                (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
+            for &(a, b) in cells.keys() {
+                min_a = min_a.min(a);
+                max_a = max_a.max(a);
+                min_b = min_b.min(b);
+                max_b = max_b.max(b);
+            }
+            let w = (max_a - min_a + 1) as usize;
+            let h = (max_b - min_b + 1) as usize;
+            let mut offsets = vec![0u32; w * h + 1];
+            for (&(a, b), v) in &cells {
+                let idx = (a - min_a) as usize * h + (b - min_b) as usize;
+                offsets[idx + 1] = v.len() as u32;
+            }
+            for i in 0..w * h {
+                offsets[i + 1] += offsets[i];
+            }
+            let mut items = vec![0u32; offsets[w * h] as usize];
+            for (&(a, b), v) in &cells {
+                let idx = (a - min_a) as usize * h + (b - min_b) as usize;
+                let start = offsets[idx] as usize;
+                items[start..start + v.len()].copy_from_slice(v);
+            }
+            BuildingGrid {
+                min_a,
+                max_a,
+                min_b,
+                max_b,
+                w,
+                h,
+                offsets,
+                items,
+            }
+        };
+        Buildings {
+            list,
+            grid,
+            has_garages,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
 
-    /// The buildings whose cells reach within `r` of (x, z), each once,
-    /// in index order.
-    pub fn near(&self, x: f64, z: f64, r: f64) -> Vec<usize> {
+    #[inline]
+    fn cell_slice(&self, a: i64, b: i64) -> &[u32] {
+        let g = &self.grid;
+        if g.w == 0 || a < g.min_a || a > g.max_a || b < g.min_b || b > g.max_b {
+            return &[];
+        }
+        let idx = (a - g.min_a) as usize * g.h + (b - g.min_b) as usize;
+        &g.items[g.offsets[idx] as usize..g.offsets[idx + 1] as usize]
+    }
+
+    fn for_each_near(&self, x: f64, z: f64, r: f64, mut f: impl FnMut(usize) -> bool) {
+        let g = &self.grid;
+        if g.w == 0 {
+            return;
+        }
         let (a0, b0) = Self::key(x - r, z - r);
         let (a1, b1) = Self::key(x + r, z + r);
-        let mut out: Vec<usize> = Vec::new();
+        if a0 == a1 && b0 == b1 {
+            for &i in self.cell_slice(a0, b0) {
+                if !f(i as usize) {
+                    break;
+                }
+            }
+            return;
+        }
+        let (a0, a1) = (a0.max(g.min_a), a1.min(g.max_a));
+        let (b0, b1) = (b0.max(g.min_b), b1.min(g.max_b));
+        if a0 > a1 || b0 > b1 {
+            return;
+        }
+        let mut stack = [0usize; 32];
+        let mut len = 0usize;
+        let mut heap: Option<Vec<usize>> = None;
         for a in a0..=a1 {
+            let row = (a - g.min_a) as usize * g.h;
             for b in b0..=b1 {
-                if let Some(v) = self.cells.get(&(a, b)) {
-                    for &i in v {
-                        let i = i as usize;
-                        if let Err(k) = out.binary_search(&i) {
-                            out.insert(k, i);
+                let idx = row + (b - g.min_b) as usize;
+                for &i in &g.items[g.offsets[idx] as usize..g.offsets[idx + 1] as usize] {
+                    let i = i as usize;
+                    if let Some(v) = &mut heap {
+                        if let Err(k) = v.binary_search(&i) {
+                            v.insert(k, i);
+                        }
+                    } else if let Err(k) = stack[..len].binary_search(&i) {
+                        if len < stack.len() {
+                            stack.copy_within(k..len, k + 1);
+                            stack[k] = i;
+                            len += 1;
+                        } else {
+                            let mut v = Vec::with_capacity(64);
+                            v.extend_from_slice(&stack[..len]);
+                            v.insert(k, i);
+                            heap = Some(v);
                         }
                     }
                 }
             }
         }
+        let ids: &[usize] = match &heap {
+            Some(v) => v,
+            None => &stack[..len],
+        };
+        for &i in ids {
+            if !f(i) {
+                break;
+            }
+        }
+    }
+
+    /// The buildings whose cells reach within `r` of (x, z), each once,
+    /// in index order.
+    pub fn near(&self, x: f64, z: f64, r: f64) -> Vec<usize> {
+        let mut out = Vec::new();
+        self.for_each_near(x, z, r, |i| {
+            out.push(i);
+            true
+        });
         out
     }
 
     /// Whether (x, z) is inside a building.
     pub fn inside(&self, x: f64, z: f64) -> bool {
-        self.near(x, z, 0.0).into_iter().any(|i| {
-            let f = &self.list[i];
+        let (a, b) = Self::key(x, z);
+        self.cell_slice(a, b).iter().any(|&i| {
+            let f = &self.list[i as usize];
             if f.garage.is_some() {
                 return false;
             }
-            let (a, b) = f.local(x, z);
-            a.abs() < f.hx && b.abs() < f.hz
+            let (lx, lz) = f.local(x, z);
+            lx.abs() < f.hx && lz.abs() < f.hz
         })
     }
 
@@ -150,18 +267,21 @@ impl Buildings {
         hw: f64,
         hl: f64,
     ) -> Option<Push> {
+        if self.list.is_empty() {
+            return None;
+        }
         let reach = (hw * hw + hl * hl).sqrt();
         let mut best: Option<Push> = None;
-        for i in self.near(x, z, reach) {
+        self.for_each_near(x, z, reach, |i| {
             let f = &self.list[i];
             // A garage is not solid: its walls and decks are its own.
             if f.garage.is_some() {
-                continue;
+                return true;
             }
             let (dx, dz) = (x - f.x, z - f.z);
             let rr = reach + f.radius();
             if dx * dx + dz * dz > rr * rr {
-                continue;
+                return true;
             }
             // The car's axes: forward (c, s), right (-s, c).
             let axes = [(f.ux, f.uz), (-f.uz, f.ux), (yaw_c, yaw_s), (-yaw_s, yaw_c)];
@@ -185,7 +305,7 @@ impl Buildings {
                 }
             }
             if apart {
-                continue;
+                return true;
             }
             if let Some((depth, nx, nz)) = min
                 && best.is_none_or(|b| depth > b.depth)
@@ -197,15 +317,20 @@ impl Buildings {
                     id: i,
                 });
             }
-        }
+            true
+        });
         best
     }
 
     /// The ground in a garage at (x, z) for a car at height `y`, if a
     /// garage stands there.
     pub fn garage_ground(&self, x: f64, z: f64, y: f64) -> Option<f64> {
-        self.near(x, z, 0.0).into_iter().find_map(|i| {
-            let f = &self.list[i];
+        if !self.has_garages {
+            return None;
+        }
+        let (ca, cb) = Self::key(x, z);
+        self.cell_slice(ca, cb).iter().find_map(|&i| {
+            let f = &self.list[i as usize];
             let g = f.garage.as_ref()?;
             let (a, b) = f.local(x, z);
             (a.abs() <= f.hx && b.abs() <= f.hz).then(|| g.ground(f.hz, a, b, y))
@@ -214,11 +339,17 @@ impl Buildings {
 
     /// The walls of the garages within `r` of (x, z).
     pub fn garage_walls(&self, x: f64, z: f64, r: f64) -> Vec<crate::garage::Wall> {
-        self.near(x, z, r)
-            .into_iter()
-            .filter(|&i| self.list[i].garage.is_some())
-            .flat_map(|i| self.list[i].garage_walls())
-            .collect()
+        if !self.has_garages {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        self.for_each_near(x, z, r, |i| {
+            if self.list[i].garage.is_some() {
+                out.extend(self.list[i].garage_walls());
+            }
+            true
+        });
+        out
     }
 
     /// The face of building `id` that (x, z) is furthest outside of (or

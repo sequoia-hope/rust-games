@@ -85,11 +85,37 @@ pub fn build_tile_geometry(
     // Heights on a padded grid so normals at edges are correct.
     let p1 = vn + 2;
     let mut hh = vec![0f32; p1 * p1];
+    let tx0 = x0 - step - 1.0;
+    let tx1 = x0 + (p1 as f64 - 2.0) * step + 1.0;
+    let tz0 = z0 - step - 1.0;
+    let tz1 = z0 + (p1 as f64 - 2.0) * step + 1.0;
+    let flattens: Vec<usize> = terrain
+        .flattens
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, f)| {
+            let rad = f.r + f.falloff;
+            (f.x + rad >= tx0 && f.x - rad <= tx1 && f.z + rad >= tz0 && f.z - rad <= tz1)
+                .then_some(idx)
+        })
+        .collect();
+    let mut carves_before = Vec::new();
+    let mut carves_after = Vec::new();
+    for (idx, c) in terrain.carves.iter().enumerate() {
+        if c.max_x >= tx0 && c.min_x <= tx1 && c.max_z >= tz0 && c.min_z <= tz1 {
+            if c.under_road {
+                carves_after.push(idx);
+            } else {
+                carves_before.push(idx);
+            }
+        }
+    }
     for j in 0..p1 {
+        let z = z0 + (j as f64 - 1.0) * step;
         for i in 0..p1 {
-            hh[j * p1 + i] = terrain
-                .height_at(x0 + (i as f64 - 1.0) * step, z0 + (j as f64 - 1.0) * step)
-                as f32;
+            let x = x0 + (i as f64 - 1.0) * step;
+            hh[j * p1 + i] =
+                terrain.height_at_filtered(x, z, &flattens, &carves_before, &carves_after) as f32;
         }
     }
     // Stitch: along an edge shared with a coarser tile, use that tile's
@@ -534,6 +560,7 @@ pub fn terrain_stages(setup: TerrainSetup) -> (StageFn, StageFn, StageFn) {
                 x1 + TERRAIN_TILE,
                 z1 + TERRAIN_TILE,
             ]);
+            t.invalidate_tiles();
         }
         w.terrain = Some(t);
         Ok(Vec::new())

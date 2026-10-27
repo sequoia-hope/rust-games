@@ -957,7 +957,7 @@ fn projection_progress_increases_along_the_road() {
 fn the_spatial_hash_holds_every_other_sample_once_and_bounds_hold_all() {
     let t = figure_eight();
     let mut seen = vec![0u8; t.n];
-    for (&(cx, cz), ks) in &t.hash {
+    for (&(cx, cz), ks) in &*t.hash {
         for &k in ks {
             assert_eq!(k % 2, 0, "even samples only");
             seen[k] += 1;

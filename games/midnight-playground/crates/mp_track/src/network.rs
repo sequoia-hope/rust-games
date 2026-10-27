@@ -40,7 +40,20 @@ pub struct Junction {
 /// them, without asking every road.
 #[derive(Clone, Debug, Default)]
 pub struct NetIndex {
-    cells: BTreeMap<(i64, i64), Vec<(u32, u32)>>,
+    grid: std::sync::Arc<NetGrid>,
+}
+
+#[derive(Debug, Default)]
+struct NetGrid {
+    min_a: i64,
+    max_a: i64,
+    min_b: i64,
+    max_b: i64,
+    w: usize,
+    h: usize,
+    num_roads: usize,
+    offsets: Vec<u32>,
+    items: Vec<(u32, u32)>,
 }
 
 impl NetIndex {
@@ -55,25 +68,146 @@ impl NetIndex {
 
     pub fn build(t: &Track) -> NetIndex {
         let mut cells: BTreeMap<(i64, i64), Vec<(u32, u32)>> = BTreeMap::new();
+        let mut num_roads = 0usize;
         for (r, rt) in t.roads().enumerate() {
+            num_roads = r + 1;
             for k in (0..rt.n).step_by(2) {
                 let key = Self::key(f64::from(rt.px[k]), f64::from(rt.pz[k]));
                 cells.entry(key).or_default().push((r as u32, k as u32));
             }
         }
-        NetIndex { cells }
+        let grid = if cells.is_empty() {
+            NetGrid::default()
+        } else {
+            let (mut min_a, mut max_a, mut min_b, mut max_b) =
+                (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
+            for &(a, b) in cells.keys() {
+                min_a = min_a.min(a);
+                max_a = max_a.max(a);
+                min_b = min_b.min(b);
+                max_b = max_b.max(b);
+            }
+            let w = (max_a - min_a + 1) as usize;
+            let h = (max_b - min_b + 1) as usize;
+            let mut offsets = vec![0u32; w * h + 1];
+            for (&(a, b), v) in &cells {
+                let idx = (a - min_a) as usize * h + (b - min_b) as usize;
+                offsets[idx + 1] = v.len() as u32;
+            }
+            for i in 0..w * h {
+                offsets[i + 1] += offsets[i];
+            }
+            let mut items = vec![(0u32, 0u32); offsets[w * h] as usize];
+            for (&(a, b), v) in &cells {
+                let idx = (a - min_a) as usize * h + (b - min_b) as usize;
+                let start = offsets[idx] as usize;
+                items[start..start + v.len()].copy_from_slice(v);
+            }
+            NetGrid {
+                min_a,
+                max_a,
+                min_b,
+                max_b,
+                w,
+                h,
+                num_roads,
+                offsets,
+                items,
+            }
+        };
+        NetIndex {
+            grid: std::sync::Arc::new(grid),
+        }
     }
 
-    /// The roads with a sample within `radius` of (x, z) (and perhaps a
-    /// little further: whole cells are taken), in road order.
-    pub fn roads_near(&self, x: f64, z: f64, radius: f64) -> Vec<usize> {
+    #[inline]
+    fn cell_slice(&self, a: i64, b: i64) -> &[(u32, u32)] {
+        let g = &*self.grid;
+        if g.w == 0 || a < g.min_a || a > g.max_a || b < g.min_b || b > g.max_b {
+            return &[];
+        }
+        let idx = (a - g.min_a) as usize * g.h + (b - g.min_b) as usize;
+        let start = g.offsets[idx] as usize;
+        let end = g.offsets[idx + 1] as usize;
+        &g.items[start..end]
+    }
+
+    /// Whether any road has an indexed sample in the cells covering `radius`
+    /// round `(x, z)`.
+    pub fn has_roads_near(&self, x: f64, z: f64, radius: f64) -> bool {
+        let g = &*self.grid;
+        if g.w == 0 {
+            return false;
+        }
         let (a0, b0) = Self::key(x - radius, z - radius);
         let (a1, b1) = Self::key(x + radius, z + radius);
-        let mut out: Vec<usize> = Vec::new();
+        let (a0, a1) = (a0.max(g.min_a), a1.min(g.max_a));
+        let (b0, b1) = (b0.max(g.min_b), b1.min(g.max_b));
+        if a0 > a1 || b0 > b1 {
+            return false;
+        }
         for a in a0..=a1 {
+            let row = (a - g.min_a) as usize * g.h;
             for b in b0..=b1 {
-                if let Some(v) = self.cells.get(&(a, b)) {
-                    for &(r, _) in v {
+                let idx = row + (b - g.min_b) as usize;
+                if g.offsets[idx] < g.offsets[idx + 1] {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Calls `f` for each road with a sample in the cells covering `radius`
+    /// round `(x, z)`, in ascending road order, stopping early if `f` returns
+    /// `false`.
+    pub fn for_each_road_near(
+        &self,
+        x: f64,
+        z: f64,
+        radius: f64,
+        mut f: impl FnMut(usize) -> bool,
+    ) {
+        let g = &*self.grid;
+        if g.w == 0 {
+            return;
+        }
+        let (a0, b0) = Self::key(x - radius, z - radius);
+        let (a1, b1) = Self::key(x + radius, z + radius);
+        let (a0, a1) = (a0.max(g.min_a), a1.min(g.max_a));
+        let (b0, b1) = (b0.max(g.min_b), b1.min(g.max_b));
+        if a0 > a1 || b0 > b1 {
+            return;
+        }
+        if g.num_roads <= 64 {
+            let mut mask = 0u64;
+            for a in a0..=a1 {
+                let row = (a - g.min_a) as usize * g.h;
+                for b in b0..=b1 {
+                    let idx = row + (b - g.min_b) as usize;
+                    let start = g.offsets[idx] as usize;
+                    let end = g.offsets[idx + 1] as usize;
+                    for &(r, _) in &g.items[start..end] {
+                        mask |= 1u64 << r;
+                    }
+                }
+            }
+            while mask != 0 {
+                let r = mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                if !f(r) {
+                    break;
+                }
+            }
+        } else {
+            let mut out: Vec<usize> = Vec::new();
+            for a in a0..=a1 {
+                let row = (a - g.min_a) as usize * g.h;
+                for b in b0..=b1 {
+                    let idx = row + (b - g.min_b) as usize;
+                    let start = g.offsets[idx] as usize;
+                    let end = g.offsets[idx + 1] as usize;
+                    for &(r, _) in &g.items[start..end] {
                         let r = r as usize;
                         if let Err(i) = out.binary_search(&r) {
                             out.insert(i, r);
@@ -81,7 +215,22 @@ impl NetIndex {
                     }
                 }
             }
+            for r in out {
+                if !f(r) {
+                    break;
+                }
+            }
         }
+    }
+
+    /// The roads with a sample within `radius` of (x, z) (and perhaps a
+    /// little further: whole cells are taken), in road order.
+    pub fn roads_near(&self, x: f64, z: f64, radius: f64) -> Vec<usize> {
+        let mut out = Vec::new();
+        self.for_each_road_near(x, z, radius, |r| {
+            out.push(r);
+            true
+        });
         out
     }
 
@@ -94,16 +243,26 @@ impl NetIndex {
         z: f64,
         radius: f64,
     ) -> Vec<(u32, u32, f64, f64)> {
+        let g = &*self.grid;
+        let mut out = Vec::new();
+        if g.w == 0 {
+            return out;
+        }
         let (a0, b0) = Self::key(x - radius, z - radius);
         let (a1, b1) = Self::key(x + radius, z + radius);
+        let (a0, a1) = (a0.max(g.min_a), a1.min(g.max_a));
+        let (b0, b1) = (b0.max(g.min_b), b1.min(g.max_b));
+        if a0 > a1 || b0 > b1 {
+            return out;
+        }
         let r2 = radius * radius;
-        let mut out = Vec::new();
         for a in a0..=a1 {
+            let row = (a - g.min_a) as usize * g.h;
             for b in b0..=b1 {
-                let Some(v) = self.cells.get(&(a, b)) else {
-                    continue;
-                };
-                for &(r, k) in v {
+                let idx = row + (b - g.min_b) as usize;
+                let start = g.offsets[idx] as usize;
+                let end = g.offsets[idx + 1] as usize;
+                for &(r, k) in &g.items[start..end] {
                     let rt = t.road(r as usize);
                     let (sx, sz) = (f64::from(rt.px[k as usize]), f64::from(rt.pz[k as usize]));
                     let (dx, dz) = (x - sx, z - sz);
@@ -129,42 +288,57 @@ impl NetIndex {
         radius: f64,
         slack: f64,
     ) -> Vec<(usize, usize, f64)> {
+        let g = &*self.grid;
+        let mut best: Vec<(usize, usize, f64)> = Vec::new();
+        if g.w == 0 {
+            return best;
+        }
         let (ca, cb) = Self::key(x, z);
         let rings = (radius / Self::CELL).ceil() as i64 + 1;
-        let mut best: Vec<(usize, usize, f64)> = Vec::new();
         let mut nearest = f64::INFINITY;
+        let visit_cell =
+            |a: i64, b: i64, best: &mut Vec<(usize, usize, f64)>, nearest: &mut f64| {
+                let v = self.cell_slice(a, b);
+                for &(r, k) in v {
+                    let rt = t.road(r as usize);
+                    let dx = x - f64::from(rt.px[k as usize]);
+                    let dz = z - f64::from(rt.pz[k as usize]);
+                    if dx.abs() > radius || dz.abs() > radius {
+                        continue;
+                    }
+                    let d = pk_math::kernel::hypot(dx, dz);
+                    if d > radius {
+                        continue;
+                    }
+                    *nearest = nearest.min(d);
+                    match best.iter_mut().find(|e| e.0 == r as usize) {
+                        Some(e) => {
+                            if d < e.2 || (d == e.2 && (k as usize) < e.1) {
+                                *e = (r as usize, k as usize, d);
+                            }
+                        }
+                        None => best.push((r as usize, k as usize, d)),
+                    }
+                }
+            };
         for ring in 0..=rings {
             // Every point of this ring's cells is at least this far.
             let reach = (ring - 1).max(0) as f64 * Self::CELL;
             if reach > radius || reach > nearest + slack {
                 break;
             }
-            for a in ca - ring..=ca + ring {
+            if ring == 0 {
+                visit_cell(ca, cb, &mut best, &mut nearest);
+            } else {
                 for b in cb - ring..=cb + ring {
-                    if (a - ca).abs() != ring && (b - cb).abs() != ring {
-                        continue;
-                    }
-                    let Some(v) = self.cells.get(&(a, b)) else {
-                        continue;
-                    };
-                    for &(r, k) in v {
-                        let rt = t.road(r as usize);
-                        let dx = x - f64::from(rt.px[k as usize]);
-                        let dz = z - f64::from(rt.pz[k as usize]);
-                        let d = pk_math::kernel::hypot(dx, dz);
-                        if d > radius {
-                            continue;
-                        }
-                        nearest = nearest.min(d);
-                        match best.iter_mut().find(|e| e.0 == r as usize) {
-                            Some(e) => {
-                                if d < e.2 || (d == e.2 && (k as usize) < e.1) {
-                                    *e = (r as usize, k as usize, d);
-                                }
-                            }
-                            None => best.push((r as usize, k as usize, d)),
-                        }
-                    }
+                    visit_cell(ca - ring, b, &mut best, &mut nearest);
+                }
+                for a in (ca - ring + 1)..=(ca + ring - 1) {
+                    visit_cell(a, cb - ring, &mut best, &mut nearest);
+                    visit_cell(a, cb + ring, &mut best, &mut nearest);
+                }
+                for b in cb - ring..=cb + ring {
+                    visit_cell(ca + ring, b, &mut best, &mut nearest);
                 }
             }
         }
@@ -202,17 +376,23 @@ impl Track {
     /// cross another road, at a junction's mouth or a crossing, there is
     /// none (stage 7b; the Town kit draws none there either).
     pub fn on_other_tarmac(&self, road: usize, x: f64, z: f64) -> bool {
-        self.net.roads_near(x, z, 30.0).into_iter().any(|r| {
+        let mut hit = false;
+        self.net.for_each_road_near(x, z, 30.0, |r| {
             if r == road {
-                return false;
+                return true;
             }
             let t = self.road(r);
             let d = t.distance_to_road(x, z, 30.0);
-            d.s.is_some_and(|s| {
+            if d.s.is_some_and(|s| {
                 let f = t.frame(s.clamp(0.0, t.length));
                 d.d < f.hw + f.margin + 0.5
-            })
-        })
+            }) {
+                hit = true;
+                return false;
+            }
+            true
+        });
+        hit
     }
 
     /// The open world's ground under (x, z) on road `road` at (s, lat) of
@@ -257,18 +437,18 @@ pub fn find_crossings(t: &mut Track) -> Vec<Junction> {
         let mut last: BTreeMap<usize, (usize, f64)> = BTreeMap::new();
         for k in 0..road.n {
             let (x, z) = (f64::from(road.px[k]), f64::from(road.pz[k]));
-            for a in t.net.roads_near(x, z, 24.0) {
+            t.net.for_each_road_near(x, z, 24.0, |a| {
                 if a >= b {
-                    continue;
+                    return false;
                 }
                 let at = t.road(a);
                 let d = at.distance_to_road(x, z, 24.0);
-                let Some(sa) = d.s else { continue };
+                let Some(sa) = d.s else { return true };
                 // Near the other road's own ends a meeting is that end's
                 // junction, not a crossing.
                 if !at.is_loop && !(40.0..=at.length - 40.0).contains(&sa) {
                     last.remove(&a);
-                    continue;
+                    return true;
                 }
                 if let Some(&(kp, lp)) = last.get(&a)
                     && kp + 1 == k
@@ -289,7 +469,8 @@ pub fn find_crossings(t: &mut Track) -> Vec<Junction> {
                     }
                 }
                 last.insert(a, (k, d.lat));
-            }
+                true
+            });
         }
     }
     // A freeway meets nothing at grade (stage 8a, D1248): it rises over
@@ -319,15 +500,18 @@ pub fn find_crossings(t: &mut Track) -> Vec<Junction> {
         if freeway(t, j.road, j.s) == freeway(t, j.other, j.other_s) {
             return false;
         }
-        let (f, fs) = if freeway(t, j.road, j.s) {
-            (j.road, j.s)
+        let (f, fs, o, os) = if freeway(t, j.road, j.s) {
+            (j.road, j.s, j.other, j.other_s)
         } else {
-            (j.other, j.other_s)
+            (j.other, j.other_s, j.road, j.s)
         };
         // On its viaduct already (the level's lift), or room to rise over
         // the road; too near one of its junctions to clear it: at grade.
         let ft = t.road(f);
-        ft.elevated[ft.idx(fs.clamp(0.0, ft.length))] != 0 || room(t, f, fs) >= OVERPASS_CLEAR + 1.0
+        let fi = ft.idx(fs.clamp(0.0, ft.length));
+        let need = (t.road(o).surface_y(os, 0.0) + OVERPASS_CLEAR - f64::from(ft.py[fi]))
+            .max(OVERPASS_CLEAR + 1.0);
+        ft.elevated[fi] != 0 || room(t, f, fs) >= need
     });
     let mut before: BTreeMap<usize, Vec<f32>> = BTreeMap::new();
     for j in &over {

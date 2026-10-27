@@ -164,8 +164,9 @@ fn a_race_at_a_place_runs_to_its_finish_and_the_cruise_comes_back() {
 /// Puts the cruising car on start `k`'s marker, stopped.
 fn on_marker(lr: &LevelRuntime, st: &mut SimState, k: usize) {
     let e = &lr.level.events[k];
+    let road = lr.track.road_index(e.road).expect("a known event road");
     let p = &mut st.players[0];
-    p.phys.reset(&mut p.v, &lr.track, e.s, 2.0);
+    p.phys.reset_on(&mut p.v, &lr.track, road, e.s, 2.0);
     run(lr, st, InputFrame::default(), 0.5);
     assert_eq!(
         event::at_start(&lr.track, &lr.level, &st.players[0].v),
@@ -186,10 +187,12 @@ fn a_time_trial_is_alone_against_its_time() {
     assert!(st.rivals.is_empty());
     let r = until_end(&lr, &mut st, autopilot(), 900.0);
     for e in &lr.level.events {
+        let rt = lr.track.road(lr.track.road_index(e.road).unwrap());
         eprintln!(
-            "{}: profile {:.0} s, time {}",
+            "{} (road '{}'): profile {:.0} s, time {}",
             e.id,
-            event::profile_time(&lr.track, e.s, e.finish),
+            e.road,
+            event::profile_time(rt, e.s, e.finish),
             event::time_of(&lr.track, e)
         );
     }
@@ -294,4 +297,83 @@ fn with_physics_all_an_events_rivals_drive_the_sim_model() {
             lr.track.ds(s, a.k.s)
         );
     }
+}
+
+#[test]
+fn a_branch_race_runs_on_its_corridor_and_is_deterministic() {
+    let lr = cruise();
+    let k = lr
+        .level
+        .events
+        .iter()
+        .position(|e| e.id == "devils-slide-run")
+        .expect("devils-slide-run in peninsula events");
+    let road = lr
+        .track
+        .road_index(lr.level.events[k].road)
+        .expect("coast-north road");
+    assert!(road > 0, "devils-slide-run lives on a branch corridor");
+
+    let run_once = || {
+        let mut st = on_the_first_marker(&lr);
+        on_marker(&lr, &mut st, k);
+        run(&lr, &mut st, frame(1.0, 1.0), 1.1);
+        assert_eq!(st.race.event.as_ref().map(|e| e.road), Some(road));
+        assert_eq!(st.rivals.len(), lr.level.rivals.len());
+        assert!(st.rivals.iter().all(|a| a.k.road == road));
+        let r = until_end(&lr, &mut st, autopilot(), 420.0);
+        (r, mp_sim::race::hash(&st), st.players[0].v.road)
+    };
+
+    let (r1, h1, final_road) = run_once();
+    let (r2, h2, _) = run_once();
+    assert_eq!(h1, h2, "branch event simulation must be bit-deterministic");
+    assert_eq!(r1, r2);
+    assert_eq!(r1.kind, EventKind::Race);
+    assert_eq!(r1.rows.len(), 1 + lr.level.rivals.len());
+    assert_eq!(final_road, road);
+}
+
+#[test]
+fn branch_time_trial_and_city_delivery_complete_and_return_to_cruise() {
+    let lr = cruise();
+    let mut st = on_the_first_marker(&lr);
+
+    // Crystal Springs time trial on Canada Road.
+    let tt = lr
+        .level
+        .events
+        .iter()
+        .position(|e| e.id == "crystal-springs-run")
+        .expect("crystal-springs-run");
+    on_marker(&lr, &mut st, tt);
+    run(&lr, &mut st, frame(1.0, 1.0), 1.1);
+    assert!(st.rivals.is_empty());
+    let r_tt = until_end(&lr, &mut st, autopilot(), 360.0);
+    assert_eq!(r_tt.kind, EventKind::TimeTrial);
+    assert!(st.race.cruise && st.race.event.is_none());
+
+    // San Francisco city delivery from Lombard crest to the Ferry Building.
+    let del = lr
+        .level
+        .events
+        .iter()
+        .position(|e| e.id == "ferry-express")
+        .expect("ferry-express");
+    on_marker(&lr, &mut st, del);
+    run(&lr, &mut st, frame(1.0, 1.0), 1.1);
+    run(&lr, &mut st, InputFrame::default(), 4.5);
+    let [dx, dz] = lr.level.events[del].drop.expect("ferry drop");
+    {
+        let p = &mut st.players[0];
+        p.v.x = dx;
+        p.v.z = dz;
+        p.v.vx = 0.0;
+        p.v.vz = 0.0;
+        p.v.project_onto(&lr.track);
+    }
+    let r_del = until_end(&lr, &mut st, InputFrame::default(), 10.0);
+    assert_eq!(r_del.kind, EventKind::Delivery);
+    assert!(r_del.made_it, "{r_del:?}");
+    assert!(st.race.cruise && st.race.event.is_none());
 }

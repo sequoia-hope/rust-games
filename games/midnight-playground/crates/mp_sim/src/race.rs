@@ -536,6 +536,54 @@ pub(crate) fn grid(
     }
 }
 
+/// [`grid`] on any road of the network (`0` is the level's road).
+pub(crate) fn grid_on(
+    t: &Track,
+    road: usize,
+    phys: &mut CarPhysics,
+    v: &mut Vehicle,
+    rivals: &mut [AiDriver],
+    front: f64,
+) {
+    if road == 0 {
+        grid(t, phys, v, rivals, front);
+        return;
+    }
+    let rt = t.road(road);
+    let order: Vec<Option<usize>> = if rivals.len() >= 5 {
+        vec![Some(0), Some(1), Some(2), None, Some(3), Some(4)]
+    } else {
+        std::iter::once(None)
+            .chain((0..rivals.len()).map(Some))
+            .collect()
+    };
+    for (k, c) in order.into_iter().enumerate() {
+        let (row, col) = ((k / 2) as f64, k % 2);
+        let raw_s = front - 5.0 - row * 10.0 - col as f64 * 3.0;
+        let s = if rt.is_loop {
+            rt.wrap(raw_s)
+        } else {
+            clamp(raw_s, 0.0, rt.road_end() - 1.0)
+        };
+        let lat = if col == 1 { 2.4 } else { -2.4 };
+        match c {
+            None => {
+                phys.reset_on(v, t, road, s, lat);
+                v.prog = Some(s);
+            }
+            Some(i) => {
+                let a = &mut rivals[i];
+                a.k.road = road;
+                a.k.s = s;
+                a.k.lat = lat;
+                a.k.speed = 0.0;
+                a.prog = Some(s);
+                a.write_pos(t);
+            }
+        }
+    }
+}
+
 /// A human in a multiplayer race.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Human {
@@ -883,20 +931,25 @@ pub fn park_spot(t: &Track, race: &mut RaceState, s0: f64, lat0: f64) -> Park {
 /// (`coolDown`).
 fn cool_down(t: &Track, p: &mut PlayerCar, me: usize, agents: &[AgentView], dt: f64) -> Input {
     let v = &p.v;
+    let (rt, vs, vlat) = if v.road == 0 {
+        (t, v.s, v.lat)
+    } else {
+        (t.road(v.road), v.road_s, v.road_lat)
+    };
     let park = p.rules.park.expect("a finisher has a parking spot");
     let sp = kernel::hypot(v.vx, v.vz);
     let look = 8.0 + sp * 0.6;
-    let mut target = park.speed(t, v.s);
-    let mut lat = park.lat(t, v.s + look);
+    let mut target = park.speed(rt, vs);
+    let mut lat = park.lat(rt, vs + look);
     // Anything ahead in our path: go round it while we're closing fast
     // (like the rivals do), otherwise queue behind it.
     let (mut block, mut gap) = (None, f64::INFINITY);
     for (i, o) in agents.iter().enumerate() {
-        if i == me || o.dir != 1 {
+        if i == me || o.dir != 1 || (v.road != 0 && o.road != v.road) {
             continue;
         }
-        let ds = t.ds(v.s, o.s);
-        let in_path = (o.lat - v.lat).abs() < v.half_w + o.half_w + 0.7
+        let ds = rt.ds(vs, o.s);
+        let in_path = (o.lat - vlat).abs() < v.half_w + o.half_w + 0.7
             || (o.lat - lat).abs() < v.half_w + o.half_w + 0.7;
         if ds > 2.0 && ds < 60.0 && ds < gap && in_path {
             block = Some(o);
@@ -907,7 +960,7 @@ fn cool_down(t: &Track, p: &mut PlayerCar, me: usize, agents: &[AgentView], dt: 
     r.pass_timer = Some(js::max(0.0, js::or_opt(r.pass_timer, 0.0) - dt));
     match block {
         Some(b) if sp - b.speed_along > 5.0 => {
-            let f = t.frame(v.s);
+            let f = rt.frame(vs);
             let lim = f.hw - v.half_w - 0.4;
             let need = v.half_w + b.half_w + 1.2;
             let sides: Vec<f64> = [b.lat + need, b.lat - need]
@@ -934,7 +987,7 @@ fn cool_down(t: &Track, p: &mut PlayerCar, me: usize, agents: &[AgentView], dt: 
     if r.pass_timer.unwrap_or(0.0) > 0.0 {
         lat = r.pass_lat.unwrap_or(f64::NAN);
     }
-    let pt = t.point_at(v.s + look, lat);
+    let pt = rt.point_at(vs + look, lat);
     let err = target - sp;
     Input {
         throttle: if target > 0.5 && err > 0.0 {
@@ -1051,21 +1104,48 @@ pub fn step(
     let dt = DT;
     st.tick += 1;
     let np = st.players.len();
-    let frames: Vec<InputFrame> = (0..np)
-        .map(|i| inputs.get(i).copied().unwrap_or_default())
-        .collect();
+    let mut frames_stack = [InputFrame::default(); 8];
+    let frames_heap: Vec<InputFrame>;
+    let frames: &[InputFrame] = if np <= 8 {
+        for (i, dst) in frames_stack[..np].iter_mut().enumerate() {
+            *dst = inputs.get(i).copied().unwrap_or_default();
+        }
+        &frames_stack[..np]
+    } else {
+        frames_heap = (0..np)
+            .map(|i| inputs.get(i).copied().unwrap_or_default())
+            .collect();
+        &frames_heap
+    };
     // A player who dropped out is driven by the autopilot (MULTIPLAYER 2.7).
-    let inps: Vec<Input> = (0..np)
-        .map(|i| {
-            if frames[i].flags & AUTOPILOT != 0 {
-                let mut inp = Input::default();
-                autopilot(&mut inp, &st.players[i].v, t);
-                InputFrame::quantise(&inp).input()
+    let auto_road = st.race.event.as_ref().map_or(0, |e| e.road);
+    let input_of = |i: usize| -> Input {
+        if frames[i].flags & AUTOPILOT != 0 {
+            let mut inp = Input::default();
+            if auto_road != 0 && st.players[i].v.road != auto_road {
+                let mut v = st.players[i].v.clone();
+                v.road = auto_road;
+                v.road_s = st.race.prog_s.get(i).copied().unwrap_or(0.0);
+                autopilot(&mut inp, &v, t);
             } else {
-                frames[i].input()
+                autopilot(&mut inp, &st.players[i].v, t);
             }
-        })
-        .collect();
+            InputFrame::quantise(&inp).input()
+        } else {
+            frames[i].input()
+        }
+    };
+    let mut inps_stack = [Input::default(); 8];
+    let inps_heap: Vec<Input>;
+    let inps: &[Input] = if np <= 8 {
+        for (i, dst) in inps_stack[..np].iter_mut().enumerate() {
+            *dst = input_of(i);
+        }
+        &inps_stack[..np]
+    } else {
+        inps_heap = (0..np).map(input_of).collect();
+        &inps_heap
+    };
     let race = &mut st.race;
 
     // ── State machine ──────────────────────────────────────────
@@ -1168,10 +1248,23 @@ pub fn step(
 
     let laps = st.race.laps > 0;
     let progged = st.race.progged();
-    let player_s = st.players[0].v.s;
+    let ev_road = st.race.event.as_ref().map_or(0, |e| e.road);
+    let player_s = if ev_road == 0 {
+        st.players[0].v.s
+    } else if st.players[0].v.road == ev_road {
+        st.players[0].v.road_s
+    } else {
+        t.road(ev_road)
+            .project(st.players[0].v.x, st.players[0].v.z, st.race.prog_s[0])
+            .s
+    };
     let player_prog = if progged { st.players[0].v.prog } else { None };
+    let mut views = if st.rivals.is_empty() {
+        Vec::new()
+    } else {
+        field(st).views(&agents)
+    };
     for i in 0..st.rivals.len() {
-        let views = field(st).views(&agents);
         // Whom this rival rubber-bands against (MULTIPLAYER 2.1).
         let (ps, pp) = match &st.race.multi {
             None => (player_s, player_prog),
@@ -1186,9 +1279,10 @@ pub fn step(
                 (v.s, if progged { v.prog } else { None })
             }
         };
+        let me = agents.iter().position(|&r| r == BodyId::Rival(i));
         let ctx = AiCtx {
             cars: &views,
-            me: agents.iter().position(|&r| r == BodyId::Rival(i)),
+            me,
             player_s: ps,
             player_prog: pp,
             started,
@@ -1201,12 +1295,20 @@ pub fn step(
             let park = park_spot(t, &mut st.race, s, lat);
             st.rivals[i].park = Some(park);
         }
+        if let Some(m) = me {
+            views[m] = AgentView {
+                id: BodyId::Rival(i),
+                ..crate::body::Body::view(&st.rivals[i])
+            };
+        }
     }
     if progged {
         track_progress(t, st);
     }
-    let odos: Vec<f64> = (0..np)
-        .map(|i| {
+    let mut odos_stack = [0.0; 8];
+    let odos_heap: Vec<f64>;
+    let odos: &[f64] = {
+        let mut step_odo = |i: usize| -> f64 {
             let s = st.players[i].v.s;
             let (road, x, z) = (st.players[i].v.road, st.players[i].v.x, st.players[i].v.z);
             let r = &mut st.players[i].rules;
@@ -1222,8 +1324,17 @@ pub fn step(
             let odo = r.odo.unwrap_or(s) + d_s; // unwrapped position (loops)
             r.odo = Some(odo);
             odo
-        })
-        .collect();
+        };
+        if np <= 8 {
+            for (i, dst) in odos_stack[..np].iter_mut().enumerate() {
+                *dst = step_odo(i);
+            }
+            &odos_stack[..np]
+        } else {
+            odos_heap = (0..np).map(step_odo).collect();
+            &odos_heap
+        }
+    };
     {
         // Traffic lives ahead of the leading player and stays until the
         // last has passed (one player: both are player 0).
@@ -1433,9 +1544,15 @@ pub fn step(
     }
 
     // Wrong way / finish.
+    let ev_road = st.race.event.as_ref().map_or(0, |e| e.road);
     for i in 0..np {
+        let last_s = st.race.prog_s.get(i).copied().unwrap_or(0.0);
         let p = &mut st.players[i];
-        let f = t.frame(p.v.s);
+        let f = if ev_road != 0 {
+            t.road(ev_road).frame(last_s)
+        } else {
+            t.frame(p.v.s)
+        };
         let along = kernel::cos(p.v.yaw) * f.fx + kernel::sin(p.v.yaw) * f.fz;
         let spd = p.v.speed;
         // A delivery goes by any road, either way.
@@ -1518,7 +1635,7 @@ pub fn step(
     let all_home = st
         .players
         .iter()
-        .zip(&frames)
+        .zip(frames)
         .all(|(p, f)| p.rules.finished || f.flags & AUTOPILOT != 0);
     if let Some(m) = &mut st.race.multi
         && racing
@@ -1563,7 +1680,7 @@ pub fn step(
         pursuit_events(t, st, events);
     }
     // An open level's events at places: a start held, a delivery's time.
-    crate::event::step(lr, st, &inps, events);
+    crate::event::step(lr, st, inps, events);
 }
 
 /// Multiplayer: the human nearest rival `i` in race progress (on a circuit
@@ -1851,15 +1968,24 @@ fn to_fixed1(x: f64) -> String {
 /// Circuits: carry each racer's unwrapped progress on by how far it moved
 /// along the loop this tick (a reset back down the road counts too).
 fn track_progress(t: &Track, st: &mut SimState) {
+    let ev_road = st.race.event.as_ref().map_or(0, |e| e.road);
+    let rt = t.road(ev_road);
     let np = st.players.len();
     for (i, p) in st.players.iter_mut().enumerate() {
         let last = st.race.prog_s[i];
-        p.v.prog = Some(p.v.prog.unwrap_or(f64::NAN) + t.ds(last, p.v.s));
-        st.race.prog_s[i] = p.v.s;
+        let cur = if ev_road == 0 {
+            p.v.s
+        } else if p.v.road == ev_road {
+            p.v.road_s
+        } else {
+            rt.project(p.v.x, p.v.z, last).s
+        };
+        p.v.prog = Some(p.v.prog.unwrap_or(f64::NAN) + rt.ds(last, cur));
+        st.race.prog_s[i] = cur;
     }
     for (i, a) in st.rivals.iter_mut().enumerate() {
         let last = st.race.prog_s[np + i];
-        a.prog = Some(a.prog.unwrap_or(f64::NAN) + t.ds(last, a.k.s));
+        a.prog = Some(a.prog.unwrap_or(f64::NAN) + rt.ds(last, a.k.s));
         st.race.prog_s[np + i] = a.k.s;
     }
     for a in &mut st.rivals {
@@ -1946,6 +2072,9 @@ pub fn hash(st: &SimState) -> u64 {
         }
         if let Some(e) = &st.race.event {
             rec.push(e.index as u8);
+            if e.road != 0 {
+                rec.push(e.road as u8);
+            }
             rec.push(
                 u8::from(e.cruise_time > 0.0)
                     | u8::from(e.decided) << 1

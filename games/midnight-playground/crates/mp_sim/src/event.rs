@@ -18,7 +18,7 @@ use crate::input::Input;
 use crate::model::SimRival;
 use crate::park::Park;
 use crate::race::{
-    LevelRuntime, PlayerRules, RaceStateKind, ResultRow, SimEvent, SimState, grid, level_rivals,
+    LevelRuntime, PlayerRules, RaceStateKind, ResultRow, SimEvent, SimState, grid_on, level_rivals,
     results,
 };
 use crate::vehicle::Vehicle;
@@ -41,6 +41,8 @@ pub struct EventRun {
     /// Into the level's events.
     pub index: usize,
     pub kind: EventKind,
+    /// Network road index (`0` for road 0, `1 + k` for branch `k`).
+    pub road: usize,
     /// The cruise's rules (score, multiplier, distance) as they were.
     pub cruise: PlayerRules,
     /// The cruise's clock when the event began.
@@ -95,28 +97,38 @@ pub fn profile_time(t: &Track, a: f64, b: f64) -> f64 {
 /// An event's time: a delivery's is the level's; a trial's the road's
 /// speed profile with [`PAR_SLACK`], rounded up to five seconds.
 pub fn time_of(t: &Track, e: &EventSpot) -> f64 {
+    let rt = t.road(t.road_index(e.road).unwrap_or(0));
     match e.kind {
-        EventKind::TimeTrial => (profile_time(t, e.s, e.finish) * PAR_SLACK / 5.0).ceil() * 5.0,
+        EventKind::TimeTrial => (profile_time(rt, e.s, e.finish) * PAR_SLACK / 5.0).ceil() * 5.0,
         _ => e.time,
     }
 }
 
-/// The start whose marker the car is on, if any: on the level's own road
-/// (road 0), within the marker's length and on the tarmac.
+/// The start whose marker the car is on, if any: on the event's road,
+/// within the marker's length and on the tarmac.
 pub fn at_start(t: &Track, level: &Level, v: &Vehicle) -> Option<usize> {
-    if v.road != 0 {
-        return None;
-    }
     level.events.iter().position(|e| {
-        let d = t.ds(e.s, v.s);
-        let f = t.frame(v.s);
-        (-SPOT_BACK..=SPOT_AHEAD).contains(&d) && v.lat.abs() < f.hw + 1.0
+        let Some(er) = t.road_index(e.road) else {
+            return false;
+        };
+        if v.road != er {
+            return false;
+        }
+        let (rt, vs, vlat) = if er == 0 {
+            (t, v.s, v.lat)
+        } else {
+            (t.road(er), v.road_s, v.road_lat)
+        };
+        let d = rt.ds(e.s, vs);
+        let f = rt.frame(vs);
+        (-SPOT_BACK..=SPOT_AHEAD).contains(&d) && vlat.abs() < f.hw + 1.0
     })
 }
 
 /// A start's point on the road (its marker's centre).
 pub fn start_point(t: &Track, e: &EventSpot) -> (f64, f64) {
-    let p = t.point_at(e.s, 0.0);
+    let rt = t.road(t.road_index(e.road).unwrap_or(0));
+    let p = rt.point_at(e.s, 0.0);
     (p.x, p.z)
 }
 
@@ -235,9 +247,12 @@ pub fn start(lr: &LevelRuntime, st: &mut SimState, index: usize, events: &mut Ve
     let t = &*lr.track;
     let level = &lr.level;
     let e = &level.events[index];
+    let er = t.road_index(e.road).unwrap_or(0);
+    let rt = t.road(er);
     let run = EventRun {
         index,
         kind: e.kind,
+        road: er,
         cruise: st.players[0].rules.clone(),
         cruise_time: st.race.time,
         decided: false,
@@ -245,7 +260,12 @@ pub fn start(lr: &LevelRuntime, st: &mut SimState, index: usize, events: &mut Ve
     };
     for i in 0..st.traffic.cars.len() {
         let c = &st.traffic.cars[i];
-        if c.active && t.ds(e.s, c.k.s).abs() < CLEAR {
+        let near = if er == 0 {
+            t.ds(e.s, c.k.s).abs() < CLEAR
+        } else {
+            c.k.road == er && rt.ds(e.s, c.k.s).abs() < CLEAR
+        };
+        if c.active && near {
             st.traffic.despawn(i);
         }
     }
@@ -256,7 +276,7 @@ pub fn start(lr: &LevelRuntime, st: &mut SimState, index: usize, events: &mut Ve
     };
     let n_cars = st.traffic.cars.len();
     let p = &mut st.players[0];
-    grid(t, &mut p.phys, &mut p.v, &mut rivals, e.s);
+    grid_on(t, er, &mut p.phys, &mut p.v, &mut rivals, e.s);
     if st.race.sim_rivals {
         for a in rivals.iter_mut() {
             a.sim = Some(Box::new(SimRival::new(&a.k.v, t)));
@@ -265,13 +285,14 @@ pub fn start(lr: &LevelRuntime, st: &mut SimState, index: usize, events: &mut Ve
     p.phys.locked = true;
     p.rules = PlayerRules::new(n_cars);
     let race = &mut st.race;
-    race.prog_s = std::iter::once(p.v.s)
+    let ps = if er == 0 { p.v.s } else { p.v.road_s };
+    race.prog_s = std::iter::once(ps)
         .chain(rivals.iter().map(|a| a.k.s))
         .collect();
     st.rivals = rivals;
     race.finish_prog = match e.kind {
         EventKind::Delivery => f64::INFINITY,
-        _ => e.s + ahead(t, e.s, e.finish),
+        _ => e.s + ahead(rt, e.s, e.finish),
     };
     race.cruise = false;
     race.state = RaceStateKind::Countdown;

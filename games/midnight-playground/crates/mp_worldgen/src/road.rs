@@ -317,6 +317,9 @@ pub struct RoadCtx<'a> {
     /// mouth and open far end, a street's crossings). `None` for a road
     /// built on its own.
     pub network: Option<&'a Track>,
+    /// Optional precomputed `(side_l, side_r)` for this road over the planned
+    /// terrain (`Planned` computes them once across all sections).
+    pub precomputed_sides: Option<&'a (Vec<u8>, Vec<u8>)>,
 }
 
 /// `new Road(track, terrain)` and what `build()` leaves on it.
@@ -348,10 +351,24 @@ struct Line {
     dash: Option<[f64; 2]>,
 }
 
-/// `{ L, f: { ...f } }`.
-struct Section {
-    l: Vec<Line>,
+/// `{ L, f: { ...f } }` on the stack (at most 6 lines per road cross-section).
+struct LineSet {
+    l: [Line; 6],
+    len: usize,
     f: Frame,
+}
+
+impl LineSet {
+    #[inline]
+    fn push(&mut self, line: Line) {
+        self.l[self.len] = line;
+        self.len += 1;
+    }
+
+    #[inline]
+    fn slice(&self) -> &[Line] {
+        &self.l[..self.len]
+    }
 }
 
 /// `ROAD_TYPES[ROAD_KEYS[t.roadType[i]]]`.
@@ -479,6 +496,131 @@ impl RoadCtx<'_> {
     }
 }
 
+/// Shared lazy `(side_l, side_r)` cache per road of the network.
+pub type SharedRoadSides = std::sync::Arc<Vec<std::sync::OnceLock<(Vec<u8>, Vec<u8>)>>>;
+
+/// Computes `(side_l, side_r)` for `track` over `terrain` (and optional `network`).
+pub fn classify_road_sides(
+    t: &Track,
+    tr: &Terrain,
+    road: usize,
+    network: Option<&Track>,
+) -> (Vec<u8>, Vec<u8>) {
+    let n = t.n;
+    let mut l = vec![0u8; n];
+    let mut r = vec![0u8; n];
+    // 0 none, 1 rock wall, 2 guardrail, 3 fence, 4 jersey barrier, 5 kerb + railing
+    let edge = |i: usize| road_type_at(t, i).edge;
+    // EDGE_CODE: fence 3, jersey 4, rail 5, curb 6, none 0, circuit 0.
+    let edge_code = |e: &str| -> u8 {
+        match e {
+            "fence" => 3,
+            "jersey" => 4,
+            "rail" => 5,
+            "curb" => 6,
+            _ => 0,
+        }
+    };
+    // Float32Arrays.
+    let mut tmp_l = vec![0f32; n];
+    let mut tmp_r = vec![0f32; n];
+    for i in (0..n).step_by(2) {
+        if edge(i) == "terrain" {
+            for side in [-1.0, 1.0] {
+                let hw = f64::from(t.hw[i]) + f64::from(t.margin[i]);
+                let probe = side * (hw + 5.0);
+                let x = f64::from(t.px[i]) + f64::from(t.rx[i]) * probe;
+                let zz = f64::from(t.pz[i]) + f64::from(t.rz[i]) * probe;
+                let th = tr.height_at(x, zz);
+                let rh = t.surface_y(i as f64, side * hw);
+                let v = th - rh; // positive = ground rises (wall)
+                if side < 0.0 {
+                    tmp_l[i] = v as f32;
+                } else {
+                    tmp_r[i] = v as f32;
+                }
+            }
+        }
+    }
+    // Smooth the decision so barriers come in sensible runs.
+    let decide = |tmp: &[f32], out: &mut [u8]| {
+        for i in 0..n {
+            let e = edge(i);
+            if e != "terrain" {
+                out[i] = edge_code(e);
+                continue;
+            }
+            let mut acc = 0.0;
+            let mut cnt = 0.0;
+            let mut k: i64 = -16;
+            while k <= 16 {
+                let j = clamp(((i & !1) as i64 + k) as f64, 0.0, (n - 1) as f64) as usize;
+                acc += f64::from(tmp[j]);
+                cnt += 1.0;
+                k += 2;
+            }
+            out[i] = if acc / cnt > 1.6 { 1 } else { 2 };
+        }
+    };
+    decide(&tmp_l, &mut l);
+    decide(&tmp_r, &mut r);
+    // Drop stubs: short rock-wall gaps inside guardrail runs become guardrail,
+    // and short guardrail pieces between rock walls disappear.
+    let despeckle = |arr: &mut [u8]| {
+        for (val, other, min_len) in [(1u8, 2u8, 30usize), (2, 1, 40)] {
+            let mut i = 0;
+            while i < n {
+                if edge(i) != "terrain" || arr[i] != val {
+                    i += 1;
+                    continue;
+                }
+                let mut j = i;
+                while j < n && arr[j] == val && edge(j) == "terrain" {
+                    j += 1;
+                }
+                let before = if i > 0 { arr[i - 1] } else { other };
+                let after = if j < n { arr[j] } else { other };
+                if j - i < min_len && before == other && after == other {
+                    arr[i..j].fill(other);
+                }
+                i = j;
+            }
+        }
+    };
+    despeckle(&mut l);
+    despeckle(&mut r);
+    // Hairpin outsides always get a guardrail.
+    for i in 0..n {
+        let k = f64::from(t.k_smooth[i]);
+        if edge(i) == "terrain" && k.abs() > 0.022 {
+            if k > 0.0 {
+                l[i] = 2;
+            } else {
+                r[i] = 2;
+            }
+        }
+    }
+    if let Some(net) = network {
+        let own;
+        let e = match net.edges.get(road) {
+            Some(e) => e,
+            None => {
+                own = net.edges_of(road);
+                &own
+            }
+        };
+        for i in 0..n {
+            if e.left[i] == mp_track::barriers::NONE {
+                l[i] = 0;
+            }
+            if e.right[i] == mp_track::barriers::NONE {
+                r[i] = 0;
+            }
+        }
+    }
+    (l, r)
+}
+
 impl Road {
     /// `new Road(track, terrain)`: the group and the shared uniforms.
     pub fn new(graph: &mut SceneGraph, textures: &mut TextureCache) -> Road {
@@ -549,123 +691,12 @@ impl Road {
     /// For each metre and side decide what sits at the edge: a rock face, a
     /// guardrail, a fence or a concrete barrier. Physics and scenery read it.
     pub fn classify_sides(&mut self, c: &RoadCtx) {
-        let (t, tr) = (c.track, c.terrain);
-        let n = t.n;
-        let mut l = vec![0u8; n];
-        let mut r = vec![0u8; n];
-        // 0 none, 1 rock wall, 2 guardrail, 3 fence, 4 jersey barrier, 5 kerb + railing
-        let edge = |i: usize| road_type_at(t, i).edge;
-        // EDGE_CODE: fence 3, jersey 4, rail 5, curb 6, none 0, circuit 0.
-        let edge_code = |e: &str| -> u8 {
-            match e {
-                "fence" => 3,
-                "jersey" => 4,
-                "rail" => 5,
-                "curb" => 6,
-                _ => 0,
-            }
-        };
-        // Float32Arrays.
-        let mut tmp_l = vec![0f32; n];
-        let mut tmp_r = vec![0f32; n];
-        for i in (0..n).step_by(2) {
-            if edge(i) == "terrain" {
-                for side in [-1.0, 1.0] {
-                    let hw = f64::from(t.hw[i]) + f64::from(t.margin[i]);
-                    let probe = side * (hw + 5.0);
-                    let x = f64::from(t.px[i]) + f64::from(t.rx[i]) * probe;
-                    let zz = f64::from(t.pz[i]) + f64::from(t.rz[i]) * probe;
-                    let th = tr.height_at(x, zz);
-                    let rh = t.surface_y(i as f64, side * hw);
-                    let v = th - rh; // positive = ground rises (wall)
-                    if side < 0.0 {
-                        tmp_l[i] = v as f32;
-                    } else {
-                        tmp_r[i] = v as f32;
-                    }
-                }
-            }
+        if let Some((l, r)) = c.precomputed_sides {
+            self.side_l = l.clone();
+            self.side_r = r.clone();
+            return;
         }
-        // Smooth the decision so barriers come in sensible runs.
-        let decide = |tmp: &[f32], out: &mut [u8]| {
-            for i in 0..n {
-                let e = edge(i);
-                if e != "terrain" {
-                    out[i] = edge_code(e);
-                    continue;
-                }
-                let mut acc = 0.0;
-                let mut cnt = 0.0;
-                let mut k: i64 = -16;
-                while k <= 16 {
-                    let j = clamp(((i & !1) as i64 + k) as f64, 0.0, (n - 1) as f64) as usize;
-                    acc += f64::from(tmp[j]);
-                    cnt += 1.0;
-                    k += 2;
-                }
-                out[i] = if acc / cnt > 1.6 { 1 } else { 2 };
-            }
-        };
-        decide(&tmp_l, &mut l);
-        decide(&tmp_r, &mut r);
-        // Drop stubs: short rock-wall gaps inside guardrail runs become guardrail,
-        // and short guardrail pieces between rock walls disappear.
-        let despeckle = |arr: &mut [u8]| {
-            for (val, other, min_len) in [(1u8, 2u8, 30usize), (2, 1, 40)] {
-                let mut i = 0;
-                while i < n {
-                    if edge(i) != "terrain" || arr[i] != val {
-                        i += 1;
-                        continue;
-                    }
-                    let mut j = i;
-                    while j < n && arr[j] == val && edge(j) == "terrain" {
-                        j += 1;
-                    }
-                    let before = if i > 0 { arr[i - 1] } else { other };
-                    let after = if j < n { arr[j] } else { other };
-                    if j - i < min_len && before == other && after == other {
-                        arr[i..j].fill(other);
-                    }
-                    i = j;
-                }
-            }
-        };
-        despeckle(&mut l);
-        despeckle(&mut r);
-        // Hairpin outsides always get a guardrail.
-        for i in 0..n {
-            let k = f64::from(t.k_smooth[i]);
-            if edge(i) == "terrain" && k.abs() > 0.022 {
-                if k > 0.0 {
-                    l[i] = 2;
-                } else {
-                    r[i] = 2;
-                }
-            }
-        }
-        // Nothing where the network meets the road: across the mouths of
-        // the roads that join it, where one crosses it, and on the tarmac
-        // of a greater road it meets (`mp_track::barriers`, which the
-        // simulation's barriers are too: stage 7c).
-        if let Some(net) = c.network {
-            let own;
-            let e = match net.edges.get(c.road) {
-                Some(e) => e,
-                None => {
-                    own = net.edges_of(c.road);
-                    &own
-                }
-            };
-            for i in 0..n {
-                if e.left[i] == mp_track::barriers::NONE {
-                    l[i] = 0;
-                }
-                if e.right[i] == mp_track::barriers::NONE {
-                    r[i] = 0;
-                }
-            }
-        }
+        let (l, r) = classify_road_sides(c.track, c.terrain, c.road, c.network);
         self.side_l = l;
         self.side_r = r;
     }
@@ -741,6 +772,9 @@ impl Road {
                 .kind(MaterialKind::Shoulder, None)
                 .uniform("clippingPlanes", Value::Null)
         });
+        if c.clip.as_ref().is_some_and(|sec| !sec.has_road(c.road)) {
+            return;
+        }
         let colorizer = Colorizer::new(c.terrain);
 
         let from = c.branch_from.unwrap_or(0.0);
@@ -895,70 +929,65 @@ impl Road {
             c,
             dash: Some(d),
         };
-        let lines_at = |s: f64| -> Section {
+        let lines_at = |s: f64| -> LineSet {
             let f = t.frame(s);
             let hw = f.hw;
             let marks = road_type_at(t, t.idx(s)).marks;
-            let mut l = Vec::new();
+            let mut ls = LineSet {
+                l: [ln("", 0.0, 0.0, [0.0; 3]); 6],
+                len: 0,
+                f,
+            };
             // Scenery can blank the paint across junctions (crossings, plazas).
             if no_marks.iter().any(|g| s > g.s0 && s < g.s1) {
-                return Section { l, f };
+                return ls;
             }
             if marks == "double" {
-                l.push(ln("c1", -0.14, 0.12, yellow));
-                l.push(ln("c2", 0.14, 0.12, yellow));
-                l.push(ln("el", -(hw - 0.3), 0.15, white));
-                l.push(ln("er", hw - 0.3, 0.15, white));
+                ls.push(ln("c1", -0.14, 0.12, yellow));
+                ls.push(ln("c2", 0.14, 0.12, yellow));
+                ls.push(ln("el", -(hw - 0.3), 0.15, white));
+                ls.push(ln("er", hw - 0.3, 0.15, white));
             } else if marks == "boulevard" {
                 // Boulevard: two lanes each way, double yellow in the middle.
-                l.push(ln("c1", -0.14, 0.12, yellow));
-                l.push(ln("c2", 0.14, 0.12, yellow));
+                ls.push(ln("c1", -0.14, 0.12, yellow));
+                ls.push(ln("c2", 0.14, 0.12, yellow));
                 let lane = (hw - 0.45) / 2.0;
-                l.push(dashed("bl", -lane, 0.13, white, [3.0, 9.0]));
-                l.push(dashed("br", lane, 0.13, white, [3.0, 9.0]));
-                l.push(ln("el", -(hw - 0.3), 0.15, white));
-                l.push(ln("er", hw - 0.3, 0.15, white));
+                ls.push(dashed("bl", -lane, 0.13, white, [3.0, 9.0]));
+                ls.push(dashed("br", lane, 0.13, white, [3.0, 9.0]));
+                ls.push(ln("el", -(hw - 0.3), 0.15, white));
+                ls.push(ln("er", hw - 0.3, 0.15, white));
             } else if marks == "avenue" {
                 // Kerbed city street: double yellow and lane lines; the kerbs are the edges.
-                l.push(ln("c1", -0.14, 0.12, yellow));
-                l.push(ln("c2", 0.14, 0.12, yellow));
+                ls.push(ln("c1", -0.14, 0.12, yellow));
+                ls.push(ln("c2", 0.14, 0.12, yellow));
                 let lane = hw / 2.0;
-                l.push(dashed("bl", -lane, 0.13, white, [3.0, 9.0]));
-                l.push(dashed("br", lane, 0.13, white, [3.0, 9.0]));
+                ls.push(dashed("bl", -lane, 0.13, white, [3.0, 9.0]));
+                ls.push(dashed("br", lane, 0.13, white, [3.0, 9.0]));
             } else if marks == "dashed" {
-                l.push(dashed("c", 0.0, 0.13, yellow, [4.0, 11.0]));
-                l.push(ln("el", -(hw - 0.3), 0.13, white));
-                l.push(ln("er", hw - 0.3, 0.13, white));
+                ls.push(dashed("c", 0.0, 0.13, yellow, [4.0, 11.0]));
+                ls.push(ln("el", -(hw - 0.3), 0.13, white));
+                ls.push(ln("er", hw - 0.3, 0.13, white));
             } else if marks == "guide" {
                 // Dry lake course: one dark guide line down the middle, no edges.
-                l.push(ln("g", 0.0, 0.3, [0.09, 0.08, 0.08]));
+                ls.push(ln("g", 0.0, 0.3, [0.09, 0.08, 0.08]));
             } else if marks == "freeway" && hw > 9.0 {
                 let left = -hw + 1.2;
                 let right = hw - 2.0;
                 let lw = (right - left) / 4.0;
-                l.push(ln("fl", left, 0.15, yellow));
-                l.push(ln("fr", right, 0.18, white));
+                ls.push(ln("fl", left, 0.15, yellow));
+                ls.push(ln("fr", right, 0.18, white));
                 for (q, k) in [(1.0, "f1"), (2.0, "f2"), (3.0, "f3")] {
-                    l.push(dashed(k, left + lw * q, 0.14, white, [3.0, 12.0]));
+                    ls.push(dashed(k, left + lw * q, 0.14, white, [3.0, 12.0]));
                 }
             } else {
-                l.push(ln("el", -(hw - 0.3), 0.15, white));
-                l.push(ln("er", hw - 0.3, 0.15, white));
+                ls.push(ln("el", -(hw - 0.3), 0.15, white));
+                ls.push(ln("er", hw - 0.3, 0.15, white));
             }
-            Section { l, f }
+            ls
         };
-        let from = c.branch_from.unwrap_or(0.0);
-        let mut prev = lines_at(from);
-        let mut s = from + 1.0;
-        while s <= t.length {
-            let cur = lines_at(s);
-            if !c.wants(s) {
-                prev = cur;
-                s += 1.0;
-                continue;
-            }
-            for a in &prev.l {
-                let Some(b) = cur.l.iter().find(|x| x.k == a.k) else {
+        let mut emit_step = |prev: &LineSet, cur: &LineSet, s: f64| {
+            for a in prev.slice() {
+                let Some(b) = cur.slice().iter().find(|x| x.k == a.k) else {
                     continue;
                 };
                 if let Some(d) = a.dash {
@@ -982,8 +1011,43 @@ impl Road {
                 }
                 idx.extend_from_slice(&[base, base + 1, base + 2, base + 1, base + 3, base + 2]);
             }
-            prev = cur;
-            s += 1.0;
+        };
+        let has_road = c.clip.as_ref().is_none_or(|sec| sec.has_road(c.road));
+        if has_road {
+            let from = c.branch_from.unwrap_or(0.0);
+            if c.branch_from.is_none()
+                && let Some(place) = c.clip.as_ref().and_then(|sec| sec.place.as_ref())
+            {
+                let mut last_k = 0i64;
+                if let Some(runs) = place.runs.get(c.road) {
+                    for &[r0, r1] in runs {
+                        let k0 = (((r0 + 0.5).floor() as i64) - 1).max(last_k + 1);
+                        let mut prev = lines_at((k0 - 1) as f64);
+                        let mut k = k0;
+                        while (k as f64) <= t.length && (k as f64) - 0.5 <= r1 {
+                            let s = k as f64;
+                            let cur = lines_at(s);
+                            if c.wants(s) {
+                                emit_step(&prev, &cur, s);
+                            }
+                            prev = cur;
+                            last_k = k;
+                            k += 1;
+                        }
+                    }
+                }
+            } else {
+                let mut prev = lines_at(from);
+                let mut s = from + 1.0;
+                while s <= t.length {
+                    let cur = lines_at(s);
+                    if c.wants(s) {
+                        emit_step(&prev, &cur, s);
+                    }
+                    prev = cur;
+                    s += 1.0;
+                }
+            }
         }
         let mut g = BufferGeometry::new();
         g.set_attribute("position", BufferAttribute::from_f64(&pos, 3));
@@ -1266,6 +1330,9 @@ impl Road {
                 .set("side", DOUBLE_SIDE),
         );
         self.materials.push(("chevron".into(), mat));
+        if c.clip.as_ref().is_some_and(|sec| !sec.has_road(c.road)) {
+            return;
+        }
         struct Item {
             s: f64,
             side: f64,
@@ -1273,11 +1340,9 @@ impl Road {
         }
         let mut items = Vec::new();
         let mut last = -100.0;
-        let mut s = c.branch_from.unwrap_or(0.0);
-        while s < t.length {
+        let mut consider = |s: f64| {
             if !c.wants(s) {
-                s += 1.0;
-                continue;
+                return;
             }
             let k = f64::from(t.k_smooth[t.idx(s)]);
             let key = road_type_at(t, t.idx(s)).key;
@@ -1303,7 +1368,27 @@ impl Road {
                 });
                 last = s;
             }
-            s += 1.0;
+        };
+        if c.branch_from.is_none()
+            && let Some(place) = c.clip.as_ref().and_then(|sec| sec.place.as_ref())
+        {
+            let mut last_k = -1i64;
+            if let Some(runs) = place.runs.get(c.road) {
+                for &[r0, r1] in runs {
+                    let mut k = (((r0 + 0.5).floor() as i64) - 1).max(last_k + 1);
+                    while (k as f64) < t.length && (k as f64) - 0.5 <= r1 {
+                        consider(k as f64);
+                        last_k = k;
+                        k += 1;
+                    }
+                }
+            }
+        } else {
+            let mut s = c.branch_from.unwrap_or(0.0);
+            while s < t.length {
+                consider(s);
+                s += 1.0;
+            }
         }
         if items.is_empty() {
             return;
