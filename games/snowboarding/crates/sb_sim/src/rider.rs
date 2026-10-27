@@ -184,6 +184,35 @@ impl Rider {
         self.vel = Vec3::ZERO;
     }
 
+    /// Launches the rider out of the start gate along the snow tangent in a tuck.
+    pub fn launch(&mut self, course: &Course, speed: f32) {
+        let g = course.ground_su(self.s, self.u);
+        let f = course.frame(self.s);
+        self.pos.y = g.height;
+        self.normal = g.normal;
+        self.yaw = f.theta;
+        let flat = dir(self.yaw);
+        let tangent = (flat - g.normal * flat.dot(g.normal)).normalize_or(flat);
+        self.vel = tangent * speed;
+        self.phase = Phase::Ground;
+        self.crouch = 0.72;
+        self.tuck = 1.0;
+        self.skid = 0.0;
+        self.unstick = 0.0;
+        self.jump_held_prev = false;
+        self.grab_held_prev = false;
+    }
+
+    /// Adds forward speed along the snow tangent while grounded (start-ramp drop-in).
+    pub fn drive_along_ground(&mut self, dv: f32) {
+        if self.phase != Phase::Ground {
+            return;
+        }
+        let flat = dir(self.yaw);
+        let tangent = (flat - self.normal * flat.dot(self.normal)).normalize_or(flat);
+        self.vel += tangent * dv;
+    }
+
     pub fn step(&mut self, course: &Course, input: Input, dt: f32) {
         match self.phase {
             Phase::Ground => self.ground_step(course, input, dt),

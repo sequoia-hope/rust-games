@@ -805,17 +805,23 @@ mod web_audio {
             let r = &run.session.player().rider;
             let speed = if run.paused { 0.0 } else { r.speed() };
             let on_snow = r.phase != Phase::Air;
-            set(&sfx.wind.gain.gain(), (speed / 30.0).powi(2).min(1.0) * 0.5);
-            set(&sfx.wind.filter.frequency(), 250.0 + speed * 35.0);
+            let rush = ((speed - 4.0).max(0.0) / 23.0).powf(1.5).min(1.0);
+            let boost = if on_snow { 0.05 * r.tuck } else { 0.08 };
+            set(
+                &sfx.wind.gain.gain(),
+                (rush * 0.68 + rush * boost).min(0.75),
+            );
+            set(&sfx.wind.filter.frequency(), 220.0 + speed * 52.0);
+            set(&sfx.wind.filter.q(), 0.65 + (speed / 36.0).min(0.55));
             let carve = if on_snow && !run.paused {
-                (r.spray * 0.6 + 0.12) * (speed / 20.0).min(1.0)
+                (r.spray * 0.6 + 0.14) * (speed / 17.0).min(1.0)
             } else {
                 0.0
             };
-            set(&sfx.carve.gain.gain(), carve * 0.45);
+            set(&sfx.carve.gain.gain(), carve * 0.48);
             set(
                 &sfx.carve.filter.frequency(),
-                1500.0 + r.skid * 1500.0 - r.lean.abs() * 500.0,
+                1500.0 + r.skid * 1500.0 - r.lean.abs() * 500.0 + speed * 12.0,
             );
             for ev in &feed.0 {
                 match ev {
@@ -823,7 +829,8 @@ mod web_audio {
                         sfx.tone(OscillatorType::Square, 660.0, 660.0, 0.0, 0.14, 0.12)
                     }
                     SessionEvent::Go => {
-                        sfx.tone(OscillatorType::Square, 990.0, 990.0, 0.0, 0.4, 0.14)
+                        sfx.tone(OscillatorType::Square, 990.0, 990.0, 0.0, 0.4, 0.14);
+                        sfx.burst(1150.0, 0.28, 0.34);
                     }
                     SessionEvent::Rider(0, Event::Jump { .. }) => sfx.burst(900.0, 0.18, 0.25),
                     SessionEvent::Rider(0, Event::Land { landing, impact }) => {
