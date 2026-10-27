@@ -13,6 +13,7 @@
   --panel: #fbfaf6;
   --mustard: #c9961a;     /* the cover crops: the plan's own marks */
   --mustard-ink: #7a5a06;
+  --built: #2d6a4f;       /* built into the game */
   --route: #b2402a;       /* highway red */
   --planned: #2f5d7c;
   --later: #7a7f86;
@@ -27,13 +28,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #0f151b; --ink: #e4e0d4; --ink-2: #9aa3a8; --rule: #26313a; --panel: #131b22;
-    --mustard: #e3b23c; --mustard-ink: #f0c95e; --route: #ef6f52; --planned: #79aed2; --later: #8b9196;
+    --mustard: #e3b23c; --mustard-ink: #f0c95e; --built: #5cc490; --route: #ef6f52; --planned: #79aed2; --later: #8b9196;
     --road: #c9c3b4; --road-edge: #0b0f13; --label-halo: rgba(15, 21, 27, .85); color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --paper: #0f151b; --ink: #e4e0d4; --ink-2: #9aa3a8; --rule: #26313a; --panel: #131b22;
-  --mustard: #e3b23c; --mustard-ink: #f0c95e; --route: #ef6f52; --planned: #79aed2; --later: #8b9196;
+  --mustard: #e3b23c; --mustard-ink: #f0c95e; --built: #5cc490; --route: #ef6f52; --planned: #79aed2; --later: #8b9196;
   --road: #c9c3b4; --road-edge: #0b0f13; --label-halo: rgba(15, 21, 27, .85); color-scheme: dark;
 }
 [hidden] { display: none !important; }
@@ -61,7 +62,7 @@ h1 small { font: 500 13px var(--mono); color: var(--ink-2); letter-spacing: 0; m
 .item .meta { font: 12px var(--mono); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .swatch { width: 12px; height: 12px; border-radius: 2px; align-self: center; }
 .chip { font: 600 11px var(--display); letter-spacing: .08em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; }
-.chip.first { color: var(--mustard-ink); } .chip.planned { color: var(--planned); } .chip.later { color: var(--later); }
+.chip.first { color: var(--mustard-ink); } .chip.built { color: var(--built); } .chip.planned { color: var(--planned); } .chip.later { color: var(--later); }
 .detail { padding: 14px 18px 18px; border-bottom: 1px solid var(--rule); display: grid; gap: 10px; }
 .detail h2 { font: 700 22px/1.1 var(--display); margin: 0; text-wrap: balance; }
 .detail p { margin: 0; max-width: 62ch; }
@@ -238,7 +239,7 @@ function resize() {
 }
 const sx = (x) => (x - view.cx) * view.s + W / 2, sz = (z) => (z - view.cz) * view.s + Hs / 2;
 const wx = (px) => (px - W / 2) / view.s + view.cx, wz = (py) => (py - Hs / 2) / view.s + view.cz;
-const STAGE_COL = { first: '--mustard', planned: '--planned', later: '--later' };
+const STAGE_COL = { first: '--mustard', built: '--built', planned: '--planned', later: '--later' };
 const ROAD_W = { motorway: 3, trunk: 2.6, primary: 2, secondary: 1.5, tertiary: 1 };
 
 function path(pts, f = (p) => p) {
@@ -290,10 +291,12 @@ function draw() {
   if (show.routes) for (const r of R.routes) {
     const on = sel && (sel.id === r.id);
     if (r.kind === 'event' && !on) continue;
+    const unbuilt = r.kind === 'route' && r.built === false;
     path(r.pts);
     ctx.lineWidth = on ? 7 : 4.5; ctx.strokeStyle = css('--paper'); ctx.globalAlpha = 0.8; ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.lineWidth = on ? 4.5 : 2.6; ctx.strokeStyle = r.kind === 'event' ? css('--mustard') : css('--route');
-    ctx.stroke();
+    ctx.setLineDash(unbuilt ? [7, 5] : []);
+    ctx.lineWidth = on ? 4.5 : 2.6; ctx.strokeStyle = r.kind === 'event' ? css('--mustard') : unbuilt ? css('--planned') : css('--route');
+    ctx.stroke(); ctx.setLineDash([]);
     if (on) for (const c of r.crests) { ctx.beginPath(); ctx.arc(sx(c.x), sz(c.z), 4, 0, 7); ctx.fillStyle = css('--paper'); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = css('--ink'); ctx.stroke(); }
   }
   // Towns
@@ -449,7 +452,9 @@ function detailHTML() {
   if (sel.kind === 'route') {
     const m = R.routes.find((q) => q.id === sel.id);
     const src = (m.kind === 'event' ? plan.events : plan.routes).find((q) => q.id === sel.id) || {};
-    return `<div class="detail"><div><span class="chip planned">${esc(src.kind || m.kind)}</span></div><h2>${esc(m.name)}</h2>
+    const badge = m.kind === 'event' ? (src.kind || 'event') : (m.built ? 'built route' : 'planned route');
+    const chipCls = m.built ? 'built' : 'planned';
+    return `<div class="detail"><div><span class="chip ${chipCls}">${esc(badge)}</span></div><h2>${esc(m.name)}</h2>
       ${src.light ? `<p class="note">Light: ${esc(src.light)}</p>` : ''}${src.note ? `<p>${esc(src.note)}</p>` : ''}
       <div class="facts">${fact(km(m.length_m), 'real')}${fact(km(m.game_m), 'in the game')}${fact(`${m.climb_m} m`, 'climb')}${fact(`${m.h_min.toFixed(0)}–${m.h_max.toFixed(0)} m`, 'heights')}${fact(`${Math.round(m.max_grade * 100)} %`, 'steepest')}${fact(m.crests.length, 'crests')}</div>
       <canvas class="profile" id="profile" aria-label="Elevation profile"></canvas>${coverBar(m.cover)}</div>`;
@@ -483,7 +488,7 @@ function listHTML() {
     return `<button class="item" data-k="region" data-id="${esc(r.id)}" ${cur('region', r.id)}><span class="swatch" style="background:var(${STAGE_COL[r.stage] || '--planned'})"></span><span class="name">${esc(r.name)}</span><span class="meta">${m ? `${m.land_km2.toFixed(0)} km²` : 'new'}</span></button>`; }).join('');
   if (tab === 'routes') {
     const circ = R.circuits.map((c) => `<div class="item" style="cursor:default"><span class="swatch" style="background:var(--route)"></span><span class="name">${esc(c.name)}</span><span class="meta">${km(c.length_m)} ${c.closes ? '· closes' : '· open!'}</span></div>`).join('');
-    return circ + R.routes.map((r) => `<button class="item" data-k="route" data-id="${esc(r.id)}" ${cur('route', r.id)}><span class="swatch" style="background:var(${r.kind === 'event' ? '--mustard' : '--route'})"></span><span class="name">${esc(r.name)}</span><span class="meta">${km(r.length_m)} · ${r.climb_m} m↑</span></button>`).join('');
+    return circ + R.routes.map((r) => `<button class="item" data-k="route" data-id="${esc(r.id)}" ${cur('route', r.id)}><span class="swatch" style="background:var(${r.kind === 'event' ? '--mustard' : r.built === false ? '--planned' : '--route'})"></span><span class="name">${esc(r.name)}</span><span class="meta">${km(r.length_m)} · ${r.climb_m} m↑</span></button>`).join('');
   }
   if (tab === 'places') return plan.places.map((p) => `<button class="item" data-k="place" data-id="${esc(p.id)}" ${cur('place', p.id)}><span class="swatch" style="background:var(${p.kind === 'start' ? '--mustard' : '--ink'});transform:rotate(45deg) scale(.7)"></span><span class="name">${esc(p.name)}</span><span class="meta">${esc(p.kind)}</span></button>`).join('');
   return (plan.remix || []).map((m) => `<div class="remix"><h3>${esc(m.level[0].toUpperCase() + m.level.slice(1))}</h3><div class="now">Now: ${esc(m.now)}</div><div>${esc(m.becomes)}</div></div>`).join('');
