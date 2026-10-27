@@ -1,6 +1,7 @@
 //! A policy walking the simulation in closed loop, all in Rust:
 //! `cargo run --release -p mw_policy --example eval -- <blob> [forward m/s] [estimator blob]`
-//! (`EPISODES=64` for more than 16 per set; they run on every core).
+//! (`EPISODES=64` for more than 16 per set; they run on every core; `YAW=0.4`
+//! asks for a turn as well, rad/s).
 //! Several episodes at nominal parameters, then random bodies, then with
 //! damage and pushes; reports distance, speed and falls. With an estimator,
 //! each set runs three ways: the policy told its true body, walking on the
@@ -26,6 +27,8 @@ fn main() {
     let policy =
         Policy::from_bytes(&std::fs::read(path).expect("read the blob")).expect("a policy");
     let episodes: usize = std::env::var("EPISODES").map_or(16, |s| s.parse().expect("EPISODES"));
+    let yaw: f32 = std::env::var("YAW").map_or(0.0, |s| s.parse().expect("YAW"));
+    let command = Command { forward, yaw };
     let estimator = args.get(2).map(|p| {
         Estimator::from_bytes(&std::fs::read(p).expect("read the estimator")).expect("an estimator")
     });
@@ -92,7 +95,7 @@ fn main() {
                                         c,
                                         seed,
                                         way,
-                                        forward,
+                                        command,
                                     )
                                 })
                                 .collect::<Vec<_>>()
@@ -110,6 +113,7 @@ fn main() {
             let err: f32 = results.iter().map(|e| e.err).sum();
             let errs: usize = results.iter().map(|e| e.errs).sum();
             let acc: f32 = results.iter().map(|e| e.acc).sum();
+            let turned: f32 = results.iter().map(|e| e.turned).sum();
             let label = match way {
                 Body::Told => "told",
                 Body::Estimated => "estimated",
@@ -121,9 +125,10 @@ fn main() {
                 String::new()
             };
             println!(
-                "{name:26} {label:13}: {falls:2}/{episodes} fell, {:5.1} m per episode, {:.2} m/s (asked {forward}), joint accel rms {:4.0} rad/s²{est}",
+                "{name:26} {label:13}: {falls:2}/{episodes} fell, {:5.1} m per episode, {:.2} m/s (asked {forward}), {:+.2} rad/s turn (asked {yaw:+}), joint accel rms {:4.0} rad/s²{est}",
                 dist / episodes as f32,
                 dist / secs,
+                turned / secs,
                 (acc / (secs / POLICY_DT)).sqrt()
             );
         }
@@ -132,7 +137,10 @@ fn main() {
 
 struct Episode {
     fell: bool,
+    /// Along the heading, step by step (the path, when turning).
     dist: f32,
+    /// The heading's change, rad.
+    turned: f32,
     secs: f32,
     err: f32,
     errs: usize,
@@ -147,18 +155,25 @@ fn episode(
     c: Curriculum,
     seed: u64,
     way: Body,
-    forward: f32,
+    command: Command,
 ) -> Episode {
     let mut env = Env::new(seed);
     env.curriculum = c;
     env.hold_command = true;
     env.reset();
-    env.command = Command { forward, yaw: 0.0 };
-    let x0 = env.sim.torso().translation().x;
+    env.command = command;
+    let ground = |env: &Env| {
+        let t = env.sim.torso();
+        let f = t.rotation() * mw_sim::rapier3d::prelude::Vector::X;
+        let p = t.translation();
+        ([p.x, p.z], (-f.z).atan2(f.x))
+    };
+    let (mut p0, mut h0) = ground(&env);
     let mut action = [0.0; JOINTS];
     let mut out = Episode {
         fell: false,
         dist: 0.0,
+        turned: 0.0,
         secs: 0.0,
         err: 0.0,
         errs: 0,
@@ -198,6 +213,11 @@ fn episode(
         }
         let r = env.step(&action);
         out.secs += POLICY_DT;
+        let (p, h) = ground(&env);
+        out.dist += (p[0] - p0[0]) * h0.cos() - (p[1] - p0[1]) * h0.sin();
+        out.turned += (h - h0 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        (p0, h0) = (p, h);
         let qd = env.sim.joint_velocities();
         out.acc += qd
             .iter()
@@ -211,6 +231,5 @@ fn episode(
             break;
         }
     }
-    out.dist = env.sim.torso().translation().x - x0;
     out
 }

@@ -9,6 +9,7 @@
 //! the selected lane's telemetry each tenth of a second.
 
 pub mod camera;
+pub mod gamepad;
 pub mod impact;
 pub mod lanes;
 pub mod level;
@@ -123,6 +124,7 @@ pub fn game(app: &mut App, mode: Mode) {
     camera::plugin(app);
     impact::plugin(app);
     level::plugin(app);
+    gamepad::plugin(app);
     player::plugin(app);
 }
 

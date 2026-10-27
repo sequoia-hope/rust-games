@@ -23,12 +23,24 @@ use crate::view::Inspector;
 
 pub const SKY: Color = Color::srgb(0.68, 0.73, 0.79);
 pub const SUN_DIR: Vec3 = Vec3::new(0.45, 0.76, 0.38);
+/// The level's sun: high behind the base, over the pilot's shoulder on the
+/// walk east, so what lies ahead (the spurs, the rubble) faces it rather
+/// than standing dark against the light.
+pub const LEVEL_SUN_DIR: Vec3 = Vec3::new(-0.4, 0.82, -0.42);
+/// The sky's light everywhere, and the level's (brighter: in the cockpit
+/// view the hull no longer shows, and the shade must still read).
+const AMBIENT: f32 = 280.0;
+const LEVEL_AMBIENT: f32 = 520.0;
 
 /// The ground's side, m.
 pub const GROUND: f32 = 400.0;
 
 #[derive(Component)]
 pub struct Sun;
+
+/// The cool fill from the sky opposite the sun.
+#[derive(Component)]
+struct SkyFill;
 
 /// A chipped 3D stone near the camera that wraps along X as the mech walks.
 #[derive(Component)]
@@ -93,7 +105,7 @@ fn spawn(
     mut ambient: ResMut<GlobalAmbientLight>,
 ) {
     ambient.color = Color::srgb(0.74, 0.79, 0.88);
-    ambient.brightness = 280.0;
+    ambient.brightness = AMBIENT;
 
     // 1. Strong warm sun with cascaded soft shadows.
     commands.spawn((
@@ -117,6 +129,7 @@ fn spawn(
 
     // 2. Cool sky hemisphere fill from opposite the sun.
     commands.spawn((
+        SkyFill,
         DirectionalLight {
             color: Color::srgb(0.68, 0.78, 0.96),
             illuminance: 3_600.0,
@@ -167,14 +180,14 @@ fn spawn(
         uv_transform: Affine2::from_scale(Vec2::splat(36.0)),
         ..default()
     });
-    let (hill_mesh, alluvial_fans) = eroded_hillside(156, 76, 420.0, 150.0, 13.5, 1.0, 19);
+    let hill_mesh = eroded_hillside(&hills()[0]);
     commands.spawn((
         Mesh3d(meshes.add(hill_mesh)),
         MeshMaterial3d(hill_mat.clone()),
         NotShadowCaster,
         NoFrustumCulling,
     ));
-    let (far_hill_mesh, _) = eroded_hillside(96, 48, 420.0, 120.0, -38.0, -1.0, 73);
+    let far_hill_mesh = eroded_hillside(&hills()[1]);
     commands.spawn((
         Mesh3d(meshes.add(far_hill_mesh)),
         MeshMaterial3d(hill_mat),
@@ -184,8 +197,7 @@ fn spawn(
 
     // 6. M6 Chipped convex rock meshes: settled along the hillside's alluvial
     // wash-out edge and scattered near the camera.
-    let mut rng = Rng::new(404);
-    let rock_meshes: Vec<Handle<Mesh>> = (0..6)
+    let rock_meshes: Vec<Handle<Mesh>> = (0..ROCK_MESHES as u64)
         .map(|k| meshes.add(chipped_rock_mesh(100 + k * 37)))
         .collect();
     let rock_mat = materials.add(StandardMaterial {
@@ -196,35 +208,18 @@ fn spawn(
     });
 
     // Alluvial fan boulders & talus where erosion channels wash out onto the lot.
-    for (fx, fz, fan_strength) in alluvial_fans {
-        let count = (3.0 + 5.0 * fan_strength) as usize;
-        for _ in 0..count {
-            let rx = fx + rng.range(-3.6, 3.6);
-            let rz = fz + rng.range(-2.2, 3.2);
-            let s = rng.range(0.18, 0.58) * (0.6 + 0.55 * fan_strength);
-            let scale = Vec3::new(
-                s * rng.range(0.8, 1.35),
-                s * rng.range(0.45, 0.85),
-                s * rng.range(0.8, 1.35),
-            );
-            let rot = Quat::from_euler(
-                EulerRot::YXZ,
-                rng.range(0.0, TAU),
-                rng.range(-0.2, 0.2),
-                rng.range(-0.2, 0.2),
-            );
-            let m = rock_meshes[rng.below(rock_meshes.len())].clone();
-            commands.spawn((
-                Mesh3d(m),
-                MeshMaterial3d(rock_mat.clone()),
-                Transform {
-                    translation: Vec3::new(rx, scale.y * 0.36, rz),
-                    rotation: rot,
-                    scale,
-                },
-            ));
-        }
+    for b in boulders() {
+        commands.spawn((
+            Mesh3d(rock_meshes[b.mesh % rock_meshes.len()].clone()),
+            MeshMaterial3d(rock_mat.clone()),
+            Transform {
+                translation: b.position,
+                rotation: b.rotation,
+                scale: b.scale,
+            },
+        ));
     }
+    let mut rng = Rng::new(405);
 
     // Real 3D chipped gravel stones near the camera (wrapping along X with focus).
     for _ in 0..240 {
@@ -341,15 +336,29 @@ fn spawn(
 }
 
 /// The sun's shadows and the near-camera 3D gravel follow the camera's focus.
+#[allow(clippy::type_complexity)]
 fn follow_sun_and_gravel(
     lanes: Res<Lanes>,
-    mut sun: Query<&mut Transform, (With<Sun>, Without<NearStone>)>,
-    mut stones: Query<(&NearStone, &mut Transform), Without<Sun>>,
+    mode: Res<Mode>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+    mut sun: Query<&mut Transform, (With<Sun>, Without<NearStone>, Without<SkyFill>)>,
+    mut fill: Query<&mut Transform, (With<SkyFill>, Without<NearStone>, Without<Sun>)>,
+    mut stones: Query<(&NearStone, &mut Transform), (Without<Sun>, Without<SkyFill>)>,
 ) {
     let c = lanes.centre();
     let focus = Vec3::new(c.x, 0.0, c.z);
+    let level = *mode == Mode::Level;
+    let dir = if level { LEVEL_SUN_DIR } else { SUN_DIR };
     for mut t in &mut sun {
-        *t = Transform::from_translation(focus + SUN_DIR * 100.0).looking_at(focus, Vec3::Y);
+        *t = Transform::from_translation(focus + dir * 100.0).looking_at(focus, Vec3::Y);
+    }
+    for mut t in &mut fill {
+        *t = Transform::from_translation(Vec3::new(-dir.x, 0.55, -dir.z))
+            .looking_at(Vec3::ZERO, Vec3::Y);
+    }
+    let brightness = if level { LEVEL_AMBIENT } else { AMBIENT };
+    if ambient.brightness != brightness {
+        ambient.brightness = brightness;
     }
     let sel_terrain = lanes.lanes.get(lanes.selected).map(|l| &l.env.terrain);
     let span = 64.0;
@@ -564,145 +573,276 @@ fn update_atmosphere(
     }
 }
 
-/// Builds an eroded hillside mesh (`nx × nz` grid) using layered ridge noise followed
-/// by a droplet-based hydraulic erosion + thermal talus slumping pass (M6).
-/// Returns `(mesh, alluvial_fan_sites)`.
-fn eroded_hillside(
-    nx: usize,
-    nz: usize,
-    width_x: f32,
-    depth_z: f32,
-    start_z: f32,
-    dir_z: f32,
-    seed: u64,
-) -> (Mesh, Vec<(f32, f32, f32)>) {
-    let mut h = vec![0.0f32; nx * nz];
-    let mut sediment = vec![0.0f32; nx * nz];
-    let mut wear = vec![0.0f32; nx * nz];
-    let s = seed as f32 * 1.37;
+/// A hillside's heights on a regular grid: `nx` across `width_x` m of X
+/// (centred on 0), `nz` rows from its toe at `start_z` out `depth_z` m
+/// toward `dir_z` (±1); row-major from the toe. Shared by its mesh and, in
+/// the level, its collider (`level::Level::attach`).
+pub struct Hill {
+    pub nx: usize,
+    pub nz: usize,
+    pub width_x: f32,
+    pub depth_z: f32,
+    pub start_z: f32,
+    pub dir_z: f32,
+    pub h: Vec<f32>,
+    sediment: Vec<f32>,
+    wear: Vec<f32>,
+}
 
-    // 1. Initial tectonic & layered noise elevation profile.
-    for iz in 0..nz {
-        let v = iz as f32 / (nz - 1) as f32;
-        // Smooth S-ramp from 0 at the gravel lot edge (v=0) up to the crest.
-        let ramp = v * v * (3.0 - 2.0 * v);
-        for ix in 0..nx {
-            let u = ix as f32 / (nx - 1) as f32 - 0.5;
-            let wx = u * width_x;
-            let wz = v * depth_z;
-            // Multi-octave ridge + valley structure
-            let n1 = (0.022 * wx + 0.018 * wz + s).sin() * (0.015 * wx - 0.024 * wz - s).cos();
-            let ridge1 = 1.0 - (0.038 * wx + 0.029 * wz + 1.7 + s).sin().abs();
-            let ridge2 = 1.0 - (0.075 * wx - 0.052 * wz + 0.8).sin().abs();
-            let detail = (0.16 * wx + 0.14 * wz).sin() * (0.19 * wx - 0.12 * wz).cos();
-            let elev = (42.0 * ramp)
-                + (14.0 * n1 + 11.0 * ridge1 * ridge1 + 4.5 * ridge2 + 1.2 * detail) * v.powf(0.65);
-            h[iz * nx + ix] = elev.max(0.0);
+/// The two hillsides: behind the lot (+Z) and the far ridge (-Z). Eroded
+/// once, on first use.
+pub fn hills() -> &'static [Hill; 2] {
+    static HILLS: std::sync::OnceLock<[Hill; 2]> = std::sync::OnceLock::new();
+    HILLS.get_or_init(|| {
+        [
+            Hill::erode(156, 76, 420.0, 150.0, 13.5, 1.0, 19),
+            Hill::erode(96, 48, 420.0, 120.0, -38.0, -1.0, 73),
+        ]
+    })
+}
+
+impl Hill {
+    /// Layered ridge noise followed by a droplet-based hydraulic erosion and
+    /// a thermal talus slumping pass (M6).
+    fn erode(
+        nx: usize,
+        nz: usize,
+        width_x: f32,
+        depth_z: f32,
+        start_z: f32,
+        dir_z: f32,
+        seed: u64,
+    ) -> Self {
+        let mut h = vec![0.0f32; nx * nz];
+        let mut sediment = vec![0.0f32; nx * nz];
+        let mut wear = vec![0.0f32; nx * nz];
+        let s = seed as f32 * 1.37;
+
+        // 1. Initial tectonic & layered noise elevation profile.
+        for iz in 0..nz {
+            let v = iz as f32 / (nz - 1) as f32;
+            // Smooth S-ramp from 0 at the gravel lot edge (v=0) up to the crest.
+            let ramp = v * v * (3.0 - 2.0 * v);
+            for ix in 0..nx {
+                let u = ix as f32 / (nx - 1) as f32 - 0.5;
+                let wx = u * width_x;
+                let wz = v * depth_z;
+                // Multi-octave ridge + valley structure
+                let n1 = (0.022 * wx + 0.018 * wz + s).sin() * (0.015 * wx - 0.024 * wz - s).cos();
+                let ridge1 = 1.0 - (0.038 * wx + 0.029 * wz + 1.7 + s).sin().abs();
+                let ridge2 = 1.0 - (0.075 * wx - 0.052 * wz + 0.8).sin().abs();
+                let detail = (0.16 * wx + 0.14 * wz).sin() * (0.19 * wx - 0.12 * wz).cos();
+                let elev = (42.0 * ramp)
+                    + (14.0 * n1 + 11.0 * ridge1 * ridge1 + 4.5 * ridge2 + 1.2 * detail)
+                        * v.powf(0.65);
+                h[iz * nx + ix] = elev.max(0.0);
+            }
         }
-    }
 
-    // 2. Hydraulic droplet erosion: rain droplets flow downslope with inertia,
-    // carving gullies/channels on steep slopes and depositing alluvial sediment
-    // fans as they reach the flat toe (v -> 0).
-    let mut rng = Rng::new(seed ^ 0xE205_1040);
-    let droplets = (nx * nz) * 7 / 8;
-    for _ in 0..droplets {
-        let mut px = rng.range(2.0, (nx - 3) as f32);
-        let mut pz = rng.range(0.18 * nz as f32, (nz - 3) as f32);
-        let mut dx = 0.0f32;
-        let mut dz = 0.0f32;
-        let mut speed = 1.0f32;
-        let mut water = 1.0f32;
-        let mut carried = 0.0f32;
+        // 2. Hydraulic droplet erosion: rain droplets flow downslope with inertia,
+        // carving gullies/channels on steep slopes and depositing alluvial sediment
+        // fans as they reach the flat toe (v -> 0).
+        let mut rng = Rng::new(seed ^ 0xE205_1040);
+        let droplets = (nx * nz) * 7 / 8;
+        for _ in 0..droplets {
+            let mut px = rng.range(2.0, (nx - 3) as f32);
+            let mut pz = rng.range(0.18 * nz as f32, (nz - 3) as f32);
+            let mut dx = 0.0f32;
+            let mut dz = 0.0f32;
+            let mut speed = 1.0f32;
+            let mut water = 1.0f32;
+            let mut carried = 0.0f32;
 
-        for _step in 0..42 {
-            let ix = px as usize;
-            let iz = pz as usize;
-            if ix < 1 || ix >= nx - 2 || iz < 1 || iz >= nz - 2 {
-                break;
-            }
-            let idx = iz * nx + ix;
-            let gx = 0.5 * (h[idx + 1] - h[idx - 1]);
-            let gz = 0.5 * (h[idx + nx] - h[idx - nx]);
-            dx = dx * 0.22 - gx * 0.78;
-            dz = dz * 0.22 - gz * 0.78;
-            let len = (dx * dx + dz * dz).sqrt();
-            if len < 1e-4 {
-                break;
-            }
-            dx /= len;
-            dz /= len;
-            let npx = px + dx;
-            let npz = pz + dz;
-            let nix = (npx as usize).clamp(1, nx - 2);
-            let niz = (npz as usize).clamp(1, nz - 2);
-            let dh = h[niz * nx + nix] - h[idx];
-            let slope = (-dh).max(0.01);
-            // Near the toe (iz < nz / 5), flatten capacity so sediment fans deposit!
-            let toe_factor = ((iz as f32 / (0.22 * nz as f32)) - 0.15).clamp(0.0, 1.0);
-            let capacity = (slope * speed * water * 4.5 * toe_factor).max(0.0);
-            if carried > capacity || dh > 0.0 {
-                let drop = if dh > 0.0 {
-                    dh.min(carried)
-                } else {
-                    (carried - capacity) * 0.38
-                };
-                carried -= drop;
-                h[idx] += drop;
-                sediment[idx] += drop;
-            } else {
-                let erode = ((capacity - carried) * 0.28).min(-dh * 0.9);
-                carried += erode;
-                h[idx] -= erode;
-                wear[idx] += erode;
-            }
-            speed = (speed * speed + (-dh).max(0.0) * 3.5).sqrt().min(4.0);
-            water *= 0.96;
-            px = npx;
-            pz = npz;
-        }
-    }
-
-    // 3. Thermal erosion (talus slumping where slope exceeds angle of repose)
-    // and pinning the very front edge (iz == 0) to y = 0 so it meets the lot cleanly.
-    let talus = 0.85;
-    for _pass in 0..3 {
-        for iz in 1..(nz - 1) {
-            for ix in 1..(nx - 1) {
+            for _step in 0..42 {
+                let ix = px as usize;
+                let iz = pz as usize;
+                if ix < 1 || ix >= nx - 2 || iz < 1 || iz >= nz - 2 {
+                    break;
+                }
                 let idx = iz * nx + ix;
-                let hc = h[idx];
-                for nidx in [idx - 1, idx + 1, idx - nx, idx + nx] {
-                    let diff = hc - h[nidx];
-                    if diff > talus {
-                        let move_h = 0.18 * (diff - talus);
-                        h[idx] -= move_h;
-                        h[nidx] += move_h;
-                        sediment[nidx] += move_h * 0.5;
+                let gx = 0.5 * (h[idx + 1] - h[idx - 1]);
+                let gz = 0.5 * (h[idx + nx] - h[idx - nx]);
+                dx = dx * 0.22 - gx * 0.78;
+                dz = dz * 0.22 - gz * 0.78;
+                let len = (dx * dx + dz * dz).sqrt();
+                if len < 1e-4 {
+                    break;
+                }
+                dx /= len;
+                dz /= len;
+                let npx = px + dx;
+                let npz = pz + dz;
+                let nix = (npx as usize).clamp(1, nx - 2);
+                let niz = (npz as usize).clamp(1, nz - 2);
+                let dh = h[niz * nx + nix] - h[idx];
+                let slope = (-dh).max(0.01);
+                // Near the toe (iz < nz / 5), flatten capacity so sediment fans deposit!
+                let toe_factor = ((iz as f32 / (0.22 * nz as f32)) - 0.15).clamp(0.0, 1.0);
+                let capacity = (slope * speed * water * 4.5 * toe_factor).max(0.0);
+                if carried > capacity || dh > 0.0 {
+                    let drop = if dh > 0.0 {
+                        dh.min(carried)
+                    } else {
+                        (carried - capacity) * 0.38
+                    };
+                    carried -= drop;
+                    h[idx] += drop;
+                    sediment[idx] += drop;
+                } else {
+                    let erode = ((capacity - carried) * 0.28).min(-dh * 0.9);
+                    carried += erode;
+                    h[idx] -= erode;
+                    wear[idx] += erode;
+                }
+                speed = (speed * speed + (-dh).max(0.0) * 3.5).sqrt().min(4.0);
+                water *= 0.96;
+                px = npx;
+                pz = npz;
+            }
+        }
+
+        // 3. Thermal erosion (talus slumping where slope exceeds angle of repose)
+        // and pinning the very front edge (iz == 0) to y = 0 so it meets the lot cleanly.
+        let talus = 0.85;
+        for _pass in 0..3 {
+            for iz in 1..(nz - 1) {
+                for ix in 1..(nx - 1) {
+                    let idx = iz * nx + ix;
+                    let hc = h[idx];
+                    for nidx in [idx - 1, idx + 1, idx - nx, idx + nx] {
+                        let diff = hc - h[nidx];
+                        if diff > talus {
+                            let move_h = 0.18 * (diff - talus);
+                            h[idx] -= move_h;
+                            h[nidx] += move_h;
+                            sediment[nidx] += move_h * 0.5;
+                        }
                     }
                 }
             }
         }
-    }
-    for ix in 0..nx {
-        h[ix] = 0.0;
-        h[nx + ix] *= 0.35;
-    }
-
-    // Collect alluvial wash-out sites along the toe of the hill where sediment deposited.
-    let mut fans = Vec::new();
-    for ix in (3..nx - 3).step_by(2) {
-        let mut fan_sed = 0.0f32;
-        for iz in 1..14 {
-            fan_sed += sediment[iz * nx + ix];
+        for ix in 0..nx {
+            h[ix] = 0.0;
+            h[nx + ix] *= 0.35;
         }
-        if fan_sed > 0.012 {
-            let u = ix as f32 / (nx - 1) as f32 - 0.5;
-            let wx = u * width_x;
-            let wz = start_z - dir_z * 1.8;
-            fans.push((wx, wz, (fan_sed * 9.0).clamp(0.25, 1.4)));
+
+        Self {
+            nx,
+            nz,
+            width_x,
+            depth_z,
+            start_z,
+            dir_z,
+            h,
+            sediment,
+            wear,
         }
     }
 
+    /// The ground's height at (x, z): the grid's, between its points; 0
+    /// off the hill.
+    pub fn height(&self, x: f32, z: f32) -> f32 {
+        let u = (x / self.width_x + 0.5) * (self.nx - 1) as f32;
+        let v = (z - self.start_z) * self.dir_z / self.depth_z * (self.nz - 1) as f32;
+        if !(0.0..=(self.nx - 1) as f32).contains(&u) || !(0.0..=(self.nz - 1) as f32).contains(&v)
+        {
+            return 0.0;
+        }
+        let (i, j) = ((u as usize).min(self.nx - 2), (v as usize).min(self.nz - 2));
+        let (fu, fv) = (u - i as f32, v - j as f32);
+        let at = |i: usize, j: usize| self.h[j * self.nx + i];
+        let a = at(i, j) + (at(i + 1, j) - at(i, j)) * fu;
+        let b = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * fu;
+        a + (b - a) * fv
+    }
+
+    /// The alluvial wash-out sites along the toe, where sediment deposited:
+    /// (x, z, strength).
+    fn fans(&self) -> Vec<(f32, f32, f32)> {
+        let Hill {
+            nx,
+            width_x,
+            start_z,
+            dir_z,
+            ..
+        } = *self;
+        let mut fans = Vec::new();
+        for ix in (3..nx - 3).step_by(2) {
+            let mut fan_sed = 0.0f32;
+            for iz in 1..14 {
+                fan_sed += self.sediment[iz * nx + ix];
+            }
+            if fan_sed > 0.012 {
+                let u = ix as f32 / (nx - 1) as f32 - 0.5;
+                let wx = u * width_x;
+                let wz = start_z - dir_z * 1.8;
+                fans.push((wx, wz, (fan_sed * 9.0).clamp(0.25, 1.4)));
+            }
+        }
+        fans
+    }
+}
+
+/// The chipped rock meshes the boulders and gravel pick from.
+const ROCK_MESHES: usize = 6;
+
+/// A boulder washed out onto the lot at one of the near hill's fans: drawn
+/// in every mode, solid in the level (`level::Level::attach`).
+pub struct Boulder {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub scale: Vec3,
+    mesh: usize,
+}
+
+/// The fans' boulders and talus. Placed once, on first use.
+pub fn boulders() -> &'static [Boulder] {
+    static BOULDERS: std::sync::OnceLock<Vec<Boulder>> = std::sync::OnceLock::new();
+    BOULDERS.get_or_init(|| {
+        let mut rng = Rng::new(404);
+        let mut out = Vec::new();
+        for (fx, fz, fan_strength) in hills()[0].fans() {
+            let count = (3.0 + 5.0 * fan_strength) as usize;
+            for _ in 0..count {
+                let rx = fx + rng.range(-3.6, 3.6);
+                let rz = fz + rng.range(-2.2, 3.2);
+                let s = rng.range(0.18, 0.58) * (0.6 + 0.55 * fan_strength);
+                let scale = Vec3::new(
+                    s * rng.range(0.8, 1.35),
+                    s * rng.range(0.45, 0.85),
+                    s * rng.range(0.8, 1.35),
+                );
+                let rotation = Quat::from_euler(
+                    EulerRot::YXZ,
+                    rng.range(0.0, TAU),
+                    rng.range(-0.2, 0.2),
+                    rng.range(-0.2, 0.2),
+                );
+                out.push(Boulder {
+                    position: Vec3::new(rx, scale.y * 0.36, rz),
+                    rotation,
+                    scale,
+                    mesh: rng.below(ROCK_MESHES),
+                });
+            }
+        }
+        out
+    })
+}
+
+/// An eroded hillside's mesh (`nx × nz` grid).
+fn eroded_hillside(hill: &Hill) -> Mesh {
+    let Hill {
+        nx,
+        nz,
+        width_x,
+        depth_z,
+        start_z,
+        dir_z,
+        ref h,
+        ref sediment,
+        ref wear,
+    } = *hill;
     // 4. Build vertex positions, normals, UVs, and geomorphic vertex colors.
     let cell_x = width_x / (nx - 1) as f32;
     let cell_z = depth_z / (nz - 1) as f32;
@@ -783,7 +923,7 @@ fn eroded_hillside(
     m.insert_attribute(Mesh::ATTRIBUTE_UV_0, uv);
     m.insert_attribute(Mesh::ATTRIBUTE_COLOR, col);
     m.insert_indices(Indices::U32(idx));
-    (m, fans)
+    m
 }
 
 /// Builds a noise-displaced, planar-chipped convex stone mesh with flat facet

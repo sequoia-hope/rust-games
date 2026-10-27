@@ -33,7 +33,7 @@ own requirements: `docs/AUDIO.md`.
 | `crates/mw_sim_py` | `mw_sim` as the Python module `mw_sim_py`: a batch of envs stepped in parallel |
 | `crates/mw_policy` | the trained networks in plain Rust, from their weight blobs; the parity test against PyTorch |
 | `crates/mw_audio` | simulation-driven sound effects (`docs/AUDIO.md`): footfalls, foot slip, 12-joint actuator drive/strain/heat/derate/trip/fault, projectile hull ring, fall crash, body creak, wind; zero dependencies so it also builds as a standalone `AudioWorklet` wasm |
-| `crates/mw_demo` | the Bevy client: the training viewer, the tech demos and the first level (`level.rs`: the base, the landslide, the objective; `player.rs`: keys, mouse look, first/third-person camera); `web/` is its page (`index.html` the kit's loader, `ui.js` the controls, curves, inspector, objective and Web Audio) |
+| `crates/mw_demo` | the Bevy client: the training viewer, the tech demos and the first level (`level.rs`: the base, the landslide, the objective; `player.rs`: keys, gamepad, mouse look, first/third-person camera; `gamepad.rs`: the pads, read); `web/` is its page (`index.html` the kit's loader, `ui.js` the controls, curves, inspector, objective and Web Audio) |
 | `train/` | PPO (`train.py`), the networks and their export (`policy.py`), the estimator's distillation (`estimator.py`), `build.sh` |
 | `checkpoints/<run>/` | a training run's output (git-ignored): checkpoints, `metrics.jsonl`, coverage; `runs.json` lists the runs |
 | `assets/policies/` | the policies the demos ship (committed; the parity test reads them) |
@@ -54,7 +54,7 @@ own requirements: `docs/AUDIO.md`.
 | A native picture, no server | the same with `--stage '{"cmd":"camera","distance":7,"yaw":0.9}' --shot shots/x.png --after 6` |
 | Serve (the page, and `checkpoints/` live) | `./serve.sh` (registered as `mech-works`) |
 | The standing benchmark | `cargo run --release -p mw_sim --example stand` |
-| A policy walking, all in Rust | `EPISODES=64 cargo run --release -p mw_policy --example eval -- <blob> [m/s] [estimator blob]` (told / estimated / told-nominal body; falls, speed, joint acceleration) |
+| A policy walking, all in Rust | `EPISODES=64 [YAW=0.4] cargo run --release -p mw_policy --example eval -- <blob> [m/s] [estimator blob]` (told / estimated / told-nominal body; falls, speed, turn rate, joint acceleration) |
 | Pictures (server up; `npm install` once) | `node tools/page-shot.mjs --url <server>/ --query mode=impact --name x --steps 'wait:3000,stage:{"cmd":"walk","forward":0.6},wait:8000'` (whole page, WebGL2), `node tools/shot.mjs --url <server>/` (canvas only) |
 
 The page takes `?mode=viewer|impact|path|damage|calibration|level`. On the
@@ -69,7 +69,11 @@ push it for real, and the blade (E/Space, the page's Shove button) throws
 what is in front of the mech. The pass is clear when no rock's centre is
 left in its blocking volume (`level::BLOCKING`). Keys: W/S walk (Shift
 faster), A/D turn, V first/third person, R start over; the mouse looks once
-the game is clicked (pointer lock) or while dragging.
+the game is clicked (pointer lock) or while dragging. A gamepad works
+too (`gamepad.rs`: the browser's Gamepad API on the web, gilrs natively;
+left stick walks and turns, right stick looks, A/RB shove, Y view). The
+hillsides' toes and fan boulders are solid in the level: one height grid
+(`scene::hills()`) draws them and makes their colliders.
 
 **Sound** starts on the page's first gesture (browsers allow audio only
 inside one), with a note on the page until then. Both worklets take their
