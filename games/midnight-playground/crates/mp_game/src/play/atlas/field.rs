@@ -126,18 +126,19 @@ pub fn network_lines(t: &Track) -> Vec<Line> {
     out
 }
 
-/// An event's route on the level's road (road 0), from `s0` to `s1` the
-/// lap's way (round a loop), thinned.
-pub fn route_line(t: &Track, s0: f64, s1: f64) -> Line {
-    let len = mp_sim::event::ahead(t, s0, s1);
+/// An event's route on road `road` (`0` is the level's road), from `s0`
+/// to `s1` the lap's way (round a loop), thinned.
+pub fn route_line(t: &Track, road: usize, s0: f64, s1: f64) -> Line {
+    let rt = t.road(road);
+    let len = mp_sim::event::ahead(rt, s0, s1);
     let mut pts = Vec::new();
     let mut s = 0.0;
     while s < len {
-        let k = t.idx(s0 + s);
-        pts.push((f64::from(t.px[k]), f64::from(t.pz[k])));
+        let k = rt.idx(s0 + s);
+        pts.push((f64::from(rt.px[k]), f64::from(rt.pz[k])));
         s += 2.0;
     }
-    let f = t.frame(s0 + len);
+    let f = rt.frame(s0 + len);
     pts.push((f.x, f.z));
     Line {
         pts: thin(&pts, THIN),
@@ -417,17 +418,8 @@ pub enum LabelKind {
 /// each name once; a zone the road only lists, under 300 m, is left out).
 pub fn labels(t: &Track) -> Vec<Label> {
     let mut out: Vec<Label> = Vec::new();
-    let road_of = |id: &str| -> usize {
-        if id.is_empty() {
-            return 0;
-        }
-        t.branches
-            .iter()
-            .position(|b| b.id == id)
-            .map_or(0, |k| k + 1)
-    };
     for s in &t.level.starts {
-        let r = t.road(road_of(s.road));
+        let r = t.road(t.road_index(s.road).unwrap_or(0));
         let f = r.frame(s.s);
         out.push(Label {
             text: s.name.to_uppercase(),

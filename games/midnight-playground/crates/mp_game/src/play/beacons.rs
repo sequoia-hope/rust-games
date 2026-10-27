@@ -140,9 +140,10 @@ fn beacon_material(shared: &SharedImages) -> ThreeMaterial {
 /// just ahead, beside the road, not round it; the pool reaches across
 /// the lane).
 pub fn start_foot(t: &Track, e: &mp_track::EventSpot) -> Vec3 {
+    let rt = t.road(t.road_index(e.road).unwrap_or(0));
     let s = e.s + event::SPOT_AHEAD;
-    let f = t.frame(s);
-    let p = t.point_at(s, f.hw + 1.0);
+    let f = rt.frame(s);
+    let p = rt.point_at(s, f.hw + 1.0);
     Vec3::new(p.x as f32, p.y as f32, p.z as f32)
 }
 

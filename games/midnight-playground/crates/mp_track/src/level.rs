@@ -341,19 +341,20 @@ pub struct StartSpot {
     pub s: f64,
 }
 
-/// An event at a place on an open level: a marked start on the level's
-/// road where a cruising car that stops and holds gas and brake begins it
-/// (docs/vision/peninsula.md, stage 5).
+/// An event at a place on an open level: a marked start on a road of the
+/// level's network where a cruising car that stops and holds gas and brake
+/// begins it (docs/vision/peninsula.md, stage 5).
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventSpot {
     pub id: &'static str,
     pub name: &'static str,
     pub kind: EventKind,
-    /// Where it starts: metres along the level's road (road 0). A race's
-    /// grid forms behind it.
+    /// The road it starts and runs on (`""` for road 0, else a branch id).
+    pub road: &'static str,
+    /// Where it starts: metres along `road`. A race's grid forms behind it.
     pub s: f64,
-    /// A race's or a trial's finish: metres along the road the lap's way
-    /// from `s` (wrapping round a loop).
+    /// A race's or a trial's finish: metres along `road` from `s`
+    /// (wrapping round a loop).
     pub finish: f64,
     /// A delivery's drop: the point to reach, by any road.
     pub drop: Option<[f64; 2]>,

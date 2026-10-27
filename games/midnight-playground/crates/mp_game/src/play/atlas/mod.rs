@@ -128,8 +128,8 @@ struct LevelMap {
     labels: Vec<Label>,
     net: Stage,
     water: WaterStage,
-    /// The route's (start, finish) and its field.
-    route: Option<((u64, u64), Stage)>,
+    /// The route's `(road, start, finish)` and its field.
+    route: Option<((usize, u64, u64), Stage)>,
 }
 
 impl LevelMap {
@@ -396,7 +396,8 @@ fn markers(race: &super::flow::Race, hin: &HudIn, v: &View, p: Panel, clock: f64
                 stroke: Some((2.0, WHITE)),
             });
         } else {
-            let f = t.frame(e.finish);
+            let rt = t.road(t.road_index(e.road).unwrap_or(0));
+            let f = rt.frame(e.finish);
             let (x, y) = at(f.x, f.z);
             out.push(Dot {
                 x,
@@ -460,17 +461,18 @@ fn markers(race: &super::flow::Race, hin: &HudIn, v: &View, p: Panel, clock: f64
     out
 }
 
-/// The route an event (or a lap of the loop) follows on the level's road:
-/// its start and finish, metres along road 0.
-fn route_of(race: &super::flow::Race) -> Option<(f64, f64)> {
+/// The route an event (or a lap of the loop) follows on the network:
+/// `(road, start, finish)` in metres along `road`.
+fn route_of(race: &super::flow::Race) -> Option<(usize, f64, f64)> {
     let lr = &race.session.lr;
     let st = &race.session.curr;
     let t = &lr.track;
     if let Some(e) = mp_sim::event::running(lr, st) {
-        return e.drop.is_none().then_some((e.s, e.finish));
+        let road = t.road_index(e.road).unwrap_or(0);
+        return e.drop.is_none().then_some((road, e.s, e.finish));
     }
     // A race round an open level's loop: the loop.
-    (!st.race.cruise && t.is_loop && !t.branches.is_empty()).then(|| (0.0, t.n as f64 - 1.0))
+    (!st.race.cruise && t.is_loop && !t.branches.is_empty()).then(|| (0, 0.0, t.n as f64 - 1.0))
 }
 
 /// The route's colour: the event's kind's, else the accent.
@@ -610,11 +612,11 @@ pub(super) fn update(
         &mut images,
     );
     // The route's field, when there is one and the atlas is open.
-    let want = route_of(race).map(|(a, b)| (a.to_bits(), b.to_bits()));
+    let want = route_of(race).map(|(road, a, b)| (road, a.to_bits(), b.to_bits()));
     if st.open && map.route.as_ref().map(|r| r.0) != want {
         map.route = want.map(|k| {
-            let (s0, s1) = (f64::from_bits(k.0), f64::from_bits(k.1));
-            let line: Line = field::route_line(&t, s0, s1);
+            let (road, s0, s1) = (k.0, f64::from_bits(k.1), f64::from_bits(k.2));
+            let line: Line = field::route_line(&t, road, s0, s1);
             let b = field::bounds(std::slice::from_ref(&line)).unwrap_or(map.bounds);
             let tex = match &map.net {
                 Stage::Building(fb) => fb.grid.texel,

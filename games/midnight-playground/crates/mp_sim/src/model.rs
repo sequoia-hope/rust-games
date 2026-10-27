@@ -656,7 +656,7 @@ impl SimRival {
             // yaw rate; the yaw rate's error is fed back, so a sliding car
             // is caught with opposite lock.
             let la = 7.0 + speed.abs() * 0.4;
-            let p = t.point_at(k.s + la, lat_t);
+            let p = t.road(k.road).point_at(k.s + la, lat_t);
             let dx = p.x - v.x;
             let dz = p.z - v.z;
             let want = kernel::atan2(dz, dx);
@@ -717,7 +717,7 @@ impl SimRival {
             self.stuck = 0.0;
             self.resets += 1;
 
-            k.s = replace_s(t, k.s);
+            k.s = replace_s(t.road(k.road), k.s);
             k.lat = place;
             k.speed = 0.0;
             k.lat_vel = 0.0;
@@ -747,11 +747,21 @@ pub fn replace_s(t: &Track, s: f64) -> f64 {
 /// A sim rival's track coordinates from its body view (after the sim's
 /// step, and after the collision pass moved it).
 pub fn read_back(k: &mut Kinematic, t: &Track) {
-    let p = t.project(k.v.x, k.v.z, k.v.s);
-    k.v.s = p.s;
-    k.v.lat = p.lat;
-    k.s = p.s;
-    k.lat = p.lat;
+    if k.road == 0 {
+        let p = t.project(k.v.x, k.v.z, k.v.s);
+        k.v.s = p.s;
+        k.v.lat = p.lat;
+        k.s = p.s;
+        k.lat = p.lat;
+    } else {
+        let rt = t.road(k.road);
+        let p = rt.project(k.v.x, k.v.z, k.s);
+        k.v.road = k.road;
+        k.v.road_s = p.s;
+        k.v.road_lat = p.lat;
+        k.s = p.s;
+        k.lat = p.lat;
+    }
     let f = k.frame(t);
     k.speed = k.v.vx * f.fx + k.v.vz * f.fz;
     k.lat_vel = k.v.vx * f.rx + k.v.vz * f.rz;

@@ -156,8 +156,33 @@ impl Placer<'_> {
         best
     }
 
-    /// Whether the footprint stands clear of every road's sidewalk.
+    /// Whether `rt` at station `u` is in a zone where city buildings are
+    /// placed: any zone when the level has no `Town` zones (synthetic
+    /// tests), else `Town` zones only (leaving `Land`, `Coast` and `Beach`
+    /// stretches to their own scenery kits).
+    fn builds_here(&self, rt: &Track, u: f64) -> bool {
+        if !self.t.zones.iter().any(|zn| zn.zone.scenery == "Town") {
+            return true;
+        }
+        let z = rt.zone[rt.idx(u)] as usize;
+        rt.zones
+            .iter()
+            .find(|zn| zn.id == z)
+            .is_some_and(|zn| zn.zone.scenery == "Town")
+    }
+
+    /// Whether the footprint stands clear of every road's sidewalk, and
+    /// away from the pre-bayside roads (`0..first`) whose own kits draw
+    /// their towns.
     fn clear(&self, f: &Footprint) -> bool {
+        if self.first > 0
+            && self
+                .t
+                .nearest_place(f.x, f.z, 250.0)
+                .is_some_and(|(nr, _)| nr < self.first)
+        {
+            return false;
+        }
         let c = f.corners();
         let mid = |a: [f64; 2], b: [f64; 2]| [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0];
         let pts = [
@@ -255,7 +280,7 @@ impl Placer<'_> {
             let mut u = 0.0;
             while u < t.length {
                 let f0 = t.frame(u);
-                if bare(t.road_type[t.idx(u)]) {
+                if !self.builds_here(t, u) || bare(t.road_type[t.idx(u)]) {
                     u += 20.0;
                     continue;
                 }
@@ -284,7 +309,9 @@ impl Placer<'_> {
                         ^ si as u32,
                 )
                 .next_f64();
-                let garage = dn.coverage > GARAGE_COVER && pick < GARAGE_ODDS;
+                let garage = (t.open_ground.is_none() || t.walks(u))
+                    && dn.coverage > GARAGE_COVER
+                    && pick < GARAGE_ODDS;
                 let h = height(&dn, &mut rng);
                 let k = kind(h, &dn);
                 let (w, d) = size(k, &mut rng);
@@ -397,6 +424,9 @@ impl Placer<'_> {
                     continue;
                 }
                 let rt = t.road(r);
+                if !self.builds_here(rt, k as f64) {
+                    continue;
+                }
                 let f = rt.frame(k as f64);
                 let h = height(&dn, &mut rng);
                 let kd = kind(h, &dn);

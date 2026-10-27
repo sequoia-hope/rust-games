@@ -58,6 +58,11 @@ fn the_first_race_starts_at_the_crest_above_san_gregorio() {
 fn the_loop_closes_and_every_route_resolves() {
     let a = atlas();
     let m = measure(&a).unwrap();
+    assert_eq!(m.circuits.len(), 6);
+    for (id, _, len, closes) in &m.circuits {
+        assert!(*closes, "{id} should close");
+        assert!(*len > 20e3, "{id}: {len} m");
+    }
     let (_, _, len, closes) = m
         .circuits
         .iter()
@@ -66,6 +71,7 @@ fn the_loop_closes_and_every_route_resolves() {
         .unwrap();
     assert!(closes);
     assert!((60e3..80e3).contains(&len), "1, 92, 35 and 84: {len} m");
+    assert!(m.routes.iter().filter(|r| r.built).count() >= 32);
     for r in &m.routes {
         for (id, off) in &r.snaps {
             assert!(*off < 150.0, "{}: `{id}` is {off:.0} m off its roads", r.id);
@@ -104,7 +110,7 @@ fn the_corridors_are_up_to_date() {
         })
         .collect();
     ids.sort();
-    assert!(ids.len() >= 24, "{ids:?}");
+    assert!(ids.len() >= 30, "{ids:?}");
     for id in &ids {
         let r = m
             .routes

@@ -14,10 +14,14 @@ macro_rules! corridors {
     };
 }
 
-/// Every corridor of the bay side's first network.
-const CORRIDORS: [(&str, &str); 17] = corridors![
+/// Every corridor of the bay side's and north coast's network.
+const CORRIDORS: [(&str, &str); 22] = corridors![
     "hwy-92-east",
     "hwy-84-east",
+    "canada-road",
+    "coast-north",
+    "skyline-north",
+    "sharp-park-road",
     "us-101",
     "i-280",
     "el-camino",
@@ -27,6 +31,7 @@ const CORRIDORS: [(&str, &str); 17] = corridors![
     "broadway",
     "millbrae",
     "san-bruno",
+    "sf-great-highway",
     "sf-19th-ave",
     "sf-lombard",
     "sf-van-ness",

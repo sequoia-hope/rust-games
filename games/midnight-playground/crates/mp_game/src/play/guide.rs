@@ -370,8 +370,15 @@ fn draw(
     let s = &race.session;
     let p0 = &s.curr.players[s.me];
     // A cruise has no line to drive (D1217).
+    let is_delivery = s
+        .curr
+        .race
+        .event
+        .as_ref()
+        .is_some_and(|e| e.kind == mp_track::EventKind::Delivery);
     let on = mode != GuideMode::Off
         && !s.curr.race.cruise
+        && !is_delivery
         && race.mode != Mode::Results
         && !p0.rules.finished
         && play.started;
@@ -385,10 +392,22 @@ fn draw(
         guide.stats = Stats::default();
         return;
     }
-    let track = &*s.lr.track;
+    let ev_road = s.curr.race.event.as_ref().map_or(0, |e| e.road);
+    let track = s.lr.track.road(ev_road);
     let alpha = s.alpha();
     let (a, b) = (&s.prev.players[s.me].v, &p0.v);
-    let ps = a.s + track.ds(a.s, b.s) * alpha;
+    let road_s_on = |v: &mp_sim::vehicle::Vehicle| {
+        if ev_road == 0 {
+            v.s
+        } else if v.road == ev_road {
+            v.road_s
+        } else {
+            let hint = s.curr.race.prog_s.get(s.me).copied().unwrap_or(0.0);
+            track.project(v.x, v.z, hint).s
+        }
+    };
+    let (as0, bs0) = (road_s_on(a), road_s_on(b));
+    let ps = as0 + track.ds(as0, bs0) * alpha;
     let speed = {
         let l = |p: f64, q: f64| p + (q - p) * alpha;
         pk_math::kernel::hypot(l(a.vx, b.vx), l(a.vz, b.vz))
