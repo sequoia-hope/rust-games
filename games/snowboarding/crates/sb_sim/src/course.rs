@@ -140,7 +140,7 @@ fn plan(id: CourseId) -> (u32, Vec<Section>) {
         CourseId::Crystal => (
             11,
             vec![
-                sec(80.0, 0.12, 26.0),
+                sec(80.0, 0.22, 26.0),
                 sec(200.0, 0.24, 30.0).bend(0.6),
                 sec(130.0, 0.26, 28.0).kickers(1, 1.0),
                 sec(200.0, 0.22, 32.0).rollers(0.8).bend(0.7),
@@ -155,7 +155,7 @@ fn plan(id: CourseId) -> (u32, Vec<Section>) {
         CourseId::Timber => (
             23,
             vec![
-                sec(70.0, 0.14, 22.0),
+                sec(70.0, 0.24, 22.0),
                 sec(220.0, 0.27, 20.0).bend(1.1).trees(0.25),
                 sec(140.0, 0.28, 22.0).kickers(1, 0.9).bend(0.5),
                 sec(260.0, 0.30, 18.0).bend(1.35).trees(0.6),
@@ -169,7 +169,7 @@ fn plan(id: CourseId) -> (u32, Vec<Section>) {
         CourseId::Avalanche => (
             37,
             vec![
-                sec(70.0, 0.16, 30.0),
+                sec(70.0, 0.28, 30.0),
                 sec(160.0, 0.36, 34.0).bend(0.7),
                 sec(150.0, 0.38, 32.0).kickers(1, 1.8),
                 sec(200.0, 0.42, 30.0).moguls(0.7).bend(0.9),
@@ -184,7 +184,7 @@ fn plan(id: CourseId) -> (u32, Vec<Section>) {
         CourseId::Pipe => (
             5,
             vec![
-                sec(50.0, 0.16, 16.0),
+                sec(50.0, 0.24, 16.0),
                 sec(440.0, 0.30, 5.5).pipe(),
                 sec(60.0, 0.14, 16.0),
             ],
@@ -376,7 +376,8 @@ impl Course {
         for i in 0..n {
             let s = i as f32 * DS;
             let sc = section_at(s);
-            grade[i] = sc.grade;
+            // Gentle summit deck behind the gate, pitching into the opening run.
+            grade[i] = if s < start_s { 0.08 } else { sc.grade };
             hw[i] = sc.half_width;
             bend[i] = if s < start_s + 50.0 { 0.0 } else { sc.bend };
             moguls[i] = sc.moguls;
@@ -385,6 +386,20 @@ impl Course {
             pipe[i] = if sc.pipe { 1.0 } else { 0.0 };
         }
         smooth(&mut grade, 14);
+        // Steep summit start ramp right through the gate: rolls over before
+        // `start_s` so everything from `start_s` down is a concave transition
+        // onto the piste that holds riders cleanly against the snow.
+        for (i, g) in grade.iter_mut().enumerate() {
+            let s = i as f32 * DS;
+            if s > start_s - 6.0 && s < start_s + 32.0 {
+                let ramp = if s <= start_s {
+                    smoothstep(start_s - 6.0, start_s, s)
+                } else {
+                    1.0 - smoothstep(start_s, start_s + 32.0, s)
+                };
+                *g += 0.25 * ramp;
+            }
+        }
         smooth(&mut hw, 16);
         smooth(&mut bend, 30);
         smooth(&mut moguls, 12);
@@ -740,7 +755,14 @@ impl Course {
                 .kickers
                 .iter()
                 .any(|k| s > k.s - k.length - 1.5 && s < k.s + KICKER_BACK + 1.0);
-            s += if fine { 0.35 } else { 1.5 };
+            let ramp = s > self.start_s - 7.0 && s < self.start_s + 14.0;
+            s += if fine {
+                0.35
+            } else if ramp {
+                0.6
+            } else {
+                1.5
+            };
         }
         rows.push(self.length);
         rows

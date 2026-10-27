@@ -16,7 +16,8 @@ table, `crates/sb_game/stations.json`.
 ## Principles
 
 1. **The simulation is a library** (`sb_sim`): no Bevy, no clock, no
-   threads. It steps a `Session` one fixed tick (`TICK`, 1/120 s) at a time.
+   threads. It steps a `Session` one fixed tick (`TICK`, 1/120 s) at a time
+   through its countdown, scripted start-ramp drop-in, run and results.
    The client only reads it and feeds it `Input`.
 2. **What is drawn is what is ridden**: the client meshes `Course::height`
    at `Course::mesh_rows`/`mesh_columns`; never invent terrain in the client.
@@ -56,7 +57,7 @@ Toolchain: Rust 1.99.0 with `wasm32-unknown-unknown` (`rust-toolchain.toml`),
 - Nothing may be re-uploaded every frame in bulk: on an iPhone a fresh
   200 KB buffer a frame (Avalanche Bowl's falling snow, a mesh rebuilt on
   the CPU) killed the tab within seconds, though Chrome never minded. Move
-  things with transforms or in a shader (`snowfall.wgsl`). Held by
+  things with transforms or in a shader (`snowfall.wgsl`, `wind.wgsl`). Held by
   `every_course_uploads_little_per_frame` and `tools/courses.mjs`.
 - Never animate a `TextFont` size: every distinct size gets glyph atlases
   that are never freed (it leaked about 8 MB a run until a phone killed the

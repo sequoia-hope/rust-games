@@ -1,15 +1,17 @@
-//! Snow in the air: the spray off a carving edge, bursts on landings and
-//! crashes, and falling snow on the stormy courses.
+//! Snow and wind in the air: the spray off a carving edge, bursts on
+//! landings and crashes, falling snow on the stormy courses, and peripheral
+//! air streaks at speed.
 //!
 //! The spray is one mesh of camera-facing quads rebuilt each frame while
-//! any is in the air, and left alone while none is. The falling snow is a
-//! mesh written once per course that `snowfall.wgsl` moves: rebuilt on the
-//! CPU each frame, Avalanche Bowl's 900 flakes were a fresh 200 KB buffer a
-//! frame, and an iPhone killed the tab within seconds of the course
-//! appearing (2026-10-18). `tests.rs` holds the bytes uploaded per frame to
-//! a budget on every course.
+//! any is in the air, and left alone while none is. The falling snow and the
+//! speed streaks are static meshes moved in `snowfall.wgsl` and `wind.wgsl`:
+//! rebuilt on the CPU each frame, Avalanche Bowl's 900 flakes were a fresh
+//! 200 KB buffer a frame, and an iPhone killed the tab within seconds of the
+//! course appearing (2026-10-18). `tests.rs` holds the bytes uploaded per
+//! frame to a budget on every course.
 
-use crate::camera::MainCamera;
+use crate::camera::{CamFocus, CamMode, MainCamera};
+use crate::ride::Run;
 use crate::world::Built;
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::NoFrustumCulling;
@@ -20,23 +22,35 @@ use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
 use sb_sim::noise::Rng;
+use std::f32::consts::TAU;
 
 pub fn plugin(app: &mut App) {
     bevy::asset::embedded_asset!(app, "snowfall.wgsl");
-    app.add_plugins(MaterialPlugin::<SnowfallMaterial>::default())
-        .insert_resource(Particles {
-            list: Vec::new(),
-            rng: Rng::new(9),
-            drawn: true,
-        })
-        .add_systems(Startup, spawn_mesh)
-        .add_systems(Update, ensure_snowfall.after(crate::world::ensure_world))
-        .add_systems(
-            PostUpdate,
-            (step, rebuild)
-                .chain()
-                .after(bevy::transform::TransformSystems::Propagate),
-        );
+    bevy::asset::embedded_asset!(app, "wind.wgsl");
+    app.add_plugins((
+        MaterialPlugin::<SnowfallMaterial>::default(),
+        MaterialPlugin::<WindMaterial>::default(),
+    ))
+    .init_resource::<WindState>()
+    .insert_resource(Particles {
+        list: Vec::new(),
+        rng: Rng::new(9),
+        drawn: true,
+    })
+    .add_systems(Startup, spawn_mesh)
+    .add_systems(Update, ensure_snowfall.after(crate::world::ensure_world))
+    .add_systems(
+        PostUpdate,
+        drive_wind
+            .after(crate::camera::drive_camera)
+            .before(bevy::transform::TransformSystems::Propagate),
+    )
+    .add_systems(
+        PostUpdate,
+        (step, rebuild)
+            .chain()
+            .after(bevy::transform::TransformSystems::Propagate),
+    );
 }
 
 struct Particle {
@@ -120,8 +134,48 @@ impl Material for SnowfallMaterial {
 #[derive(Component)]
 pub struct Snowfall;
 
+/// Peripheral wind-sheared air streaks at high speed (`wind.wgsl`).
+#[derive(Component)]
+pub struct WindStreaks;
+
+#[derive(Resource, Default)]
+struct WindState {
+    intensity: f32,
+    phase: f32,
+}
+
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub struct WindMaterial {
+    #[texture(0)]
+    #[sampler(1)]
+    puff: Handle<Image>,
+}
+
+impl Material for WindMaterial {
+    fn vertex_shader() -> ShaderRef {
+        "embedded://sb_game/wind.wgsl".into()
+    }
+
+    fn fragment_shader() -> ShaderRef {
+        "embedded://sb_game/wind.wgsl".into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
+    }
+
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn enable_shadows() -> bool {
+        false
+    }
+}
+
 /// The flakes at full snowfall.
 const FLAKES: usize = 900;
+const STREAKS: usize = 112;
 
 /// A soft white dot: alpha falling off from the middle.
 fn puff(images: &mut Assets<Image>) -> Handle<Image> {
@@ -157,6 +211,7 @@ fn spawn_mesh(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut wind_materials: ResMut<Assets<WindMaterial>>,
     mut images: ResMut<Assets<Image>>,
 ) {
     let puff = puff(&mut images);
@@ -176,7 +231,7 @@ fn spawn_mesh(
         Mesh3d(h),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::WHITE,
-            base_color_texture: Some(puff),
+            base_color_texture: Some(puff.clone()),
             unlit: true,
             alpha_mode: AlphaMode::Blend,
             ..default()
@@ -185,6 +240,90 @@ fn spawn_mesh(
         NoFrustumCulling,
         NotShadowCaster,
     ));
+
+    let mut rng = Rng::new(31);
+    let mut pos = Vec::with_capacity(STREAKS * 4);
+    let mut corner = Vec::with_capacity(STREAKS * 4);
+    let mut motion = Vec::with_capacity(STREAKS * 4);
+    let mut idx = Vec::with_capacity(STREAKS * 6);
+    for _ in 0..STREAKS {
+        let p = [rng.range(0.0, TAU), rng.f(), rng.f()];
+        // Quantise speed to 1/16ths so wrapping `phase` mod 64 is seamless.
+        let mo = [
+            0.75 + (rng.next_u32() % 9) as f32 * 0.0625,
+            rng.range(0.7, 1.35),
+        ];
+        let at = pos.len() as u32;
+        for c in [[-1.0f32, -1.0f32], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]] {
+            pos.push(p);
+            corner.push(c);
+            motion.push(mo);
+        }
+        idx.extend([at, at + 1, at + 2, at, at + 2, at + 3]);
+    }
+    let mut wm = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    wm.insert_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    wm.insert_attribute(Mesh::ATTRIBUTE_UV_0, corner);
+    wm.insert_attribute(Mesh::ATTRIBUTE_UV_1, motion);
+    wm.insert_indices(Indices::U32(idx));
+    commands.spawn((
+        WindStreaks,
+        Mesh3d(meshes.add(wm)),
+        MeshMaterial3d(wind_materials.add(WindMaterial { puff })),
+        Transform::default(),
+        Visibility::Hidden,
+        NoFrustumCulling,
+        NotShadowCaster,
+    ));
+}
+
+fn drive_wind(
+    time: Res<Time>,
+    focus: Res<CamFocus>,
+    run: Option<Res<Run>>,
+    mut st: ResMut<WindState>,
+    cam: Query<&Transform, (With<MainCamera>, Without<WindStreaks>)>,
+    mut q: Query<(&mut Transform, &mut Visibility), With<WindStreaks>>,
+) {
+    let Ok((mut tr, mut vis)) = q.single_mut() else {
+        return;
+    };
+    let paused = run.as_ref().is_some_and(|r| r.paused);
+    let dt = if paused {
+        0.0
+    } else {
+        time.delta_secs().min(0.1)
+    };
+    let active = matches!(focus.mode, CamMode::Chase | CamMode::DropIn(_)) && !focus.crashed;
+    let speed = if active { focus.vel.length() } else { 0.0 };
+    let target = if active {
+        ((speed - 13.5) / 15.5).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if !paused {
+        st.intensity += (target - st.intensity) * (1.0 - (-7.0 * dt).exp());
+        st.phase = (st.phase + dt * speed / 18.5).rem_euclid(64.0);
+    }
+    if st.intensity < 0.01 {
+        *vis = Visibility::Hidden;
+        return;
+    }
+    let Ok(cam_tr) = cam.single() else {
+        return;
+    };
+    *vis = Visibility::Inherited;
+    let cam_fwd = cam_tr.forward().as_vec3();
+    let v_dir = focus.vel.try_normalize().unwrap_or(cam_fwd);
+    let flow = (v_dir * 0.65 + cam_fwd * 0.35)
+        .try_normalize()
+        .unwrap_or(cam_fwd);
+    tr.translation = cam_tr.translation;
+    tr.rotation = Quat::from_rotation_arc(Vec3::NEG_Z, flow);
+    tr.scale = Vec3::new(1.0 + st.intensity, 1.0 + st.phase, 1.0 + speed.min(45.0));
 }
 
 fn step(time: Res<Time>, mut p: ResMut<Particles>) {

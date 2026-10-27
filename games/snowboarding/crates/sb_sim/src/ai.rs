@@ -100,13 +100,25 @@ impl Brain {
             }
         }
         if !in_pipe {
-            // Round the trees.
-            for o in course.obstacles_between(me.s + 1.0, st + 10.0) {
-                if o.kind == ObstacleKind::Tree && (o.u - target_u).abs() < 3.2 {
-                    target_u = o.u + if target_u >= o.u { 3.6 } else { -3.6 };
+            // Round the trees (farthest first so the nearest trunk wins,
+            // checking the line from the rider through `o.s` to `st`).
+            let bound = (hw - 2.0).max(1.0);
+            for o in course.obstacles_between(me.s + 0.5, st + 8.0).iter().rev() {
+                if o.kind != ObstacleKind::Tree {
+                    continue;
+                }
+                let frac = ((o.s - me.s) / look).clamp(0.25, 1.0);
+                let u_at = me.u + (target_u - me.u) * frac;
+                if (u_at - o.u).abs() < 3.8 {
+                    let mut side = if u_at >= o.u { 1.0 } else { -1.0 };
+                    if (o.u + side * 4.2).abs() > bound {
+                        side = -side;
+                    }
+                    let clear_u = o.u + side * 4.2;
+                    target_u = (me.u + (clear_u - me.u) / frac).clamp(-bound, bound);
                 }
             }
-            target_u = target_u.clamp(-(hw - 2.0), hw - 2.0);
+            target_u = target_u.clamp(-bound, bound);
         }
         let tp = course.world(st, target_u);
         let desired = heading_of(tp - me.pos);

@@ -9,7 +9,7 @@ use crate::input::Controls;
 use crate::rider_view::{RiderPose, spawn_rider};
 use crate::{Opts, Screen, Setup};
 use bevy::prelude::*;
-use sb_sim::race::{COUNTDOWN, Session, SessionEvent, State, TICK};
+use sb_sim::race::{COUNTDOWN, DROP_IN, Session, SessionEvent, State, TICK};
 use sb_sim::rider::{Event, Input, Phase};
 
 pub fn plugin(app: &mut App) {
@@ -113,6 +113,9 @@ pub fn start_run(
     let p = &run.session.entrants[0].rider;
     focus.pos = p.pos;
     focus.yaw = p.yaw;
+    focus.tuck = 0.0;
+    focus.carve = 0.0;
+    focus.bump = 0.0;
     focus.cut = true;
     particles.clear();
     commands.insert_resource(run);
@@ -205,10 +208,15 @@ fn pose(
             idle: matches!(s.state, State::Countdown(_)),
             finished: e.finish.is_some(),
         };
-        // Snow off the edge.
+        // Snow off the edge (and powder kicked up down the start chute).
         if !run.paused && r.phase != Phase::Air {
             let speed = r.speed();
-            let rate = r.spray * speed * 9.0
+            let drop_spray = if matches!(s.state, State::DropIn(_)) {
+                0.42
+            } else {
+                0.0
+            };
+            let rate = r.spray.max(drop_spray) * speed * 9.0
                 + if matches!(r.phase, Phase::Crashed(_)) {
                     speed * 6.0
                 } else {
@@ -231,17 +239,49 @@ fn pose(
             }
         }
     }
+    focus.bump = 0.0;
     for ev in &feed.0 {
-        if let SessionEvent::Rider(i, ev) = ev {
-            let r = &s.entrants[*i].rider;
-            match ev {
-                Event::Land { impact, .. } if *impact > 3.0 => {
-                    particles.emit(r.pos, r.vel * 0.2, 2.5, (*impact * 3.0) as usize + 6, 0.14);
+        match ev {
+            SessionEvent::Go => {
+                for e in &s.entrants {
+                    let r = &e.rider;
+                    particles.emit(
+                        r.pos - r.forward() * 0.35,
+                        -r.forward() * 2.4 + Vec3::Y * 1.4,
+                        1.5,
+                        18,
+                        0.13,
+                    );
                 }
-                Event::Crash { .. } => particles.emit(r.pos, r.vel * 0.3, 3.5, 50, 0.16),
-                Event::Jump { .. } => particles.emit(r.pos, r.vel * 0.1, 1.2, 10, 0.1),
-                _ => {}
             }
+            SessionEvent::Rider(i, ev) => {
+                let r = &s.entrants[*i].rider;
+                match ev {
+                    Event::Land { impact, .. } => {
+                        if *impact > 3.0 {
+                            particles.emit(
+                                r.pos,
+                                r.vel * 0.2,
+                                2.5,
+                                (*impact * 3.0) as usize + 6,
+                                0.14,
+                            );
+                        }
+                        if *i == 0 && *impact > 3.5 {
+                            focus.bump = focus.bump.max((*impact / 18.0).clamp(0.0, 0.85));
+                        }
+                    }
+                    Event::Crash { .. } => {
+                        particles.emit(r.pos, r.vel * 0.3, 3.5, 50, 0.16);
+                        if *i == 0 {
+                            focus.bump = focus.bump.max(0.8);
+                        }
+                    }
+                    Event::Jump { .. } => particles.emit(r.pos, r.vel * 0.1, 1.2, 10, 0.1),
+                    _ => {}
+                }
+            }
+            _ => {}
         }
     }
 
@@ -253,8 +293,11 @@ fn pose(
     focus.yaw = s.course.frame(p.s).theta;
     focus.airborne = p.airborne();
     focus.crashed = matches!(p.phase, Phase::Crashed(_));
+    focus.tuck = p.tuck;
+    focus.carve = p.spray.max(p.skid);
     focus.mode = match s.state {
         State::Countdown(t) => CamMode::Intro(((COUNTDOWN - t) / COUNTDOWN).clamp(0.0, 1.0)),
+        State::DropIn(t) => CamMode::DropIn(((DROP_IN - t) / DROP_IN).clamp(0.0, 1.0)),
         State::Running => CamMode::Chase,
         State::Done => CamMode::Orbit {
             radius: 5.5,

@@ -4,9 +4,9 @@
 //! - [`options`]: the query string (web) or command line (native).
 //! - [`world`]: the course drawn: snow, sky, trees, flags, gates, light.
 //! - [`rider_view`]: the riders' bodies, posed from their state each frame.
-//! - [`camera`]: the chase camera, and the menu's flyover.
+//! - [`camera`]: the intro, drop-in and chase camera, and the menu's flyover.
 //! - [`ride`]: a run: the session stepped at its fixed tick, its events.
-//! - [`fx`]: snow spray and falling snow.
+//! - [`fx`]: snow spray, falling snow and shader wind streaks.
 //! - [`input`]: keyboard, gamepads and touch into one set of controls.
 //! - [`hud`], [`menu`]: the screens.
 //! - [`radio`]: the announcers (`sb_radio`), their captions, and the mix.
