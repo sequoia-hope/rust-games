@@ -1051,21 +1051,47 @@ pub fn step(
     let dt = DT;
     st.tick += 1;
     let np = st.players.len();
-    let frames: Vec<InputFrame> = (0..np)
-        .map(|i| inputs.get(i).copied().unwrap_or_default())
-        .collect();
+    let mut frames_stack = [InputFrame::default(); 8];
+    let frames_heap: Vec<InputFrame>;
+    let frames: &[InputFrame] = if np <= 8 {
+        for (i, dst) in frames_stack[..np].iter_mut().enumerate() {
+            *dst = inputs.get(i).copied().unwrap_or_default();
+        }
+        &frames_stack[..np]
+    } else {
+        frames_heap = (0..np)
+            .map(|i| inputs.get(i).copied().unwrap_or_default())
+            .collect();
+        &frames_heap
+    };
     // A player who dropped out is driven by the autopilot (MULTIPLAYER 2.7).
-    let inps: Vec<Input> = (0..np)
-        .map(|i| {
-            if frames[i].flags & AUTOPILOT != 0 {
+    let mut inps_stack = [Input::default(); 8];
+    let inps_heap: Vec<Input>;
+    let inps: &[Input] = if np <= 8 {
+        for (i, dst) in inps_stack[..np].iter_mut().enumerate() {
+            *dst = if frames[i].flags & AUTOPILOT != 0 {
                 let mut inp = Input::default();
                 autopilot(&mut inp, &st.players[i].v, t);
                 InputFrame::quantise(&inp).input()
             } else {
                 frames[i].input()
-            }
-        })
-        .collect();
+            };
+        }
+        &inps_stack[..np]
+    } else {
+        inps_heap = (0..np)
+            .map(|i| {
+                if frames[i].flags & AUTOPILOT != 0 {
+                    let mut inp = Input::default();
+                    autopilot(&mut inp, &st.players[i].v, t);
+                    InputFrame::quantise(&inp).input()
+                } else {
+                    frames[i].input()
+                }
+            })
+            .collect();
+        &inps_heap
+    };
     let race = &mut st.race;
 
     // ── State machine ──────────────────────────────────────────
@@ -1170,8 +1196,12 @@ pub fn step(
     let progged = st.race.progged();
     let player_s = st.players[0].v.s;
     let player_prog = if progged { st.players[0].v.prog } else { None };
+    let mut views = if st.rivals.is_empty() {
+        Vec::new()
+    } else {
+        field(st).views(&agents)
+    };
     for i in 0..st.rivals.len() {
-        let views = field(st).views(&agents);
         // Whom this rival rubber-bands against (MULTIPLAYER 2.1).
         let (ps, pp) = match &st.race.multi {
             None => (player_s, player_prog),
@@ -1186,9 +1216,10 @@ pub fn step(
                 (v.s, if progged { v.prog } else { None })
             }
         };
+        let me = agents.iter().position(|&r| r == BodyId::Rival(i));
         let ctx = AiCtx {
             cars: &views,
-            me: agents.iter().position(|&r| r == BodyId::Rival(i)),
+            me,
             player_s: ps,
             player_prog: pp,
             started,
@@ -1201,12 +1232,20 @@ pub fn step(
             let park = park_spot(t, &mut st.race, s, lat);
             st.rivals[i].park = Some(park);
         }
+        if let Some(m) = me {
+            views[m] = AgentView {
+                id: BodyId::Rival(i),
+                ..crate::body::Body::view(&st.rivals[i])
+            };
+        }
     }
     if progged {
         track_progress(t, st);
     }
-    let odos: Vec<f64> = (0..np)
-        .map(|i| {
+    let mut odos_stack = [0.0; 8];
+    let odos_heap: Vec<f64>;
+    let odos: &[f64] = {
+        let mut step_odo = |i: usize| -> f64 {
             let s = st.players[i].v.s;
             let (road, x, z) = (st.players[i].v.road, st.players[i].v.x, st.players[i].v.z);
             let r = &mut st.players[i].rules;
@@ -1222,8 +1261,17 @@ pub fn step(
             let odo = r.odo.unwrap_or(s) + d_s; // unwrapped position (loops)
             r.odo = Some(odo);
             odo
-        })
-        .collect();
+        };
+        if np <= 8 {
+            for (i, dst) in odos_stack[..np].iter_mut().enumerate() {
+                *dst = step_odo(i);
+            }
+            &odos_stack[..np]
+        } else {
+            odos_heap = (0..np).map(step_odo).collect();
+            &odos_heap
+        }
+    };
     {
         // Traffic lives ahead of the leading player and stays until the
         // last has passed (one player: both are player 0).
@@ -1518,7 +1566,7 @@ pub fn step(
     let all_home = st
         .players
         .iter()
-        .zip(&frames)
+        .zip(frames)
         .all(|(p, f)| p.rules.finished || f.flags & AUTOPILOT != 0);
     if let Some(m) = &mut st.race.multi
         && racing
@@ -1563,7 +1611,7 @@ pub fn step(
         pursuit_events(t, st, events);
     }
     // An open level's events at places: a start held, a delivery's time.
-    crate::event::step(lr, st, &inps, events);
+    crate::event::step(lr, st, inps, events);
 }
 
 /// Multiplayer: the human nearest rival `i` in race progress (on a circuit
