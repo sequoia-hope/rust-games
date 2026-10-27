@@ -230,7 +230,7 @@ impl SimCar {
         // Each axle's load at this speed: its static share and its
         // downforce (at 67 m/s the Vento's front carries 12 % more).
         let loads = self.axle_loads(v);
-        let st = def.static_axle_loads();
+        let st = def.static_axle_loads_2();
         // The slip angle at which an axle's tyres give `f` of their peak:
         // the brush force is `1 − (1−λ)³` of the peak at `λ`, and `λ = 1`
         // is the slip of the full slide, `3μFz/C`.
@@ -254,7 +254,7 @@ impl SimCar {
     /// static share and the downforce, as the vehicle applies it.
     fn axle_loads(&self, speed: f64) -> [f64; 2] {
         let def = &self.def;
-        let st = def.static_axle_loads();
+        let st = def.static_axle_loads_2();
         let q = 0.5 * def.aero.rho * speed * speed;
         [
             st[0] + q * def.aero.cla_front,
@@ -279,7 +279,7 @@ impl SimCar {
     pub fn full_lock_ay(&self, speed: f64) -> f64 {
         let def = &self.def;
         let loads = self.axle_loads(speed.abs());
-        let st = def.static_axle_loads();
+        let st = def.static_axle_loads_2();
         LOCK_FORCE * def.axles[0].tyre.mu_at(loads[0] / 2.0) * loads[0] / st[0]
             * mp_vdyn::vehicle::G
     }
@@ -432,7 +432,7 @@ impl SimCar {
     ) {
         let car = &self.car;
         let b = &car.body;
-        let tm = car.telemetry(&self.def);
+        let ab = b.rot.inv_rotate(car.accel);
 
         // The body view.
         v.x = b.pos.x;
@@ -446,9 +446,9 @@ impl SimCar {
         v.project_onto(t);
         v.speed = car.speed();
         v.steer_angle = car.steer;
-        v.accel_long = tm.accel.x;
-        v.accel_lat = tm.accel.z;
-        let on_ground = tm.wheels.iter().any(|w| w.in_contact);
+        v.accel_long = ab.x;
+        v.accel_lat = ab.z;
+        let on_ground = car.wheels.iter().any(|w| w.out.info.in_contact);
         v.on_ground = on_ground;
         v.brake_light = if ctl.brake > 0.0 && v.speed > 0.5 {
             1.0
@@ -456,21 +456,36 @@ impl SimCar {
             0.0
         };
         v.vis_y = Some(v.y);
-        let pose = SimPose {
-            orient: b.rot.to_array(),
-            wheels: car
-                .wheels
-                .iter()
-                .enumerate()
-                .map(|(i, w)| WheelPose {
+        let nw = car.wheels.len();
+        if let Some(pose) = v.pose.as_deref_mut()
+            && pose.wheels.len() == nw
+        {
+            pose.orient = b.rot.to_array();
+            for (i, (dst, w)) in pose.wheels.iter_mut().zip(&car.wheels).enumerate() {
+                *dst = WheelPose {
                     hub: car.hub_pos(&self.def, i).to_array(),
                     steer: w.steer,
                     spin: w.spin,
                     travel: w.travel,
-                })
-                .collect(),
-        };
-        v.pose = Some(Box::new(pose));
+                };
+            }
+        } else {
+            let pose = SimPose {
+                orient: b.rot.to_array(),
+                wheels: car
+                    .wheels
+                    .iter()
+                    .enumerate()
+                    .map(|(i, w)| WheelPose {
+                        hub: car.hub_pos(&self.def, i).to_array(),
+                        steer: w.steer,
+                        spin: w.spin,
+                        travel: w.travel,
+                    })
+                    .collect(),
+            };
+            v.pose = Some(Box::new(pose));
+        }
         self.written = self.snapshot_of(v);
 
         // The readouts the race and the client take from CarPhysics.
@@ -506,7 +521,11 @@ impl SimCar {
         } else {
             phys.drift_time = 0.0;
         }
-        let sliding = tm.wheels.iter().map(|w| w.sliding).fold(0.0, f64::max);
+        let sliding = car
+            .wheels
+            .iter()
+            .map(|w| w.out.info.sliding)
+            .fold(0.0, f64::max);
         phys.skid = clamp((sliding - 0.6) / 0.4, 0.0, 1.0) * smoothstep(3.0, 8.0, speed);
         let g = ground.height(v.x, v.z);
         phys.off_track = Some(g.surface.loose);

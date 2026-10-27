@@ -34,7 +34,7 @@ fn gaussian_smooth(src: &[f32], sigma: f64, wrap: bool) -> Vec<f32> {
     }
     let n = src.len() as i64;
     let mut out = vec![0f32; src.len()];
-    for i in 0..n {
+    let smooth_edge = |i: i64| -> f32 {
         let mut acc = 0.0;
         for k in -r..=r {
             let j = if wrap {
@@ -44,7 +44,30 @@ fn gaussian_smooth(src: &[f32], sigma: f64, wrap: bool) -> Vec<f32> {
             };
             acc += src[j as usize] as f64 * w[(k + r) as usize] as f64;
         }
-        out[i as usize] = acc as f32;
+        acc as f32
+    };
+    if n > 2 * r {
+        let ru = r as usize;
+        let nu = src.len();
+        let wlen = w.len();
+        for i in 0..r {
+            out[i as usize] = smooth_edge(i);
+        }
+        for (i, dst) in out[ru..nu - ru].iter_mut().enumerate() {
+            let slice = &src[i..i + wlen];
+            let mut acc = 0.0;
+            for (&sv, &wv) in slice.iter().zip(&w) {
+                acc += sv as f64 * wv as f64;
+            }
+            *dst = acc as f32;
+        }
+        for i in (n - r)..n {
+            out[i as usize] = smooth_edge(i);
+        }
+    } else {
+        for i in 0..n {
+            out[i as usize] = smooth_edge(i);
+        }
     }
     out
 }
@@ -304,13 +327,35 @@ pub struct Track {
     pub cell: f64,
     /// The spatial hash: cell → samples, in the JS's insertion order within
     /// a cell. Only looked up, never iterated.
-    pub hash: BTreeMap<(i64, i64), Vec<usize>>,
+    pub hash: std::sync::Arc<BTreeMap<(i64, i64), Vec<usize>>>,
+    /// Dense CSR spatial grid mirroring `hash` for allocation-free O(1) cell
+    /// lookup in [`Track::nearest`].
+    pub grid: std::sync::Arc<SpatialGrid>,
+    /// Bounding boxes `[min_x, max_x, min_z, max_z]` of [`CHUNK_SAMPLES`]-sample
+    /// stretches along the centreline, for skipping far stretches in bulk scans.
+    pub chunk_bounds: std::sync::Arc<Vec<[f64; 4]>>,
     pub bounds: Bounds,
     pub racing_line: Vec<f32>,
     pub speed_profile: Vec<f32>,
     /// The same for a car on the sim model's tyres (Rust only), which hold
     /// less than the arcade's: what a sim rival aims for.
     pub speed_profile_sim: Vec<f32>,
+}
+
+/// Samples per [`Track::chunk_bounds`] entry (an exact multiple of 32 m).
+pub const CHUNK_SAMPLES: usize = 512;
+
+/// Dense CSR spatial grid over 32 m cells mirroring [`Track::hash`].
+#[derive(Clone, Debug, Default)]
+pub struct SpatialGrid {
+    min_cx: i64,
+    max_cx: i64,
+    min_cz: i64,
+    max_cz: i64,
+    w: usize,
+    h: usize,
+    offsets: Vec<u32>,
+    items: Vec<u32>,
 }
 
 impl Track {
@@ -895,17 +940,35 @@ impl Track {
     /// Nearest centreline sample anywhere (radius-limited, default 96).
     /// Returns index or -1.
     pub fn nearest(&self, x: f64, z: f64, radius: f64) -> i64 {
+        let g = &*self.grid;
+        if radius < 0.0 || radius.is_nan() || g.w == 0 {
+            return -1;
+        }
+        let b = &self.bounds;
+        let pad = radius + 1.0;
+        if x < b.min_x - pad || x > b.max_x + pad || z < b.min_z - pad || z > b.max_z + pad {
+            return -1;
+        }
         let c = self.cell;
         let rc = (radius / c).ceil() as i64;
         let (cx, cz) = self.hash_key(x, z);
+        let ca0 = (cx - rc).max(g.min_cx);
+        let ca1 = (cx + rc).min(g.max_cx);
+        let cb0 = (cz - rc).max(g.min_cz);
+        let cb1 = (cz + rc).min(g.max_cz);
+        if ca0 > ca1 || cb0 > cb1 {
+            return -1;
+        }
         let mut best = -1i64;
         let mut bd = radius * radius;
-        for a in -rc..=rc {
-            for b in -rc..=rc {
-                let Some(arr) = self.hash.get(&(cx + a, cz + b)) else {
-                    continue;
-                };
-                for &k in arr {
+        for ca in ca0..=ca1 {
+            let row = (ca - g.min_cx) as usize * g.h;
+            for cb in cb0..=cb1 {
+                let idx = row + (cb - g.min_cz) as usize;
+                let start = g.offsets[idx] as usize;
+                let end = g.offsets[idx + 1] as usize;
+                for &ku in &g.items[start..end] {
+                    let k = ku as usize;
                     let dx = x - self.px[k] as f64;
                     let dz = z - self.pz[k] as f64;
                     let d = dx * dx + dz * dz;
@@ -1350,7 +1413,7 @@ fn build_branch(net: &Track, level: &Level, b: &Branch) -> Result<BranchTrack, S
     bl.elevation_smooth = spec.elevation_smooth;
     let mut tags = Vec::new();
     let raw = build_loop(&bl, &spec, &mut tags, false)?;
-    let mut t = build(&bl, false, raw, tags);
+    let mut t = build_inner(&bl, false, raw, tags, false);
     // Over the parent the branch is the parent's surface (lifted a little
     // over its shoulder), and its own heights return over BRANCH_FIT:
     // fitted after the road's own smoothing, so the join is exact.
@@ -1509,6 +1572,16 @@ impl Track {
 }
 
 fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
+    build_inner(level, is_loop, raw, tags, true)
+}
+
+fn build_inner(
+    level: &Level,
+    is_loop: bool,
+    raw: Raw,
+    tags: Vec<Tag>,
+    with_racing_line: bool,
+) -> Track {
     let Raw {
         n,
         px,
@@ -1714,14 +1787,18 @@ fn build(level: &Level, is_loop: bool, raw: Raw, tags: Vec<Tag>) -> Track {
         fence_gaps: Vec::new(),
         tags,
         cell: 32.0,
-        hash: BTreeMap::new(),
+        hash: Default::default(),
+        grid: Default::default(),
+        chunk_bounds: Default::default(),
         bounds: Bounds::default(),
         racing_line: Vec::new(),
         speed_profile: Vec::new(),
         speed_profile_sim: Vec::new(),
     };
     build_spatial_hash(&mut t);
-    build_racing_line(&mut t);
+    if with_racing_line {
+        build_racing_line(&mut t);
+    }
     t
 }
 
@@ -1758,7 +1835,48 @@ fn build_spatial_hash(t: &mut Track) {
         let key = t.hash_key(t.px[k] as f64, t.pz[k] as f64);
         hash.entry(key).or_default().push(k);
     }
-    t.hash = hash;
+    let grid = if hash.is_empty() {
+        SpatialGrid::default()
+    } else {
+        let (mut min_cx, mut max_cx, mut min_cz, mut max_cz) =
+            (i64::MAX, i64::MIN, i64::MAX, i64::MIN);
+        for &(cx, cz) in hash.keys() {
+            min_cx = min_cx.min(cx);
+            max_cx = max_cx.max(cx);
+            min_cz = min_cz.min(cz);
+            max_cz = max_cz.max(cz);
+        }
+        let w = (max_cx - min_cx + 1) as usize;
+        let h = (max_cz - min_cz + 1) as usize;
+        let mut offsets = vec![0u32; w * h + 1];
+        for (&(cx, cz), ks) in &hash {
+            let idx = (cx - min_cx) as usize * h + (cz - min_cz) as usize;
+            offsets[idx + 1] = ks.len() as u32;
+        }
+        for i in 0..w * h {
+            offsets[i + 1] += offsets[i];
+        }
+        let mut items = vec![0u32; offsets[w * h] as usize];
+        for (&(cx, cz), ks) in &hash {
+            let idx = (cx - min_cx) as usize * h + (cz - min_cz) as usize;
+            let start = offsets[idx] as usize;
+            for (o, &k) in ks.iter().enumerate() {
+                items[start + o] = k as u32;
+            }
+        }
+        SpatialGrid {
+            min_cx,
+            max_cx,
+            min_cz,
+            max_cz,
+            w,
+            h,
+            offsets,
+            items,
+        }
+    };
+    t.hash = std::sync::Arc::new(hash);
+    t.grid = std::sync::Arc::new(grid);
     let (mut min_x, mut max_x, mut min_z, mut max_z) = (
         f64::INFINITY,
         f64::NEG_INFINITY,
@@ -1777,6 +1895,34 @@ fn build_spatial_hash(t: &mut Track) {
         min_z,
         max_z,
     };
+    let chunks = t.n.div_ceil(CHUNK_SAMPLES);
+    let mut chunk_bounds = Vec::with_capacity(chunks);
+    for c in 0..chunks {
+        let i0 = c * CHUNK_SAMPLES;
+        let i1 = ((c + 1) * CHUNK_SAMPLES).min(t.n);
+        let (mut cx0, mut cx1, mut cz0, mut cz1) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for i in i0..i1 {
+            let j = if t.is_loop {
+                (i + 1) % t.n
+            } else {
+                (i + 1).min(t.n - 1)
+            };
+            for k in [i, j] {
+                let (x, z) = (f64::from(t.px[k]), f64::from(t.pz[k]));
+                cx0 = cx0.min(x);
+                cx1 = cx1.max(x);
+                cz0 = cz0.min(z);
+                cz1 = cz1.max(z);
+            }
+        }
+        chunk_bounds.push([cx0, cx1, cz0, cz1]);
+    }
+    t.chunk_bounds = std::sync::Arc::new(chunk_bounds);
 }
 
 // ── AI helpers: racing line and target-speed profile ───────────

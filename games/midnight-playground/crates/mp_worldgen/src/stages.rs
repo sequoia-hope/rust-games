@@ -59,10 +59,14 @@ pub fn road_stage() -> StageFn {
             no_marks,
             root,
             section,
+            road_sides,
             ..
         } = w;
         let track = track.as_ref().ok_or("the route is surveyed first")?;
         let terrain = terrain.as_ref().ok_or("no terrain")?;
+        let main_sides = road_sides.as_deref().and_then(|s| s.first()).map(|cell| {
+            cell.get_or_init(|| crate::road::classify_road_sides(track, terrain, 0, Some(track)))
+        });
         let mut road = Road::new(graph, textures);
         let group = road.build(&mut RoadCtx {
             track,
@@ -74,6 +78,7 @@ pub fn road_stage() -> StageFn {
             clip: section.clone(),
             road: 0,
             network: Some(track),
+            precomputed_sides: main_sides,
         });
         graph.add(*root, group);
         // The branches of the level's road (an open level's network): each
@@ -87,6 +92,14 @@ pub fn road_stage() -> StageFn {
             {
                 continue;
             }
+            let br_sides = road_sides
+                .as_deref()
+                .and_then(|s| s.get(j + 1))
+                .map(|cell| {
+                    cell.get_or_init(|| {
+                        crate::road::classify_road_sides(&b.track, terrain, j + 1, Some(track))
+                    })
+                });
             let mut br = Road::new(graph, textures);
             let group = br.build(&mut RoadCtx {
                 track: &b.track,
@@ -98,6 +111,7 @@ pub fn road_stage() -> StageFn {
                 clip: section.clone(),
                 road: j + 1,
                 network: Some(track),
+                precomputed_sides: br_sides,
             });
             graph.add(*root, group);
             branches.push(br);

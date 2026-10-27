@@ -29,7 +29,8 @@ pub struct Field<'a> {
 impl Field<'_> {
     /// The agent list at the start of a tick.
     pub fn agents(&self) -> Vec<BodyId> {
-        let mut out: Vec<BodyId> = (0..self.players.len()).map(BodyId::Player).collect();
+        let mut out: Vec<BodyId> = Vec::with_capacity(self.players.len() + self.rivals.len() + 24);
+        out.extend((0..self.players.len()).map(BodyId::Player));
         out.extend((0..self.rivals.len()).map(BodyId::Rival));
         if let Some(tr) = &self.traffic {
             out.extend(
@@ -41,7 +42,18 @@ impl Field<'_> {
             );
         }
         if let Some(pu) = &self.pursuit {
-            out.extend(pu.bodies().iter().map(pagent_id));
+            let n = pu.units.len();
+            out.extend((0..n).filter(|&i| pu.units[i].active).map(BodyId::Police));
+            out.extend(
+                (0..pu.block_cars.len())
+                    .filter(|&i| pu.block_cars[i].active)
+                    .map(|i| BodyId::Police(n + i)),
+            );
+            out.extend(
+                (0..pu.sawhorses.len())
+                    .filter(|&i| pu.sawhorses[i].active && !pu.sawhorses[i].broken)
+                    .map(BodyId::Sawhorse),
+            );
         }
         out
     }
@@ -131,18 +143,23 @@ impl Field<'_> {
             0
         };
         let mut hits = Vec::new();
-        let mut players: Vec<Option<PhysicsBody>> = self
+        let has_traffic = agents.iter().any(|id| matches!(id, BodyId::Traffic(_)));
+        let has_pursuit = agents
+            .iter()
+            .any(|id| matches!(id, BodyId::Police(_) | BodyId::Sawhorse(_)));
+        let mut pbs: Vec<PhysicsBody> = self
             .players
             .iter_mut()
-            .map(|p| Some(PhysicsBody { v: &mut p.v }))
+            .map(|p| PhysicsBody { v: &mut p.v })
             .collect();
+        let mut players: Vec<Option<&mut PhysicsBody>> = pbs.iter_mut().map(Some).collect();
         let mut rivals: Vec<Option<&mut AiDriver>> = self.rivals.iter_mut().map(Some).collect();
-        let mut cars: Vec<Option<&mut TrafficCar>> = match &mut self.traffic {
-            Some(tr) => tr.cars.iter_mut().map(Some).collect(),
-            None => Vec::new(),
+        let mut cars: Vec<Option<&mut TrafficCar>> = match (&mut self.traffic, has_traffic) {
+            (Some(tr), true) => tr.cars.iter_mut().map(Some).collect(),
+            _ => Vec::new(),
         };
-        let (mut units, mut saws): (Slots, Slots) = match &mut self.pursuit {
-            Some(pu) => {
+        let (mut units, mut saws): (Slots, Slots) = match (&mut self.pursuit, has_pursuit) {
+            (Some(pu), true) => {
                 let Pursuit {
                     units,
                     block_cars,
@@ -161,22 +178,12 @@ impl Field<'_> {
                         .collect(),
                 )
             }
-            None => (Vec::new(), Vec::new()),
+            _ => (Vec::new(), Vec::new()),
         };
-        let mut pbs: Vec<PhysicsBody> = Vec::new();
-        let mut player_slots = Vec::new();
-        for &id in agents {
-            if let BodyId::Player(i) = id {
-                pbs.push(players[i].take().unwrap());
-                player_slots.push(pbs.len() - 1);
-            }
-        }
-        let mut pb_refs: Vec<Option<&mut PhysicsBody>> = pbs.iter_mut().map(Some).collect();
-        let mut next_player = player_slots.into_iter();
         let mut bodies: Vec<&mut dyn Body> = Vec::with_capacity(agents.len());
         for &id in agents {
             let b: &mut dyn Body = match id {
-                BodyId::Player(_) => pb_refs[next_player.next().unwrap()].take().unwrap(),
+                BodyId::Player(i) => players[i].take().unwrap(),
                 BodyId::Rival(i) => rivals[i].take().unwrap(),
                 BodyId::Traffic(i) => cars[i].take().unwrap(),
                 BodyId::Police(i) => units[i].take().unwrap(),

@@ -187,6 +187,18 @@ impl VehicleDef {
         }
     }
 
+    /// Allocation-free two-axle static loads on level ground (N, both wheels).
+    pub fn static_axle_loads_2(&self) -> [f64; 2] {
+        let w = self.mass * G;
+        if self.axles.len() == 2 {
+            let (f, r) = (self.axles[0].x, self.axles[1].x);
+            [w * -r / (f - r), w * f / (f - r)]
+        } else {
+            let each = w / self.axles.len() as f64;
+            [each, each]
+        }
+    }
+
     /// Sets each spring's free length so that the static load puts the
     /// hubs at zero travel.
     pub fn balance_springs(&mut self) {
@@ -455,21 +467,41 @@ impl Vehicle {
         let target = clamp(ctl.steer, -1.0, 1.0) * lock;
         let rate = def.steer_rate * TICK;
         self.steer += clamp(target - self.steer, -rate, rate);
-        let mut angles = vec![0.0; self.wheels.len()];
-        Vehicle::wheel_angles(def, self.steer, &mut angles);
+        let nw = self.wheels.len();
+        let mut angles_stack = [0.0; 8];
+        let mut angles_heap: Vec<f64>;
+        let angles: &mut [f64] = if nw <= 8 {
+            &mut angles_stack[..nw]
+        } else {
+            angles_heap = vec![0.0; nw];
+            &mut angles_heap
+        };
+        Vehicle::wheel_angles(def, self.steer, angles);
         // The hub orientations relative to the body: a rotation by −δ
         // about the body's up axis (turning the rolling direction right).
-        let steer_rot: Vec<Quat> = angles
-            .iter()
-            .map(|&d| {
-                if d == 0.0 {
-                    Quat::IDENTITY
-                } else {
-                    Quat::from_axis_angle(Vec3::Y, -d)
+        let mut steer_stack = [Quat::IDENTITY; 8];
+        let steer_heap: Vec<Quat>;
+        let steer_rot: &[Quat] = if nw <= 8 {
+            for (dst, &d) in steer_stack[..nw].iter_mut().zip(angles.iter()) {
+                if d != 0.0 {
+                    *dst = Quat::from_axis_angle(Vec3::Y, -d);
                 }
-            })
-            .collect();
-        for (w, &d) in self.wheels.iter_mut().zip(&angles) {
+            }
+            &steer_stack[..nw]
+        } else {
+            steer_heap = angles
+                .iter()
+                .map(|&d| {
+                    if d == 0.0 {
+                        Quat::IDENTITY
+                    } else {
+                        Quat::from_axis_angle(Vec3::Y, -d)
+                    }
+                })
+                .collect();
+            &steer_heap
+        };
+        for (w, &d) in self.wheels.iter_mut().zip(angles.iter()) {
             w.steer = d;
         }
 
@@ -493,7 +525,7 @@ impl Vehicle {
         self.contact = WallContact::default();
 
         for _ in 0..n {
-            self.substep(def, ctl, ground, &walls, &steer_rot, h);
+            self.substep(def, ctl, ground, &walls, steer_rot, h);
         }
         if was_touching {
             // Only the first touch is an impact; sliding along is a scrape.
@@ -561,7 +593,14 @@ impl Vehicle {
         }
 
         // Suspension: springs, dampers, bump stops and anti-roll bars.
-        let mut f_susp = vec![0.0; nw];
+        let mut f_susp_stack = [0.0; 8];
+        let mut f_susp_heap: Vec<f64>;
+        let f_susp: &mut [f64] = if nw <= 8 {
+            &mut f_susp_stack[..nw]
+        } else {
+            f_susp_heap = vec![0.0; nw];
+            &mut f_susp_heap
+        };
         for i in 0..nw {
             let s = &def.axles[i / 2].susp;
             let w = &self.wheels[i];
@@ -651,7 +690,14 @@ impl Vehicle {
         let perp = f_perp + (wg - up * wg.dot(up));
         let accel = up * (along / m_s) + perp * (1.0 / m_all);
         // Hubs' absolute speed along the strut, before the kick.
-        let mut u_hub = vec![0.0; nw];
+        let mut u_hub_stack = [0.0; 8];
+        let mut u_hub_heap: Vec<f64>;
+        let u_hub: &mut [f64] = if nw <= 8 {
+            &mut u_hub_stack[..nw]
+        } else {
+            u_hub_heap = vec![0.0; nw];
+            &mut u_hub_heap
+        };
         for i in 0..nw {
             let a = &def.axles[i / 2];
             let r = rot.rotate(Vehicle::mount(def, i) + Vec3::Y * self.wheels[i].travel);

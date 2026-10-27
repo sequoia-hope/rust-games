@@ -14,15 +14,16 @@
 //! tiles, the sky and the sea.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use mp_levels::SeasideData;
 use mp_track::{JunctionKind, Level, Track};
 
-use crate::road::MarkGap;
-use crate::section::Section;
+use crate::road::{MarkGap, SharedRoadSides};
+use crate::section::{Place, Section};
 use crate::stages::{LevelSetup, level_stages};
 use crate::terrain::Terrain;
+use crate::textures::{SharedTextures, TextureCache};
 use crate::world::{Build, Job, Scenery, SceneryInfo, SimWorldData, Stages, World, run_stage};
 
 /// A level's scenery modules by name (`loadScenery`).
@@ -52,6 +53,7 @@ pub struct PlaceGrid {
     /// The squares that are sections, as (column, row), in section order.
     pub cells: Vec<(i64, i64)>,
     index: BTreeMap<(i64, i64), i64>,
+    cached: Arc<Vec<OnceLock<Arc<Place>>>>,
 }
 
 impl PlaceGrid {
@@ -73,22 +75,20 @@ impl PlaceGrid {
             for i in 0..w {
                 let cx = x0 + (i as f64 + 0.5) * size;
                 let cz = z0 + (j as f64 + 0.5) * size;
-                if !track
-                    .net
-                    .roads_near(cx, cz, size / 2.0 + PLACE_REACH)
-                    .is_empty()
-                {
+                if track.net.has_roads_near(cx, cz, size / 2.0 + PLACE_REACH) {
                     index.insert((i, j), cells.len() as i64);
                     cells.push((i, j));
                 }
             }
         }
+        let cached = Arc::new((0..cells.len()).map(|_| OnceLock::new()).collect());
         PlaceGrid {
             x0,
             z0,
             size,
             cells,
             index,
+            cached,
         }
     }
 
@@ -158,6 +158,8 @@ pub struct Planned {
     level_data: Option<Arc<SeasideData>>,
     /// A level streamed by place: its squares (stage 6d).
     pub places: Option<PlaceGrid>,
+    textures: SharedTextures,
+    road_sides: SharedRoadSides,
 }
 
 impl Planned {
@@ -184,6 +186,11 @@ impl Planned {
         run_stage(fields, &mut w)?;
         let track = w.track.take().ok_or("no track")?;
         let places = w.level.stream_cell.map(|size| PlaceGrid::new(&track, size));
+        let road_sides = Arc::new(
+            (0..=track.branches.len())
+                .map(|_| OnceLock::new())
+                .collect(),
+        );
         Ok(Planned {
             places,
             track,
@@ -196,6 +203,8 @@ impl Planned {
             scenery,
             extra,
             level_data,
+            textures: SharedTextures::default(),
+            road_sides,
         })
     }
 
@@ -229,8 +238,14 @@ impl Planned {
     /// streams.
     pub fn section(&self, k: i64) -> Section {
         if let Some(g) = &self.places {
-            let (i, j) = g.cells[(k.max(0) as usize).min(g.cells.len() - 1)];
-            let (x0, z0) = (g.x0 + i as f64 * g.size, g.z0 + j as f64 * g.size);
+            let idx = (k.max(0) as usize).min(g.cells.len() - 1);
+            let place = g.cached[idx]
+                .get_or_init(|| {
+                    let (i, j) = g.cells[idx];
+                    let (x0, z0) = (g.x0 + i as f64 * g.size, g.z0 + j as f64 * g.size);
+                    Arc::new(Place::new(&self.track, x0, z0, x0 + g.size, z0 + g.size))
+                })
+                .clone();
             return Section {
                 s0: 0.0,
                 s1: 0.0,
@@ -240,13 +255,7 @@ impl Planned {
                 partition: true,
                 base: false,
                 road: 0,
-                place: Some(Arc::new(crate::section::Place::new(
-                    &self.track,
-                    x0,
-                    z0,
-                    x0 + g.size,
-                    z0 + g.size,
-                ))),
+                place: Some(place),
             };
         }
         let (road, i) = self.road_of(k);
@@ -394,9 +403,11 @@ impl Planned {
         if let Some(d) = &self.level_data {
             w = w.with_level_data(d.clone());
         }
+        w.textures = TextureCache::with_shared(self.textures.clone());
         w.track = Some(self.track.clone());
         w.terrain = Some(self.base.clone());
         w.section = Some(sec.clone());
+        w.road_sides = Some(self.road_sides.clone());
         let planned = self.terrain.clone();
         let no_marks = self.no_marks.clone();
         let sim_data = self.sim_data.clone();
