@@ -50,7 +50,8 @@ fn update(
         let me = s.player();
         st.state = match s.state {
             State::Countdown(_) => "countdown",
-            State::Running if run.paused => "paused",
+            State::DropIn(_) | State::Running if run.paused => "paused",
+            State::DropIn(_) => "drop-in",
             State::Running => "running",
             State::Done => "done",
         };

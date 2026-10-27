@@ -500,15 +500,18 @@ pub fn find_crossings(t: &mut Track) -> Vec<Junction> {
         if freeway(t, j.road, j.s) == freeway(t, j.other, j.other_s) {
             return false;
         }
-        let (f, fs) = if freeway(t, j.road, j.s) {
-            (j.road, j.s)
+        let (f, fs, o, os) = if freeway(t, j.road, j.s) {
+            (j.road, j.s, j.other, j.other_s)
         } else {
-            (j.other, j.other_s)
+            (j.other, j.other_s, j.road, j.s)
         };
         // On its viaduct already (the level's lift), or room to rise over
         // the road; too near one of its junctions to clear it: at grade.
         let ft = t.road(f);
-        ft.elevated[ft.idx(fs.clamp(0.0, ft.length))] != 0 || room(t, f, fs) >= OVERPASS_CLEAR + 1.0
+        let fi = ft.idx(fs.clamp(0.0, ft.length));
+        let need = (t.road(o).surface_y(os, 0.0) + OVERPASS_CLEAR - f64::from(ft.py[fi]))
+            .max(OVERPASS_CLEAR + 1.0);
+        ft.elevated[fi] != 0 || room(t, f, fs) >= need
     });
     let mut before: BTreeMap<usize, Vec<f32>> = BTreeMap::new();
     for j in &over {

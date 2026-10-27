@@ -12273,3 +12273,55 @@ parked; 5 to 10 minutes each, WebGPU and WebGL2).
   machine's load (load averages of 20 to 40 during these runs from other
   sessions' builds and a model server on the same GPU), another device,
   or what came onto the bay side after D1245.
+
+## D1253 (2026-10-27): expanding the Peninsula atlas, network-wide events, and God Mode coordinates
+
+Stage 6 expansion (`docs/vision/peninsula.md`) and `docs/vision/atlas.md` 5.3:
+six new drivable corridors (`pescadero-creek`, `canada-road`, `coast-north`,
+`skyline-north`, `sharp-park-road`, `sf-great-highway`), `sf-market` extended
+from the Ferry Building on The Embarcadero over Twin Peaks to Ocean Beach and
+`sf-geary` to Lands End (26 playable roads, 6 closed circuits, 8 cruise
+starts, 10 events), plus live atlas readout in the level viewer.
+
+- **Events on any road of the network** (`mp_track::EventSpot::road`,
+  `mp_sim::event::EventRun::road`). Stage 5 assumed every event ran on road 0
+  (the loop). `EventSpot::road` names the corridor (`""` for road 0, else a
+  branch id resolved by `Track::road_index`). When `road == 0` every path in
+  `mp_sim` (`grid`, `player_s`, `wrong_way`, `track_progress`, `AiDriver`,
+  `race::hash`) runs bit-for-bit as before; `race::hash` appends `e.road`
+  only when `e.road != 0`. On a branch `r > 0`, `grid_on` places the field on
+  `t.road(r)`, `SimRival`, `AiDriver`, `autopilot_at` and `play::guide` follow
+  `t.road(r)` with traffic filtered to `o.road == r`, `finish_prog` unwraps
+  along `t.road(r)` without wrapping, and the HUD route bar and `play::atlas`
+  highlight map onto `t.road(r)`. Delivery events still end within 15 m of
+  their `drop` point on any road (with the racing guide line hidden).
+- **Built routes and directed circuit legs in `mp_atlas`** (`Route::built`,
+  `Circuit::routes`). `plan.json` carries `"built": true` on drivable routes
+  so `mp-atlas report`, `resolved.json` and `tools/atlas.html` distinguish
+  built corridors (solid highway red) from planned ones (dashed blue). A
+  circuit leg may be prefixed with `-` to traverse a two-way route in reverse
+  without duplicating routes in `plan.json`, and `measure_circuit` allows up
+  to 160 m real (80 m game, matching `mp_track::END_REACH`) at a junction
+  handoff so ramp-separated interchanges close in the report as they do in
+  `Track::new`.
+- **Zone-gated city placement and coastal shoulders** (`mp_levels::city`,
+  `mp_track::Track::walks`). Extending `bayside.city.bin` west to the Pacific
+  covers Pacifica, Montara and Woodside. `Placer::builds_here` restricts city
+  lots and garages to roads whose zone uses `"Town"` scenery (and never
+  closer to `0..FIRST_BAYSIDE` than to `BAYSIDE`), so redwood and reservoir
+  corridors (`pescadero-creek`, `canada-road`, `skyline-north`,
+  `sharp-park-road`) stay forested under the Land kit even near town edges.
+  `Track::walks` excludes `"coastal"` and `"mountain"` road types alongside
+  `"freeway"`, so Highway 1 North (`coast-north`, zone `"midcoast"`, `"Town"`
+  scenery on `"coastal"` road) receives real town buildings through Montara
+  and Pacifica while keeping open coastal shoulders instead of city kerbs and
+  sidewalks.
+- **God Mode atlas placement without coupling `mp_game` to `mp_atlas`**
+  (`mp_game::viewer`). `mp_atlas` reads disk files and pulls `serde_json` for
+  offline planning; instead of adding it to the wasm/client dependency tree,
+  `viewer::atlas_latlon` inverts `geo.json`'s exact equirectangular
+  constants (`ORIGIN = (37.46802, -122.43350)`, `110_986.4416 m/deg lat`,
+  `88_463.2275 m/deg lon`, `scale = 0.5`) directly on open levels (`southcoast`,
+  `peninsula`), reporting `[lat, lon]` and nearest road `id @ s/len km` in
+  the HUD readout and `--report` JSON, and drawing every branch polyline and
+  pill in Overview.

@@ -459,7 +459,17 @@ fn update_hud(
                 Mode::TrickAttack => (thousands(me.score), None),
                 Mode::TimeAttack => (String::new(), None),
             },
-            HudText::Speed => (format!("{:.0}", me.rider.speed() * 3.6), None),
+            HudText::Speed => {
+                let kmh = me.rider.speed() * 3.6;
+                let fast = ((kmh - 68.0) / 36.0).clamp(0.0, 1.0);
+                // Scale via UiTransform (never TextFont size, which allocates glyph atlases).
+                let scale = Vec2::splat(1.0 + 0.08 * fast);
+                if transform.scale != scale {
+                    transform.scale = scale;
+                }
+                let col = Color::srgb(0.97 - 0.42 * fast, 0.98 - 0.13 * fast, 1.0);
+                (format!("{kmh:.0}"), Some(col))
+            }
             HudText::Msg => {
                 if st.msg_t < st.msg_len && !done {
                     // The pop is a scale, never a font size: every size

@@ -15,6 +15,7 @@ pub struct MeasuredRoute {
     pub id: String,
     pub name: String,
     pub kind: &'static str,
+    pub built: bool,
     /// Game metres per real metre.
     pub scale: f64,
     pub line: Vec<V2>,
@@ -76,6 +77,7 @@ pub fn measure(a: &Atlas) -> Result<Measured, String> {
             id: r.id.clone(),
             name: r.name.clone(),
             kind: "route",
+            built: r.built,
             scale: r.scale.unwrap_or(a.plan.scale),
             profile: Profile::of(&res.line, &a.terrain, &structures(a, &f)),
             line: res.line,
@@ -94,6 +96,7 @@ pub fn measure(a: &Atlas) -> Result<Measured, String> {
             id: e.id.clone(),
             name: e.name.clone(),
             kind: "event",
+            built: r.built,
             scale: r.scale.unwrap_or(a.plan.scale),
             profile: Profile::of(&res.line, &a.terrain, &structures(a, &f)),
             line: res.line,
@@ -104,22 +107,7 @@ pub fn measure(a: &Atlas) -> Result<Measured, String> {
         .plan
         .circuits
         .iter()
-        .map(|c| {
-            let rs: Vec<_> = c
-                .routes
-                .iter()
-                .map(|id| a.plan.route(id).expect("checked when the plan loaded"))
-                .collect();
-            let closes =
-                !rs.is_empty() && (0..rs.len()).all(|i| rs[i].to == rs[(i + 1) % rs.len()].from);
-            let length = c
-                .routes
-                .iter()
-                .filter_map(|id| routes.iter().find(|m| m.id == *id))
-                .map(|m| m.profile.length)
-                .sum();
-            (c.id.clone(), c.name.clone(), length, closes)
-        })
+        .map(|c| measure_circuit(c, &routes))
         .collect();
     let regions = a.plan.regions.iter().map(|r| region(a, r)).collect();
     let places = a
@@ -151,6 +139,73 @@ pub fn measure(a: &Atlas) -> Result<Measured, String> {
         places,
         circuits,
     })
+}
+
+/// Measures a circuit across its legs (each `id` forward or `-id` reversed),
+/// finding where each leg hands off to the next within the road network's
+/// 160 m real-world reach (80 m at game scale 0.5).
+fn measure_circuit(
+    c: &crate::plan::Circuit,
+    routes: &[MeasuredRoute],
+) -> (String, String, f64, bool) {
+    const REACH_M: f64 = 160.0;
+    let legs: Vec<(f64, Vec<(V2, f64)>)> = c
+        .routes
+        .iter()
+        .filter_map(|spec| {
+            let (rev, id) = match spec.strip_prefix('-') {
+                Some(id) => (true, id),
+                None => (false, spec.as_str()),
+            };
+            let m = routes.iter().find(|m| m.id == id && m.kind == "route")?;
+            let len = m.profile.length;
+            let pts = if rev {
+                m.profile
+                    .samples
+                    .iter()
+                    .rev()
+                    .map(|s| (s.at, len - s.d))
+                    .collect()
+            } else {
+                m.profile.samples.iter().map(|s| (s.at, s.d)).collect()
+            };
+            Some((len, pts))
+        })
+        .collect();
+    let n = legs.len();
+    if n == 0 || n != c.routes.len() {
+        return (c.id.clone(), c.name.clone(), 0.0, false);
+    }
+    let mut s_in = vec![0.0; n];
+    let mut s_out = vec![0.0; n];
+    let mut connected = true;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let (len_i, pts_i) = &legs[i];
+        let (_, pts_j) = &legs[j];
+        let mut best = (f64::INFINITY, f64::INFINITY, 0.0, 0.0);
+        for &(pi, di) in pts_i {
+            for &(pj, dj) in pts_j {
+                let d = pi.dist(pj);
+                let score = d + 1e-6 * ((len_i - di) + dj);
+                if score < best.0 {
+                    best = (score, d, di, dj);
+                }
+            }
+        }
+        if best.1 > REACH_M {
+            connected = false;
+        }
+        s_out[i] = best.2;
+        s_in[j] = best.3;
+    }
+    let closes = connected && (0..n).all(|i| s_out[i] > s_in[i] + 100.0);
+    let length = if closes {
+        (0..n).map(|i| s_out[i] - s_in[i]).sum()
+    } else {
+        legs.iter().map(|(len, _)| *len).sum()
+    };
+    (c.id.clone(), c.name.clone(), length, closes)
 }
 
 fn road_label(r: &crate::geo::Road) -> String {
@@ -246,24 +301,31 @@ fn cover_line(c: &[(Cover, f64)], n: usize) -> String {
 pub fn text(a: &Atlas, m: &Measured) -> String {
     let mut s = String::new();
     let p = &a.geo.projection;
+    let built_routes = a.plan.routes.iter().filter(|r| r.built).count();
     let _ = writeln!(
         s,
-        "{}: {} regions, {} places, {} routes, {} events. Game scale {} of real.\n",
+        "{}: {} regions, {} places, {} routes ({} built), {} events. Game scale {} of real.\n",
         a.plan.world,
         a.plan.regions.len(),
         a.plan.places.len(),
         a.plan.routes.len(),
+        built_routes,
         a.plan.events.len(),
         a.plan.scale
     );
     let _ = writeln!(s, "ROUTES AND EVENTS (real km, game km at the scale)");
     for r in &m.routes {
         let pr = &r.profile;
+        let tag = if r.kind == "route" && r.built {
+            "built"
+        } else {
+            r.kind
+        };
         let _ = writeln!(
             s,
             "  {:<6} {:<34} {:>5.1} km real, {:>4.1} km game; {:>4.0} to {:>4.0} m, climb {:>4.0} m, \
              steepest {:.0} %, {} crests",
-            r.kind,
+            tag,
             r.name,
             pr.length / 1e3,
             pr.length * r.scale / 1e3,
@@ -371,6 +433,7 @@ pub fn json(a: &Atlas, m: &Measured) -> Value {
                 "id": r.id,
                 "name": r.name,
                 "kind": r.kind,
+                "built": r.built,
                 "length_m": pr.length.round(),
                 "game_m": (pr.length * r.scale).round(),
                 "climb_m": pr.climb.round(),

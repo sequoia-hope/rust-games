@@ -1,9 +1,13 @@
 # The atlas: planning the open world on the real peninsula
 
-Status: **started 2026-10-08** (vision ROADMAP M13, the world plan file).
+Status: **started 2026-10-08; expanded 2026-10-27** (vision ROADMAP M13, the world plan file).
 The owner asked for the system to plan the open world with, before any
 level changes: real elevation for the whole peninsula, regions mapped out
-on it, and a proposal for them. Nothing here changes a level yet.
+on it, and a proposal for them. Since 2026-10-13 (`docs/vision/peninsula.md`)
+the plan drives the playable open world (`mp_levels::south_coast` and
+`mp_levels::peninsula`: 32 routes, 26 playable corridors, 6 closed circuits,
+8 cruise starts and 10 events), and the God Mode level viewer shows any
+atlas level's real coordinates and corridor (`D1253`).
 
 ## 1. The owner's direction (2026-10-08)
 
@@ -72,8 +76,8 @@ Golden Gate (37.84° N), and from the ocean (122.56° W) to the bay shore
   city grid.
 
 Sizes in git: `terrain.bin` 3.7 MB, `geo.json` 2.1 MB, `resolved.json`
-200 kB; the bay side's corridors 0.9 MB, its ground 687 kB, cover 29 kB
-and city grid 212 kB.
+260 kB; the 30 corridor files 1.1 MB; the loop's ground 887 kB and cover
+19 kB; the bay side's ground 783 kB, cover 32 kB and city grid 225 kB.
 
 ### 2.2 The local frame
 
@@ -93,14 +97,16 @@ pasted from a map.
 - `scale`: game metres per real metre (the compression), 0.5 to start.
 - `places`: `id`, `name`, `kind` (junction, start, town, landmark,
   viewpoint, trailhead, offshore), `at`, `note`.
-- `regions`: `id`, `name`, `stage` (first, planned, later), `character`
+- `regions`: `id`, `name`, `stage` (`built`, `first`, `planned`, `later`), `character`
   (what it should feel like), `real` (what it compresses), `kits` (the
   existing generators it would draw on), `ring` (its outline).
-- `routes`: `id`, `name`, `roads` (route numbers) or `names` (road names,
-  for roads without numbers like Tunitas Creek Road) or `classes`;
-  `from`, `via`, `to` (place ids); `scale` to override the plan's.
-- `circuits`: routes end to end; the report checks each ends where the
-  next begins.
+- `routes`: `id`, `name`, `built` (`true` once the corridor is playable in
+  a level), `roads` (route numbers) or `names` (road names, for roads
+  without numbers like Tunitas Creek Road) or `classes`; `from`, `via`,
+  `to` (place ids); `scale` to override the plan's.
+- `circuits`: routes end to end (`-id` traverses a route in reverse); the
+  report checks each leg meets the next within 160 m real (80 m game,
+  matching `mp_track::END_REACH`).
 - `events`: `kind` (race, time trial, delivery), `route` (whose roads it follows),
   `from`, `to`, `light`, `note`.
 - `remix`: what each existing level becomes.
@@ -164,7 +170,7 @@ Measured on the real road (`cargo run -p mp_atlas -- report`):
 - **Light:** night, the moon on the sea, the farms dark, the town's lights
   ahead.
 
-### 3.2 The loop
+### 3.2 The loop and the six closed circuits
 
 **1, 92, Skyline and 84: 69.8 km of real road; it closes.**
 
@@ -175,27 +181,40 @@ Measured on the real road (`cargo run -p mp_atlas -- report`):
 | Skyline: 92 to Skylonda | 20.0 km | 10.0 km | 262–714 m | 687 m | forest 92 % |
 | Highway 84: Skylonda to the sea | 24.1 km | 12.0 km | 15–456 m | 320 m | forest, scrub |
 
-Beside it: Highway 1 north to Pacifica through Devil's Slide's tunnels
-(18.9 km), **Tunitas Creek Road** from Highway 1 up to Skyline at Kings
+With the 2026-10-27 expansion (`D1253`), **six closed circuits** now connect
+the network end to end (all verified by `mp-atlas report` and playable in
+`mp_levels::peninsula`):
+
+| Circuit | Routes | Real | Game at 0.5 |
+|---|---|---|---|
+| `the-loop` | `coast-south`, `hwy-92`, `skyline-south`, `hwy-84` | 69.8 km | 34.9 km |
+| `south-redwoods-loop` | `stage-road`, `pescadero-creek`, `hwy-84` | 44.2 km | 22.1 km |
+| `north-coast-loop` | `coast-north`, `-i-280`, `-hwy-92-east`, `-hwy-92` | 66.3 km | 33.1 km |
+| `crystal-springs-loop` | `hwy-84-east`, `canada-road`, `-hwy-92-east`, `skyline-south` | 45.4 km | 22.7 km |
+| `bayside-spine-loop` | `us-101`, `-el-camino`, `hwy-84-east` | 87.3 km | 43.6 km |
+| `sf-city-ocean-loop` | `sf-great-highway`, `sf-geary`, `sf-market` | 27.5 km | 13.8 km |
+
+Beside them: **Tunitas Creek Road** from Highway 1 up to Skyline at Kings
 Mountain (15.1 km, 866 m of climb, redwoods all the way: the Highway 9
-character the owner wants, inside the loop), and Stage Road from San
-Gregorio to Pescadero (11.4 km).
+character the owner wants, inside the loop), **Sharp Park Road** and
+**northern Skyline Boulevard** over Sweeney Ridge (3.3 km and 9.5 km), and
+six bayside cross-town arterials between 101, 280 and El Camino.
 
 ### 3.3 The regions
 
 | Region | Stage | Real | Kits |
 |---|---|---|---|
-| The South Coast | first | Highway 1 from San Gregorio to Half Moon Bay | coast |
-| Half Moon Bay | planned | Half Moon Bay, El Granada, Princeton, Pillar Point, Mavericks | coast, harbor |
-| Over the hill: Highway 92 | planned | The pumpkin patches, nurseries, the climb to Skyline | sierra, valley |
-| Skyline | planned | Highway 35 from 92 to Skylonda, Kings Mountain, Alice's | mountain |
-| The redwoods: 84 and La Honda | planned | Highway 84 | mountain |
-| The Midcoast and Devil's Slide | planned | Moss Beach, Montara, the tunnels, Pacifica | coast |
+| The South Coast | built | Highway 1 from San Gregorio to Half Moon Bay | coast |
+| Half Moon Bay | built | Half Moon Bay, El Granada, Princeton, Pillar Point, Mavericks | coast, harbor |
+| Over the hill: Highway 92 | built | The pumpkin patches, nurseries, the climb to Skyline | sierra, valley |
+| Skyline | built | Highway 35 from 92 to Skylonda, Kings Mountain, Alice's | mountain |
+| The redwoods: 84, Pescadero Creek and La Honda | built | Highway 84, Stage Road, Pescadero Creek Road | mountain |
+| The Midcoast and Devil's Slide | built | Moss Beach, Montara, the tunnels, Pacifica, Sharp Park | coast, town |
+| Crystal Springs and 280 | built | The reservoir's valley, Cañada Road, 280 | valley, city |
+| The Bayside | built | Redwood City to South San Francisco | city, cruise, desert |
+| The City | built | San Francisco and Daly City | streets, city |
 | The state parks | later | Purisima Creek, El Corte de Madera, Tunitas Creek | mountain, rally |
 | Montara Mountain | later | Crawler hills above Montara and Pacifica | desert (rocks) |
-| Crystal Springs and 280 | later | The reservoir's valley, Cañada Road, 280 | valley, city |
-| The Bayside | later | Redwood City to South San Francisco | city, cruise, desert |
-| The City | later | San Francisco and Daly City | streets, city |
 
 The outlines are first drafts on the real map, meant to be dragged into
 shape in the planner.
@@ -258,7 +277,19 @@ The levels stay as they are until a remix is chosen. The proposal:
    compressed to the scale, and `mp_levels::south_coast` is the level
    built from it through the coast and beach kits. The scale is 0.5 (the
    owner, 2026-10-13).
-3. **The level viewer** (god mode) shows a corridor's place on the atlas.
-4. Finer data where a corridor needs it: the cache's 15 m terrain, and
-   the full road detail (residential streets, tracks) for Half Moon Bay
-   and the state parks' dirt roads.
+3. **The level viewer** (god mode) shows a corridor's place on the atlas:
+   done 2026-10-27 (`D1253`). `mp_game::viewer` projects `(x, z)` back to
+   `[lat, lon]` and nearest corridor `id @ s/len km` in the live readout
+   and `--report` JSON, and draws every branch corridor and label in
+   Overview.
+4. **Multi-corridor races and pursuits across junctions:** the six closed
+   circuits (`the-loop`, `south-redwoods-loop`, `north-coast-loop`,
+   `crystal-springs-loop`, `bayside-spine-loop`, `sf-city-ocean-loop`) are
+   connected in `mp_levels::peninsula` and verified by `mp-atlas`; next is
+   teaching `EventSpot` races, AI rivals and police pursuits to follow a
+   sequence of corridors through junctions.
+5. **Finer data where a corridor needs it:** the cache's 15 m terrain, and
+   the full road detail (residential streets, dirt tracks) for Half Moon
+   Bay, **Montara Mountain**'s crawler hills and **the state parks'**
+   rallycross loops (the two remaining `"later"` regions), plus the
+   Caltrain rail corridor and bayshore salt ponds for the `desert` remix.

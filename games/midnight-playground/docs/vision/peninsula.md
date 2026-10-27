@@ -1,6 +1,6 @@
 # The Peninsula slice: building the open world
 
-Status: **started 2026-10-13**; stage 6, the bay side, started 2026-10-24 (vision ROADMAP M18, brought forward: the
+Status: **started 2026-10-13**; stage 6, the bay side, started 2026-10-24 and expanded 2026-10-27 (vision ROADMAP M18, brought forward: the
 owner asked to start building out the open world). The existing levels
 stay as they are and need not connect to the world; abstract levels (the
 owner's holodeck idea) are welcome later as destinations of their own.
@@ -408,6 +408,44 @@ warm-up scene of every pipeline the level draws, a texture's pixels sent
 once and converted in slices, oversized meshes split. The native budget
 test passes; the browser suite's budgets still want a quiet machine's
 baseline before they are trusted.
+
+**Expanded (2026-10-27, D1253).** Six more corridors join the playable
+network (26 roads, 68 junctions, 6 freeway overpasses, 24,736 buildings,
+eight starts and ten events in `mp_levels::peninsula`, streamed in 295
+kilometre squares; 32 built routes, 64 places and six closed circuits in
+`plan.json`), closing the open ends that Stage 6 left:
+
+- **The south redwoods:** `pescadero-creek` (20.5 km real, 10.3 km game)
+  carries Stage Road on from Pescadero through Memorial Park back to
+  Highway 84 south of La Honda (`south-redwoods-loop`).
+- **The north coast and Sweeney Ridge:** `coast-north` (30.0 km real,
+  15.0 km game) runs from Half Moon Bay through Montara, the Devil's
+  Slide tunnels and Pacifica to I-280 in Daly City (`north-coast-loop`),
+  with `skyline-north` and `sharp-park-road` linking 280 and Pacifica
+  over Sweeney Ridge.
+- **Crystal Springs:** `canada-road` (11.9 km real, 6.0 km game) runs
+  north from Woodside along Upper Crystal Springs Reservoir to Highway 92
+  (`crystal-springs-loop`).
+- **San Francisco to the sea:** `sf-market` now begins on The Embarcadero
+  at the Ferry Building (closing the 175 m gap from 2026-10-24) and climbs
+  over Twin Peaks via Portola and Sloat to Ocean Beach; `sf-great-highway`
+  runs north beside the surf to Lands End, where `sf-geary` turns east to
+  Market Street (`sf-city-ocean-loop`).
+- **Starts and events across the network:** eight cruise starts (adding
+  **Pacifica** at Linda Mar and **Ocean Beach** on the Great Highway) and
+  ten world events (`EventSpot::road`, D1253) — five on the loop and five
+  on branch corridors (**Devil's Slide** race on Highway 1 North, **The
+  Tunitas Climb** time trial, **Crystal Springs** time trial on Cañada
+  Road, **The King's Highway** race up El Camino Real to San Francisco,
+  and **The Ferry Express** delivery from Lombard Street to the Ferry
+  Building).
+- **God Mode on the atlas** (`atlas.md` 5.3): `mp_game::viewer` reports
+  `[lat, lon]` and the nearest corridor (`id @ s/len km`) in its readout
+  and `--report` JSON, and draws every branch corridor in Overview.
+- **Next:** multi-corridor events, AI rivals and police turning across
+  junctions (so a single race or pursuit can run any of the six closed
+  circuits across multiple roads), and off-road dirt networks for Montara
+  Mountain and the state parks.
 
 ## 3. Decisions
 

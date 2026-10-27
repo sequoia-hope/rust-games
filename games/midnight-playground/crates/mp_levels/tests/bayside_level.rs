@@ -53,6 +53,24 @@ fn the_bay_side_is_one_network_with_the_loop() {
     assert_eq!(start("hwy-92-east"), "loop");
     assert_eq!(end("hwy-84-east"), Some("us-101"));
     assert_eq!(end("hwy-92-east"), Some("us-101"));
+    // Crystal Springs, the north coast, Sweeney Ridge and the city's ocean loop.
+    assert_eq!(start("canada-road"), "hwy-84-east");
+    assert_eq!(end("canada-road"), Some("hwy-92-east"));
+    assert_eq!(start("coast-north"), "loop");
+    assert_eq!(end("coast-north"), Some("i-280"));
+    assert_eq!(start("skyline-north"), "i-280");
+    assert_eq!(end("skyline-north"), Some("coast-north"));
+    assert_eq!(start("sharp-park-road"), "skyline-north");
+    assert_eq!(end("sharp-park-road"), Some("coast-north"));
+    assert!(matches!(
+        start("sf-great-highway"),
+        "coast-north" | "skyline-north"
+    ));
+    assert_eq!(end("sf-great-highway"), Some("sf-geary"));
+    assert_eq!(start("sf-market"), "sf-embarcadero");
+    assert_eq!(end("sf-market"), Some("sf-great-highway"));
+    assert_eq!(start("sf-geary"), "sf-great-highway");
+    assert_eq!(end("sf-geary"), Some("sf-market"));
     // The spines leave 84 at Redwood City.
     for id in ["i-280", "us-101", "el-camino"] {
         assert_eq!(start(id), "hwy-84-east", "{id}");
@@ -76,6 +94,11 @@ fn the_bay_side_is_one_network_with_the_loop() {
         .iter()
         .filter(|j| j.kind == JunctionKind::Cross)
         .count();
+    eprintln!(
+        "{} junctions ({crossings} crossings) and {} overpasses",
+        t.junctions.len(),
+        t.overpasses.len()
+    );
     assert!(
         crossings + t.overpasses.len() >= 10,
         "{crossings} crossings and {} overpasses",

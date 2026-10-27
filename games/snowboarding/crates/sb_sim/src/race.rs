@@ -1,9 +1,10 @@
-//! A run down a course: the countdown, the riders (the player, and a CPU
-//! rival in a race), the clock, checkpoints, finishing and the results.
-//! Stepped one fixed tick ([`TICK`]) at a time.
+//! A run down a course: the countdown, the start-ramp drop-in, the riders
+//! (the player, and a CPU rival in a race), the clock, checkpoints, finishing
+//! and the results. Stepped one fixed tick ([`TICK`]) at a time.
 
 use crate::ai::Brain;
 use crate::course::{Course, CourseId};
+use crate::noise::{lerp, smoothstep};
 use crate::rider::{Event, Input, Phase, Rider, Stats};
 use crate::tricks::Trick;
 
@@ -11,6 +12,12 @@ use crate::tricks::Trick;
 pub const TICK: f32 = 1.0 / 120.0;
 /// The countdown before the gate opens.
 pub const COUNTDOWN: f32 = 3.0;
+/// The scripted launch down the start ramp right after Go.
+pub const DROP_IN: f32 = 0.9;
+/// Initial gate push-off speed in m/s (scaled by the rider's speed stat).
+const DROP_IN_PUSH: f32 = 6.5;
+/// Peak tangential ramp acceleration during [`State::DropIn`], in m/s².
+const DROP_IN_ACCEL: f32 = 18.5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Mode {
@@ -126,6 +133,8 @@ impl Entrant {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum State {
     Countdown(f32),
+    /// Scripted start-ramp drop-in (`DROP_IN` seconds down to `0`).
+    DropIn(f32),
     Running,
     /// The player is down; the results are final.
     Done,
@@ -227,7 +236,7 @@ impl Session {
     }
 
     pub fn step(&mut self, input: Input) {
-        match self.state {
+        let drop_k = match self.state {
             State::Countdown(t) => {
                 let next = t - TICK;
                 if next.ceil() < t.ceil() && next > 0.0 {
@@ -235,21 +244,32 @@ impl Session {
                 }
                 for e in &mut self.entrants {
                     e.rider.hold(&self.course);
-                    e.rider.crouch = 0.3;
+                    e.rider.crouch = 0.35;
                 }
                 if next <= 0.0 {
-                    self.state = State::Running;
+                    self.state = State::DropIn(DROP_IN);
                     self.events.push(SessionEvent::Go);
                     for e in &mut self.entrants {
-                        e.rider.vel = self.course.frame(self.course.start_s).dir * 3.0;
+                        let v0 = DROP_IN_PUSH * e.rider.stats.speed;
+                        e.rider.launch(&self.course, v0);
                     }
                 } else {
                     self.state = State::Countdown(next);
                 }
                 return;
             }
-            State::Running | State::Done => {}
-        }
+            State::DropIn(t) => {
+                let k = ((DROP_IN - t) / DROP_IN).clamp(0.0, 1.0);
+                let next = t - TICK;
+                self.state = if next <= 0.0 {
+                    State::Running
+                } else {
+                    State::DropIn(next)
+                };
+                Some(k)
+            }
+            State::Running | State::Done => None,
+        };
         self.time += TICK;
 
         // The CPU rival keeps the race close.
@@ -275,6 +295,10 @@ impl Session {
                     jump: false,
                     grab: false,
                 };
+            } else if let Some(k) = drop_k {
+                inp = drop_in_input(inp, k);
+                let dv = DROP_IN_ACCEL * e.rider.stats.speed * (1.0 - k * k) * TICK;
+                e.rider.drive_along_ground(dv);
             }
             e.rider.step(course, inp, TICK);
             for ev in e.rider.events.drain(..) {
@@ -331,6 +355,20 @@ impl Session {
     }
 }
 
+/// Blends controls in over the drop-in: locked straight and tucked out of the
+/// gate so nobody clips a post or kills the launch with the brake, then fading
+/// steering and pitch in cleanly before [`State::Running`] takes over.
+fn drop_in_input(raw: Input, k: f32) -> Input {
+    let steer_blend = smoothstep(0.35, 1.0, k);
+    let pitch_blend = smoothstep(0.75, 1.0, k);
+    Input {
+        steer: raw.steer * 0.55 * steer_blend,
+        pitch: lerp(1.0, raw.pitch.max(0.0), pitch_blend),
+        jump: false,
+        grab: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,15 +387,120 @@ mod tests {
     fn cpu_riders_finish_every_course() {
         for id in CourseId::ALL {
             let s = run(id, Mode::Race);
-            let p = s.player();
-            assert!(
-                p.finish.is_some(),
-                "{id:?}: stuck at s {} of {}",
-                p.rider.s,
-                s.course.finish_s
-            );
-            let t = p.finish.unwrap();
-            assert!(t > 20.0 && t < 240.0, "{id:?}: {t} s");
+            for (i, e) in s.entrants.iter().enumerate() {
+                assert!(
+                    e.finish.is_some(),
+                    "{id:?} entrant {i} ({}): stuck at s {} of {}",
+                    e.name(),
+                    e.rider.s,
+                    s.course.finish_s
+                );
+                let t = e.finish.unwrap();
+                assert!(t > 20.0 && t < 240.0, "{id:?} entrant {i}: {t} s");
+            }
+        }
+    }
+
+    #[test]
+    fn drop_in_reaches_entry_speed_and_hands_off_cleanly() {
+        let hostile = Input {
+            steer: -1.0,
+            pitch: -1.0,
+            jump: true,
+            grab: true,
+        };
+        for id in CourseId::ALL {
+            for mode in Mode::ALL {
+                for (case, use_hostile) in [("neutral", false), ("hostile", true)] {
+                    let mut s = Session::new(id, mode, 0, false);
+                    let inp = if use_hostile {
+                        hostile
+                    } else {
+                        Input::default()
+                    };
+                    while matches!(s.state, State::Countdown(_)) {
+                        s.step(inp);
+                    }
+                    assert!(
+                        matches!(s.state, State::DropIn(_)),
+                        "{id:?} {mode:?} ({case}): expected DropIn right after Countdown, got {:?}",
+                        s.state
+                    );
+                    assert!(
+                        s.events.contains(&SessionEvent::Go),
+                        "{id:?} {mode:?} ({case}): missing Go event"
+                    );
+                    for (i, e) in s.entrants.iter().enumerate() {
+                        assert!(
+                            e.rider.speed() > 5.5,
+                            "{id:?} {mode:?} ({case}) entrant {i}: gate launch speed {}",
+                            e.rider.speed()
+                        );
+                        assert_eq!(e.rider.phase, Phase::Ground);
+                    }
+                    s.events.clear();
+
+                    let mut drop_ticks = 0usize;
+                    while matches!(s.state, State::DropIn(_)) {
+                        s.step(inp);
+                        drop_ticks += 1;
+                        assert!(drop_ticks <= 200, "{id:?} {mode:?}: DropIn did not end");
+                        check_sane(&s, &format!("{id:?} {mode:?} ({case}) drop-in"));
+                        for (i, e) in s.entrants.iter().enumerate() {
+                            assert_eq!(
+                                e.rider.phase,
+                                Phase::Ground,
+                                "{id:?} {mode:?} ({case}) entrant {i} left snow during drop-in at tick {drop_ticks}"
+                            );
+                            assert_eq!(e.crashes, 0);
+                        }
+                        for ev in s.events.drain(..) {
+                            assert!(
+                                !matches!(
+                                    ev,
+                                    SessionEvent::Rider(
+                                        _,
+                                        Event::Jump { .. } | Event::Crash { .. }
+                                    )
+                                ),
+                                "{id:?} {mode:?} ({case}): unexpected {ev:?} during drop-in"
+                            );
+                        }
+                    }
+
+                    assert_eq!(s.state, State::Running);
+                    for (i, e) in s.entrants.iter().enumerate() {
+                        assert!(
+                            e.rider.speed() >= 17.5,
+                            "{id:?} {mode:?} ({case}) entrant {i}: entry speed {} m/s too slow",
+                            e.rider.speed()
+                        );
+                        assert_eq!(e.rider.phase, Phase::Ground);
+                    }
+
+                    // Handoff tick + 1.5 s of normal riding: releasing jump or
+                    // holding neutral must not pop or crash at the seam.
+                    for t in 0..180 {
+                        s.step(Input::default());
+                        check_sane(&s, &format!("{id:?} {mode:?} ({case}) post-handoff {t}"));
+                        if t < 12 {
+                            for (i, e) in s.entrants.iter().enumerate() {
+                                assert_eq!(
+                                    e.rider.phase,
+                                    Phase::Ground,
+                                    "{id:?} {mode:?} ({case}) entrant {i} popped right after handoff (tick {t})"
+                                );
+                            }
+                        }
+                        for e in &s.entrants {
+                            assert_eq!(
+                                e.crashes, 0,
+                                "{id:?} {mode:?} ({case}): crashed within 1.5 s of handoff"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 

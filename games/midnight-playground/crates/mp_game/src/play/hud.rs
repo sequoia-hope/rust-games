@@ -1805,16 +1805,31 @@ pub(super) fn hud_in(race: &super::flow::Race) -> HudIn {
         .map_or(0, |i| i + 1);
     let s = lap_s(p.v.prog, p.v.s);
     // This player first, then the other humans, then the rivals (the same
-    // order as the route bar's colours, `key`).
-    let mut racers = vec![s];
+    // order as the route bar's colours, `key`). On a branch event (`road != 0`),
+    // scale progress along `[start..finish_prog]` onto `[0..t.n]` so the route
+    // dots move monotonically from 0% to 100%.
+    let branch_ev = st
+        .race
+        .event
+        .as_ref()
+        .filter(|e| e.road != 0 && e.kind != mp_track::EventKind::Delivery)
+        .map(|e| {
+            let s0 = race.session.lr.level.events[e.index].s;
+            (s0, (st.race.finish_prog - s0).max(1.0))
+        });
+    let dot_s = |prog: Option<f64>, raw_s: f64| match branch_ev {
+        Some((s0, span)) => pk_math::clamp((prog.unwrap_or(s0) - s0) / span, 0.0, 1.0) * t.n as f64,
+        None => lap_s(prog, raw_s),
+    };
+    let mut racers = vec![dot_s(p.v.prog, p.v.s)];
     racers.extend(
         st.players
             .iter()
             .enumerate()
             .filter(|(k, _)| *k != me)
-            .map(|(_, o)| lap_s(o.v.prog, o.v.s)),
+            .map(|(_, o)| dot_s(o.v.prog, o.v.s)),
     );
-    racers.extend(st.rivals.iter().map(|a| lap_s(a.prog, a.k.s)));
+    racers.extend(st.rivals.iter().map(|a| dot_s(a.prog, a.k.s)));
     let rivals = list
         .iter()
         .filter(|r| r.human != Some(me))

@@ -631,17 +631,23 @@ impl Track {
         (best.0, best.1)
     }
 
+    /// The network index of a road id (`""` for road 0, `1 + k` for the
+    /// `k`-th branch).
+    pub fn road_index(&self, id: &str) -> Option<usize> {
+        if id.is_empty() {
+            Some(0)
+        } else {
+            self.branches.iter().position(|b| b.id == id).map(|k| 1 + k)
+        }
+    }
+
     /// The start a cruise was given (`Level::start` among
     /// `Level::starts`, stage 6f): the road and the metres along it.
     /// `None` when none was chosen or it names nothing.
     pub fn chosen_start(&self) -> Option<(usize, f64)> {
         let id = self.level.start?;
         let sp = self.level.starts.iter().find(|s| s.id == id)?;
-        let r = if sp.road.is_empty() {
-            0
-        } else {
-            1 + self.branches.iter().position(|b| b.id == sp.road)?
-        };
+        let r = self.road_index(sp.road)?;
         let t = self.road(r);
         let s = if sp.s < 0.0 { t.length + sp.s } else { sp.s };
         Some((r, s.clamp(0.0, t.length)))
@@ -781,7 +787,7 @@ impl Track {
             .any(|z| z.id == zone && z.zone.scenery == "Town");
         town && ROAD_TYPES
             .get(self.road_type[i] as usize)
-            .is_some_and(|rt| rt.key != "freeway")
+            .is_some_and(|rt| !matches!(rt.key, "freeway" | "coastal" | "mountain"))
     }
 
     /// The pavement's height at `s` on the side of `lat`: the road's plane
