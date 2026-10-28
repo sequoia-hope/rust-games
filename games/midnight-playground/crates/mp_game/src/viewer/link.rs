@@ -78,9 +78,15 @@ pub struct Link {
     pub panel: Option<bool>,
 }
 
-/// Whether this run is the viewer: `?view=god` on a level.
+/// Whether this run is the viewer: `?view=god` on a level, or the atlas
+/// (`?view=atlas`).
 pub fn wanted(o: &Options) -> bool {
-    o.param("view") == Some("god")
+    matches!(o.param("view"), Some("god" | "atlas"))
+}
+
+/// Whether this run is the atlas (`?view=atlas`, [`super::atlas`]).
+pub fn atlas(o: &Options) -> bool {
+    o.param("view") == Some("atlas")
 }
 
 fn nums(v: &str) -> Vec<f64> {

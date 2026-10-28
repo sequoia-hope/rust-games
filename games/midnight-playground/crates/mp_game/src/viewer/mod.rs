@@ -25,6 +25,7 @@
 //! The link ([`link`]) carries the pose and the panel's state; the readout
 //! counts draws and triangles in the render world ([`stats`]).
 
+pub mod atlas;
 pub mod cams;
 pub mod groups;
 mod input;
@@ -104,6 +105,17 @@ pub enum Act {
     Dive,
     /// Back to the start of the route.
     Home,
+    /// The atlas (`atlas`): fly to a pin; the next or previous pin; a
+    /// pin's run focused, or focused and started; the focused run
+    /// started; back (from a pin to the whole map, from there to the
+    /// menu); the whole map.
+    Pin(usize),
+    PinStep(i32),
+    RunStep(i32),
+    Run(usize),
+    Go,
+    Back,
+    Whole,
 }
 
 /// The viewer's state.
@@ -176,6 +188,8 @@ pub struct Viewer {
     pub touch: bool,
     /// The page's safe-area insets, CSS px: top, right, bottom, left.
     pub insets: [f32; 4],
+    /// The atlas (`?view=atlas`): its pins and what is picked.
+    pub atlas_mode: Option<atlas::AtlasMode>,
 }
 
 impl Viewer {
@@ -247,6 +261,7 @@ impl Viewer {
             level: o.level.clone(),
             touch,
             insets: [0.0; 4],
+            atlas_mode: link::atlas(o).then(atlas::AtlasMode::default),
         }
     }
 
@@ -337,6 +352,18 @@ impl Viewer {
         self.s = nearest_s(track, start_p.pos.x, start_p.pos.z, 0.0);
         self.zone = zone_at(track.road(r0), rs0).to_owned();
         self.dirty = true;
+        if let Some(a) = self.atlas_mode.as_mut() {
+            // The map: the whole network from the south, no fog, the far
+            // plane out.
+            a.pins = atlas::pins();
+            self.orbit = atlas::whole(self);
+            self.mode = Mode::Orbit;
+            self.flight = None;
+            self.fog = false;
+            self.far = true;
+            self.saved = None;
+            self.pose = self.orbit.pose();
+        }
     }
 
     /// The overview of the whole level.
@@ -592,9 +619,95 @@ impl Viewer {
                 self.pick(track, c);
             }
             Act::Home => self.jump(track, track.start_s),
+            Act::Pin(i) => self.fly_to_pin(i),
+            Act::PinStep(d) => {
+                if let Some(a) = &self.atlas_mode {
+                    let n = a.pins.len() as i64;
+                    if n > 0 {
+                        let i = match a.sel {
+                            Some(i) => (i as i64 + i64::from(d)).rem_euclid(n),
+                            None if d < 0 => n - 1,
+                            None => 0,
+                        };
+                        self.fly_to_pin(i as usize);
+                    }
+                }
+            }
+            Act::RunStep(d) => {
+                if let Some(a) = self.atlas_mode.as_mut()
+                    && let Some(n) = a.selected().map(|p| p.runs().count() as i64)
+                    && n > 0
+                {
+                    a.run = (a.run as i64 + i64::from(d)).rem_euclid(n) as usize;
+                }
+            }
+            Act::Run(k) => {
+                if let Some(a) = self.atlas_mode.as_mut() {
+                    a.run = k;
+                    a.go = a.focused_run().cloned();
+                }
+            }
+            Act::Go => {
+                if let Some(a) = self.atlas_mode.as_mut() {
+                    a.go = a.focused_run().cloned();
+                }
+            }
+            Act::Back => match self.atlas_mode.as_ref().map(|a| a.sel.is_some()) {
+                Some(true) => self.fly_to_whole(),
+                _ => {
+                    // The menu as it was: its own level, not the viewer's.
+                    let level = crate::ui::store::platform().string("level", &self.level);
+                    platform::open_menu(&level);
+                }
+            },
+            Act::Whole => self.fly_to_whole(),
         }
         if self.tod.is_some() != pinned {
             self.dirty = true;
+        }
+    }
+
+    /// The atlas: down to a pin, its card up.
+    fn fly_to_pin(&mut self, i: usize) {
+        let Some(a) = self.atlas_mode.as_mut() else {
+            return;
+        };
+        let Some(pin) = a.pins.get(i) else { return };
+        a.sel = Some(i);
+        a.run = 0;
+        self.orbit = atlas::over_pin(pin, self.orbit.yaw);
+        let to = self.orbit.pose();
+        self.fly_to(to, Mode::Orbit, 1.8);
+    }
+
+    /// The atlas: back out to the whole map.
+    fn fly_to_whole(&mut self) {
+        if let Some(a) = self.atlas_mode.as_mut() {
+            a.sel = None;
+            a.run = 0;
+        }
+        self.orbit = atlas::whole(self);
+        let to = self.orbit.pose();
+        self.fly_to(to, Mode::Orbit, 1.6);
+    }
+
+    /// The atlas: a tap on the map picks the pin nearest it, within reach
+    /// of a finger.
+    fn pick_pin(&mut self, at: Vec2) {
+        let Some(a) = &self.atlas_mode else { return };
+        let reach = 30.0 / self.css.max(0.01);
+        let best = a
+            .pins
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| {
+                let (x, y) = cams::project(&self.pose, self.view.0, self.view.1, p.pos)?;
+                let d = (x - f64::from(at.x)).hypot(y - f64::from(at.y));
+                (d < reach).then_some((d, i))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, i)) = best {
+            self.fly_to_pin(i);
         }
     }
 
@@ -790,6 +903,22 @@ impl Viewer {
                 "lon": lon,
             })
         });
+        let atlas_mode = self.atlas_mode.as_ref().map(|a| {
+            let pins: Vec<serde_json::Value> = a
+                .pins
+                .iter()
+                .map(|p| {
+                    let runs: Vec<serde_json::Value> = p
+                        .runs()
+                        .map(|r| serde_json::json!({"level": r.level, "mode": r.mode, "start": r.start}))
+                        .collect();
+                    serde_json::json!({
+                        "id": p.id, "name": p.name, "x": p.pos.x, "y": p.pos.y, "z": p.pos.z, "runs": runs,
+                    })
+                })
+                .collect();
+            serde_json::json!({"pins": pins, "sel": a.selected().map(|p| p.id), "run": a.run})
+        });
         serde_json::json!({
             "ready": self.started && status.ready,
             "level": self.level,
@@ -820,6 +949,7 @@ impl Viewer {
             "shadowDraws": c.shadow_draws,
             "shadowTris": c.shadow_tris,
             "touch": self.touch,
+            "atlasMode": atlas_mode,
         })
     }
 
@@ -1015,7 +1145,15 @@ fn drive(
     }
     let picks = std::mem::take(&mut intent.picks);
     for p in picks {
-        v.pick(track, p);
+        if v.atlas_mode.is_some() {
+            v.pick_pin(p);
+        } else {
+            v.pick(track, p);
+        }
+    }
+    if let Some(run) = v.atlas_mode.as_mut().and_then(|a| a.go.take()) {
+        atlas::save(&run);
+        platform::start_run(&run.query());
     }
     let d = std::mem::take(&mut intent.drive);
     let mut ride_focus = None;
@@ -1042,6 +1180,15 @@ fn drive(
                 v.free.pose.pos += (-p.right() * d.pan.0 + DVec3::Y * d.pan.1) * k;
                 v.free.step(dt, &d);
                 v.free.pose
+            }
+            Mode::Orbit if v.atlas_mode.is_some() => {
+                let max = atlas::dist_max(v);
+                atlas::step(&mut v.orbit, &d, dt, v.view.1, max);
+                // The centre keeps to the ground under it.
+                let c = v.orbit.centre;
+                let g = ground_at(track, c.x, c.z);
+                v.orbit.centre.y += (g - c.y) * (dt * 4.0).min(1.0);
+                v.orbit.pose()
             }
             Mode::Orbit => {
                 // Two fingers pan the centre across the screen.
@@ -1101,15 +1248,33 @@ fn drive(
     }
     // The world's focus is the camera (the game's is the player's car;
     // the ride keeps the fly camera's, `main.js`'s `frame(s - back)`).
-    let focus = ride_focus.unwrap_or(pose.pos);
+    // The atlas streams round the point it looks at (a flight's end
+    // already, so a pin's road comes up while the camera flies there).
+    let focus = if v.atlas_mode.is_some() {
+        v.orbit.centre
+    } else {
+        ride_focus.unwrap_or(pose.pos)
+    };
     cs.focus = focus;
     scene_status.s = s;
     if scene_status.route.is_none() {
         scene_status.route = Some((track.length, track.road_end(), track.is_loop));
     }
-    crate::loader::follow_focus(focus, &mut dome);
+    // The atlas's camera is far out: the sky goes round it.
+    let dome_at = if v.atlas_mode.is_some() {
+        pose.pos
+    } else {
+        focus
+    };
+    crate::loader::follow_focus(dome_at, &mut dome);
     if let Some(sky) = sky_res.sky.as_mut() {
         sky.override_p = v.tod;
+        if let Some(a) = v.atlas_mode.as_mut()
+            && !a.sky_set
+        {
+            sky.set_keys(&atlas::day_keys());
+            a.sky_set = true;
+        }
     }
     let world_dt = if v.anim { dt } else { 0.0 };
     let mut next = lighting.clone();
@@ -1173,10 +1338,28 @@ fn apply_groups(
     }
 }
 
+/// The UI on the camera that draws the view. The shell's screens' camera
+/// (`pk_shell::web`, D1199) stands by, off and later in order, and Bevy
+/// gives the UI to the last camera unless one is named: without this the
+/// panel (and the atlas's UI) laid out but went undrawn on the web.
+fn ui_camera(
+    mut commands: Commands,
+    named: Query<(), With<bevy::ui::IsDefaultUiCamera>>,
+    cams: Query<Entity, (With<Camera3d>, Without<SkyDome>)>,
+) {
+    if !named.is_empty() {
+        return;
+    }
+    if let Some(e) = cams.iter().next() {
+        commands.entity(e).insert(bevy::ui::IsDefaultUiCamera);
+    }
+}
+
 /// Settled for half a second: the link is brought up to date (the
 /// page's address on the web, so the address is always the view).
 fn keep_link(mut v: ResMut<Viewer>, mut last: Local<(Option<Pose>, f64)>) {
-    if !v.started {
+    // The atlas's address stays the atlas's.
+    if !v.started || v.atlas_mode.is_some() {
         return;
     }
     let pose = Some(v.pose);
@@ -1209,8 +1392,24 @@ pub fn plugin(app: &mut App) {
                 crate::ui::widgets::load_fonts,
                 crate::ui::widgets::make_icons,
             ),
-        )
-        .add_systems(
+        );
+    app.add_systems(Update, ui_camera);
+    if link::atlas(&o) {
+        app.init_resource::<atlas::NetLines>().add_systems(
+            Update,
+            (
+                input::gather,
+                drive,
+                atlas::map_layers,
+                atlas::build,
+                atlas::place,
+            )
+                .chain()
+                .after(crate::fly_system)
+                .run_if(in_state(AppState::Running)),
+        );
+    } else {
+        app.add_systems(
             Update,
             (
                 input::gather,
@@ -1225,6 +1424,7 @@ pub fn plugin(app: &mut App) {
                 .after(crate::fly_system)
                 .run_if(in_state(AppState::Running)),
         );
+    }
     stats::plugin(app);
     crate::play::gamepad_io::pads_only(app);
     #[cfg(target_arch = "wasm32")]
@@ -1241,6 +1441,12 @@ mod platform {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub use super::native::{copy_link, open_menu, screenshot, set_address};
+
+    /// The game started on a query (the atlas's runs): the page at that
+    /// address, natively the client again with it.
+    pub fn start_run(q: &str) {
+        super::relaunch(q);
+    }
 }
 
 /// Natively: the screenshot is a file in the working directory, the link
@@ -1299,15 +1505,22 @@ mod native {
 /// `?view=god&level=…`; natively the client started again with that
 /// query, D881).
 pub fn open(level: &str) {
-    let q = format!("view=god&level={}", link::encode(level));
+    relaunch(&format!("view=god&level={}", link::encode(level)));
+}
+
+/// The menu's ATLAS tab: the atlas, on the open world.
+pub fn open_atlas() {
+    relaunch("view=atlas&level=peninsula");
+}
+
+/// The page at `?q` (the page's own parameters kept); natively the client
+/// started again with that query.
+fn relaunch(q: &str) {
     #[cfg(target_arch = "wasm32")]
-    web::navigate(&q);
+    web::navigate(q);
     #[cfg(not(target_arch = "wasm32"))]
     match std::env::current_exe() {
-        Ok(exe) => match std::process::Command::new(exe)
-            .args(["--query", &q])
-            .spawn()
-        {
+        Ok(exe) => match std::process::Command::new(exe).args(["--query", q]).spawn() {
             Ok(_) => std::process::exit(0),
             Err(e) => warn!("viewer: {e}"),
         },

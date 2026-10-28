@@ -121,6 +121,11 @@ pub fn levels() -> Vec<Level> {
     ]
 }
 
+/// The open world's levels, which the menu offers through the atlas
+/// (`?view=atlas`: the peninsula in 3D, each start a pin) rather than as
+/// tabs of their own.
+pub const ATLAS_LEVELS: [&str; 2] = ["southcoast", "peninsula"];
+
 /// The level with this id, or the first (`levelById`).
 pub fn level_by_id(id: &str) -> Level {
     let mut all = levels();

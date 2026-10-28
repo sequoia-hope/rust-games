@@ -204,9 +204,10 @@ impl Options {
             )
     }
 
-    /// The level viewer (`?view=god`, SPEC 8.6): never a race.
+    /// The level viewer (`?view=god`, SPEC 8.6), or the atlas built on it
+    /// (`?view=atlas`): never a race.
     pub fn viewer(&self) -> bool {
-        self.param("view") == Some("god")
+        matches!(self.param("view"), Some("god" | "atlas"))
     }
 
     /// Whether this is a race (`play`, roadmap M4): `?race=1|0`, else a

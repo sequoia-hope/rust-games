@@ -23,6 +23,8 @@
 //! - **Touch:** one finger looks, orbits or drags the map, two pinch to
 //!   zoom and pan; the stick bottom left moves, the ▲ ▼ buttons bottom
 //!   right rise and sink; a tap on the overview flies there.
+//! - **The atlas** (`super::atlas`) reads them as a map: see its controls
+//!   there.
 
 use super::cams::{Drive, FOV_Y_DEG};
 use super::link::Mode;
@@ -173,6 +175,8 @@ pub fn gather(
     let (mut key_events, mut touches, mut buttons, mut cursor, mut wheel, mut motion) = msgs;
     let mut d = Drive::default();
     let mode = v.mode;
+    let atlas = v.atlas_mode.is_some();
+    let frame_dt = v.frame_ms.clamp(1.0, 50.0) / 1000.0;
     let view_h = v.view.1.max(1.0);
     // Radians per logical px of drag: the screen's height turns the view
     // by its field of view.
@@ -209,8 +213,32 @@ pub fn gather(
             KeyCode::ControlRight,
         ],
     );
+    if atlas {
+        // Q and E turn the map, R and F tilt it, + and − (Z, X) zoom.
+        let turn = axis(&[KeyCode::KeyQ], &[KeyCode::KeyE]);
+        let tilt = axis(&[KeyCode::KeyR], &[KeyCode::KeyF]);
+        d.look.0 += turn * 1.2 * frame_dt;
+        d.look.1 += tilt * 0.8 * frame_dt;
+        d.up = axis(
+            &[KeyCode::Equal, KeyCode::NumpadAdd, KeyCode::KeyZ],
+            &[KeyCode::Minus, KeyCode::NumpadSubtract, KeyCode::KeyX],
+        );
+    }
     for e in key_events.read() {
         if e.state != ButtonState::Pressed || e.repeat {
+            continue;
+        }
+        if atlas {
+            let a = match e.key_code {
+                KeyCode::Tab => Some(Act::PinStep(if shift { -1 } else { 1 })),
+                KeyCode::BracketLeft => Some(Act::RunStep(-1)),
+                KeyCode::BracketRight => Some(Act::RunStep(1)),
+                KeyCode::Enter | KeyCode::NumpadEnter => Some(Act::Go),
+                KeyCode::Escape => Some(Act::Back),
+                KeyCode::Home => Some(Act::Whole),
+                _ => None,
+            };
+            intent.acts.extend(a);
             continue;
         }
         let a = match e.key_code {
@@ -262,11 +290,15 @@ pub fn gather(
     }
 
     // ── Pointers ──────────────────────────────────────────────────────
-    let panel_rect = area
+    let panel_rects: Vec<Rect> = area
         .iter()
-        .find(|(_, _, vis)| vis.get())
-        .map(|(n, t, _)| rect(n, t));
-    let on_panel = |p: Vec2| panel_rect.is_some_and(|r| r.contains(p));
+        .filter(|(_, _, vis)| vis.get())
+        .map(|(n, t, _)| rect(n, t))
+        .collect();
+    // In the atlas a pin is a control too, off the panels.
+    let on_panel = |p: Vec2| {
+        panel_rects.iter().any(|r| r.contains(p)) || (atlas && hit_control(&controls, p).is_some())
+    };
     let to_px = v.ptr as f32;
     let mut events: Vec<(u64, TouchPhase, Vec2)> = Vec::new();
     for t in touches.read() {
@@ -410,6 +442,18 @@ pub fn gather(
                             continue;
                         }
                         let right = id == MOUSE_RIGHT;
+                        if atlas {
+                            // One finger or the left button drags the map,
+                            // the right button turns and tilts it.
+                            if right {
+                                d.look.0 -= dx * k * 2.0;
+                                d.look.1 -= dy * k * 2.0;
+                            } else {
+                                d.pan.0 += dx;
+                                d.pan.1 += dy;
+                            }
+                            continue;
+                        }
                         match mode {
                             Mode::Free | Mode::Ride => {
                                 if touch {
@@ -458,7 +502,10 @@ pub fn gather(
                     }
                     Role::View {
                         moved: false, t0, ..
-                    } if id != MOUSE_RIGHT && now - t0 < 0.6 && mode == Mode::Overview => {
+                    } if id != MOUSE_RIGHT
+                        && now - t0 < 0.6
+                        && (mode == Mode::Overview || atlas) =>
+                    {
                         intent.picks.push(p);
                     }
                     _ => {}
@@ -522,7 +569,7 @@ pub fn gather(
                 .get(i)
                 .map_or(0.0, |b| b.value.max(f64::from(u8::from(b.pressed))))
         };
-        let dt = v.frame_ms.clamp(1.0, 50.0) / 1000.0;
+        let dt = frame_dt;
         d.right += ax(0);
         d.fwd -= ax(1);
         let (lx, ly) = (ax(2), ax(3));
@@ -544,6 +591,26 @@ pub fn gather(
                 && !ptr.pad_prev.get(i).copied().unwrap_or(false)
         };
         let mut acts = Vec::new();
+        if atlas {
+            for (b, a) in [
+                (0, Act::Go),
+                (1, Act::Back),
+                (3, Act::Whole),
+                (14, Act::PinStep(-1)),
+                (15, Act::PinStep(1)),
+                (12, Act::RunStep(-1)),
+                (13, Act::RunStep(1)),
+            ] {
+                if edge(b) {
+                    acts.push(a);
+                }
+            }
+            d.zoom += (btn(5) - btn(4)) * 1.5 * dt;
+            intent.acts.extend(acts);
+            ptr.pad_prev = pressed;
+            intent.drive = d;
+            return;
+        }
         if edge(3) {
             acts.push(Act::NextMode);
         }
