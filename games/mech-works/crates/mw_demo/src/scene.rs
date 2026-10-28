@@ -31,6 +31,9 @@ pub const LEVEL_SUN_DIR: Vec3 = Vec3::new(-0.4, 0.82, -0.42);
 /// view the hull no longer shows, and the shade must still read).
 const AMBIENT: f32 = 280.0;
 const LEVEL_AMBIENT: f32 = 520.0;
+/// WebGL2 draws one directional light (Bevy's limit there), so the sun is the
+/// only one spawned and the sky and ground fills come back as ambient light.
+const WEBGL2_FILL_AMBIENT: f32 = if cfg!(pk_webgl2) { 750.0 } else { 0.0 };
 
 /// The ground's side, m.
 pub const GROUND: f32 = 400.0;
@@ -105,7 +108,7 @@ fn spawn(
     mut ambient: ResMut<GlobalAmbientLight>,
 ) {
     ambient.color = Color::srgb(0.74, 0.79, 0.88);
-    ambient.brightness = AMBIENT;
+    ambient.brightness = AMBIENT + WEBGL2_FILL_AMBIENT;
 
     // 1. Strong warm sun with cascaded soft shadows.
     commands.spawn((
@@ -127,30 +130,34 @@ fn spawn(
         Transform::from_translation(SUN_DIR * 100.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // 2. Cool sky hemisphere fill from opposite the sun.
-    commands.spawn((
-        SkyFill,
-        DirectionalLight {
-            color: Color::srgb(0.68, 0.78, 0.96),
-            illuminance: 3_600.0,
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::from_translation(Vec3::new(-SUN_DIR.x, 0.55, -SUN_DIR.z))
-            .looking_at(Vec3::ZERO, Vec3::Y),
-    ));
+    // The fills (2, 3) need more directional lights than WebGL2 has: there
+    // they are folded into the ambient light.
+    if !cfg!(pk_webgl2) {
+        // 2. Cool sky hemisphere fill from opposite the sun.
+        commands.spawn((
+            SkyFill,
+            DirectionalLight {
+                color: Color::srgb(0.68, 0.78, 0.96),
+                illuminance: 3_600.0,
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(-SUN_DIR.x, 0.55, -SUN_DIR.z))
+                .looking_at(Vec3::ZERO, Vec3::Y),
+        ));
 
-    // 3. Warm gravel ground-bounce fill from below so under-chassis and inner-leg
-    // pistons read clearly without crushing to black.
-    commands.spawn((
-        DirectionalLight {
-            color: Color::srgb(0.62, 0.53, 0.42),
-            illuminance: 1_350.0,
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(0.0, -10.0, 0.0).looking_at(Vec3::ZERO, Vec3::X),
-    ));
+        // 3. Warm gravel ground-bounce fill from below so under-chassis and inner-leg
+        // pistons read clearly without crushing to black.
+        commands.spawn((
+            DirectionalLight {
+                color: Color::srgb(0.62, 0.53, 0.42),
+                illuminance: 1_350.0,
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::from_xyz(0.0, -10.0, 0.0).looking_at(Vec3::ZERO, Vec3::X),
+        ));
+    }
 
     // 4. High-detail gravel lot texture with subtle 1 m / 10 m range grid.
     let tex = images.add(gravel_texture(512));
@@ -356,7 +363,7 @@ fn follow_sun_and_gravel(
         *t = Transform::from_translation(Vec3::new(-dir.x, 0.55, -dir.z))
             .looking_at(Vec3::ZERO, Vec3::Y);
     }
-    let brightness = if level { LEVEL_AMBIENT } else { AMBIENT };
+    let brightness = (if level { LEVEL_AMBIENT } else { AMBIENT }) + WEBGL2_FILL_AMBIENT;
     if ambient.brightness != brightness {
         ambient.brightness = brightness;
     }
