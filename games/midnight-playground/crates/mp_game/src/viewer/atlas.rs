@@ -28,12 +28,15 @@
 use super::cams::{self, Orbit, Pose};
 use super::panel::{PanelArea, VControl, bp};
 use super::{Act, Viewer};
+use crate::render::SharedImages;
+use crate::render::material::{Model, ThreeBindings, ThreeKey, ThreeMaterial, ThreeParams};
 use crate::status::Status;
 use crate::ui::widgets::{self as w, Bp, T};
 use bevy::math::DVec3;
 use bevy::prelude::*;
 use bevy::text::TextLayout;
 use bevy::ui::{UiTransform, Val2};
+use mp_scene::three;
 use mp_track::Track;
 
 /// Starts closer than this (m) share a pin.
@@ -111,8 +114,9 @@ fn at(track: &Track, road: &str, s: f64) -> Option<DVec3> {
 
 /// The pins of the atlas's levels: every cruise start, in each level's
 /// order, then each level's race start; a start within [`MERGE`] of a pin
-/// joins it.
-pub fn pins() -> Vec<Pin> {
+/// joins it. `known` is a level's track already built (the viewer's), so
+/// it is not built twice.
+pub fn pins(known: Option<&Track>) -> Vec<Pin> {
     let mut pins: Vec<Pin> = Vec::new();
     let place = |pins: &mut Vec<Pin>, pos: DVec3, new: Pin, title, run: Run| {
         let near = pins.iter_mut().find(|p| {
@@ -132,13 +136,22 @@ pub fn pins() -> Vec<Pin> {
         .iter()
         .map(|id| mp_levels::level_by_id(id))
         .collect();
-    let tracks: Vec<_> = levels
+    let mine = |l: &mp_track::Level| known.filter(|k| k.level.id == l.id);
+    let built: Vec<Option<Track>> = levels
         .iter()
         .map(|l| {
+            if mine(l).is_some() {
+                return None;
+            }
             Track::new(l)
                 .map_err(|e| warn!("atlas: {}: {e}", l.id))
                 .ok()
         })
+        .collect();
+    let tracks: Vec<Option<&Track>> = levels
+        .iter()
+        .zip(&built)
+        .map(|(l, b)| b.as_ref().or(mine(l)))
         .collect();
     for (l, t) in levels.iter().zip(&tracks) {
         let Some(t) = t else { continue };
@@ -364,14 +377,35 @@ fn cover_rgb(c: u8) -> [f32; 3] {
     [c.red, c.green, c.blue]
 }
 
-fn unlit(materials: &mut Assets<StandardMaterial>) -> Handle<StandardMaterial> {
-    materials.add(StandardMaterial {
-        base_color: Color::WHITE,
-        unlit: true,
-        fog_enabled: false,
-        cull_mode: None,
-        ..default()
-    })
+/// The layers' material: the game's own (`ThreeMaterial`), unlit, its
+/// vertex colours as they are, both sides. Not Bevy's `StandardMaterial`,
+/// which nothing else in the game draws with: its shader is far bigger,
+/// and Safari on a phone had never been asked to compile it.
+fn unlit(materials: &mut Assets<ThreeMaterial>, shared: &SharedImages) -> Handle<ThreeMaterial> {
+    materials.add(ThreeMaterial::new(ThreeBindings {
+        params: ThreeParams {
+            diffuse: Vec4::ONE,
+            ..ThreeParams::default()
+        },
+        map: None,
+        emissive_map: None,
+        detail: None,
+        aux: None,
+        photo: None,
+        loose: None,
+        env: shared.env.clone(),
+        key: ThreeKey {
+            model: Model::Basic,
+            fog: false,
+            opaque: true,
+            side: three::DOUBLE_SIDE,
+            shadow_side: three::DOUBLE_SIDE,
+            blending: three::NO_BLENDING,
+            depth_write: true,
+            depth_test: true,
+            ..ThreeKey::default()
+        },
+    }))
 }
 
 /// The underlay's mesh: a grid over `b` (min x, max x, min z, max z).
@@ -501,7 +535,8 @@ pub fn map_layers(
     status: Res<Status>,
     mut net: ResMut<NetLines>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<ThreeMaterial>>,
+    shared: Res<SharedImages>,
     under: Query<(), With<Underlay>>,
     mut roads: Query<(Entity, &RoadLines, &mut Visibility)>,
 ) {
@@ -515,7 +550,7 @@ pub fn map_layers(
         if let Some(mesh) = underlay_mesh(track, [b[0] - m, b[1] + m, b[2] - m, b[3] + m]) {
             commands.spawn((
                 Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(unlit(&mut materials)),
+                MeshMaterial3d(unlit(&mut materials, &shared)),
                 Transform::IDENTITY,
                 bevy::light::NotShadowCaster,
                 Underlay,
@@ -548,7 +583,7 @@ pub fn map_layers(
     if !have && !near {
         commands.spawn((
             Mesh3d(meshes.add(lines_mesh(track, lines, dist))),
-            MeshMaterial3d(unlit(&mut materials)),
+            MeshMaterial3d(unlit(&mut materials, &shared)),
             Transform::IDENTITY,
             bevy::light::NotShadowCaster,
             RoadLines(dist),
@@ -966,7 +1001,7 @@ mod tests {
 
     #[test]
     fn every_start_of_the_open_world_is_a_pin() {
-        let pins = pins();
+        let pins = pins(None);
         let ids: Vec<_> = pins.iter().map(|p| p.id).collect();
         // The peninsula's cruise starts, its first the crest.
         let pen = mp_levels::level_by_id("peninsula");
@@ -1012,10 +1047,16 @@ mod tests {
     }
 
     #[test]
+    fn the_viewers_track_gives_the_same_pins() {
+        let t = Track::new(&mp_levels::level_by_id("peninsula")).unwrap();
+        assert_eq!(pins(Some(&t)), pins(None));
+    }
+
+    #[test]
     fn a_run_is_what_the_menu_would_start() {
         // The game reads the level, its mode and its start from the store
         // (`ui::plugin`); the address only names the level and races.
-        for p in pins() {
+        for p in pins(None) {
             for r in p.runs() {
                 let l = mp_levels::level_by_id(r.level);
                 assert_eq!(l.id, r.level);
