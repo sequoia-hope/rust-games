@@ -12325,3 +12325,53 @@ starts, 10 events), plus live atlas readout in the level viewer.
   `peninsula`), reporting `[lat, lon]` and nearest road `id @ s/len km` in
   the HUD readout and `--report` JSON, and drawing every branch polyline and
   pill in Overview.
+
+## D1254 (2026-10-27): the atlas, the open world's levels behind one menu tab
+
+The owner asked for an atlas mode beside the original levels: one tab that
+takes in both open-world starts (Midnight on the Coast, The Loop), shows the
+full atlas in 3D, and lets the player click a start. They chose the real
+world over a stylised relief map, and that South Coast and The Loop leave the
+menu's tabs.
+
+- **Where it lives.** `?view=atlas&level=peninsula` is the level viewer
+  (D679, `viewer`) with its own camera and UI (`viewer::atlas`), not a menu
+  screen: the menu draws section previews and cannot stream an open level
+  (`stream::streamed` is off while `preview::active`), and the viewer already
+  builds the streamed level whole, flies cameras and projects points. The
+  menu's ATLAS tab (`ui::Act::Atlas`) opens it as the Level viewer button
+  opens god mode: the page at that address, natively the client again.
+- **The menu.** `mp_levels::ATLAS_LEVELS` (`southcoast`, `peninsula`) are
+  left out of the tabs; one tab, THE PENINSULA / Atlas, stands for them and
+  is the selected one while the saved level is one of them, so the card still
+  races the last one at once. `mp_levels::levels()` is unchanged (the lobby,
+  the viewer, the tests).
+- **Pins.** Every cruise start of the atlas's levels, then each one's race
+  start, a start within 400 m of a pin joining it (`atlas::pins`): eight pins
+  today, the crest above San Gregorio carrying both races (Midnight on the
+  Coast: Race, Hot Pursuit, Cruise; The Loop: Race, Cruise) and the other
+  seven a cruise of the peninsula from there. Positions are read as
+  `Track::chosen_start` reads a start, so a pin is where the car begins.
+- **A run** is saved where the menu keeps its choices (`level`,
+  `mode.<level>`, `start.<level>`) and the game opened on
+  `?level=<id>&race=1`, which reads them as a race from the menu does; the
+  menu after it has them too.
+- **Seeing the real world whole.** The base leaves every road's corridor to
+  its sections, so from above the network was holes. The stream's ring now
+  follows the camera's focus in the viewer (`stream::drive`; it followed only
+  the car or the start, so god mode never streamed past the start either);
+  the atlas's focus is the orbit's centre, so a pin's sections come up while
+  the camera flies there. Far out, an underlay fills the corridors: the
+  level's ground over the network's box at about 130 m, coloured by land
+  cover, sun-shaded, 20 m under the base; and the roads are ribbons of the
+  thinned network (`play::atlas::field::network_lines`) a few pixels wide,
+  rebuilt as the zoom changes by half again and hidden below 2.5 km. Both are
+  unlit `StandardMaterial` meshes.
+- **Light.** The peninsula is night the whole way round; the atlas swaps
+  in Sierra's late-afternoon key (`atlas::day_keys`, `SkyState::set_keys`),
+  with fog off and the far plane out, and the sky dome goes round the camera
+  rather than the focus (the camera is tens of kilometres out).
+- **The viewer's UI camera.** The shell's screens' camera (D1199) is off
+  and later in order, and Bevy gives the UI to the last camera unless one is
+  marked: on the web the viewer's panel laid out but was never drawn. The
+  viewer marks its 3D camera `IsDefaultUiCamera` (`viewer::ui_camera`).

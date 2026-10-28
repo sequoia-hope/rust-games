@@ -277,9 +277,16 @@ pub fn menu(
         place(&bp, &mut n, (1, 2), (2, 1));
         p.spawn((n, Control::named("level-pick", Value::None)))
             .with_children(|p| {
-                for l in mp_levels::levels() {
-                    let sel = l.id == s.level;
-                    let id = format!("lvl-tab-{}", l.id);
+                // The open world's levels are the atlas's pins, behind one
+                // tab of its own, last.
+                let atlas_sel = mp_levels::ATLAS_LEVELS.contains(&s.level.as_str());
+                let tabs = mp_levels::levels()
+                    .into_iter()
+                    .filter(|l| !mp_levels::ATLAS_LEVELS.contains(&l.id))
+                    .map(|l| (l.id, l.num, l.title, l.id == s.level, Act::Level(l.id)))
+                    .chain([("atlas", "THE PENINSULA", "Atlas", atlas_sel, Act::Atlas)]);
+                for (lid, num, title, sel, act) in tabs {
+                    let id = format!("lvl-tab-{lid}");
                     let focused = cx.f(&id);
                     let mut e = p.spawn((
                         Node {
@@ -298,9 +305,9 @@ pub fn menu(
                         },
                         BackgroundColor(w::white(0.05)),
                         BorderColor::all(if sel { w::accent() } else { w::white(0.12) }),
-                        Control::act(id, Act::Level(l.id))
+                        Control::act(id, act)
                             .sel(sel)
-                            .value(Value::Text(format!("{}{}", l.num, l.title))),
+                            .value(Value::Text(format!("{num}{title}"))),
                     ));
                     if sel {
                         e.insert(w::sel_ring(&bp));
@@ -308,7 +315,7 @@ pub fn menu(
                     w::focus_ring(&mut e, &bp, focused);
                     e.with_children(|p| {
                         p.spawn(w::text(
-                            l.num,
+                            num,
                             T::new(if bp.compact { 9.0 } else { 11.0 })
                                 .bold()
                                 .ls(0.3)
@@ -316,7 +323,7 @@ pub fn menu(
                             bp.k,
                         ));
                         p.spawn(w::text(
-                            l.title,
+                            title,
                             T::new(if bp.compact { 14.0 } else { 17.0 }).bold(),
                             bp.k,
                         ));

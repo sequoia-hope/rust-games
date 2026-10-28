@@ -86,6 +86,7 @@ and carry on with the option that best preserves parity.
 | Drive the web client round the loop with the keyboard | `node tools/parity/drive-branch.mjs --level peninsula [--phone] [--secs 900]` |
 | A long drive through the open world: frame times, memory and what the world holds (`__mp.census`) per 30 s window, each long frame with the stream's work round it (D1252; `--capped` as a player sees it, `--menu`, `--throttle`, `--prof`, `--trace`) | `node tools/parity/long-drive.mjs --road el-camino --secs 600 --capped` |
 | A cruise of the open world from each of its starts, driven along its road, with pictures and frame times (stage 6) | `node tools/parity/cruise-shots.mjs [--starts redwood-city,lombard] [--backend webgl2] [--dist next]` |
+| The atlas (the menu's ATLAS tab): the open world in 3D, its starts as pins (D1254) | the page at `?view=atlas&level=peninsula`; natively `cargo run -p mp_game -- --query "view=atlas&level=peninsula"` |
 | A streamed level's plan and sections, timed and sized natively (`AT=x,z;x,z` for the squares under points) | `cargo run --release -p mp_worldgen --example stream_cost -- peninsula [N]` |
 | Drive the web client along the open world's roads with the keyboard, watching for a hang (console, ticks, frame time) | `node tools/parity/drive-branch.mjs [--phone] [--query "touch=1&assist=2&physics=player"]` |
 | The police radio's script (every clip, for `tools/radio-voice/render.py`) | `cargo run -p mp_audio --example radio_lines` |

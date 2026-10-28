@@ -380,6 +380,8 @@ pub fn drive(
     }
     let t_drive = Instant::now();
     let work = &mut *work;
+    // The level viewer (and the atlas) stream round the camera's focus.
+    let focus = o.viewer().then_some(cs.focus);
     drive_inner(
         &mut commands,
         &mut st,
@@ -387,11 +389,12 @@ pub fn drive(
         o,
         &state,
         play.as_deref(),
+        focus,
         (&mut meshes, &mut materials, &mut sky_materials, &mut images),
         work,
     );
     work.stream_ms += t_drive.elapsed().as_secs_f32() * 1e3;
-    let _ = (&cs, &status);
+    let _ = &status;
 }
 
 type StreamAssets<'a> = (
@@ -409,6 +412,7 @@ fn drive_inner(
     o: &crate::options::Options,
     state: &State<AppState>,
     play: Option<&crate::play::Play>,
+    focus: Option<DVec3>,
     (meshes, materials, sky_materials, images): StreamAssets,
     work: &mut FrameWork,
 ) {
@@ -559,11 +563,12 @@ fn drive_inner(
         }
         st.players.first().map(|pl| (pl.v.x, pl.v.z))
     });
-    let under = match car {
-        Some((x, z)) => p.section_under(x, z),
-        None => Some(p.section_at(p.track.start_s)),
+    let under = match (car, focus) {
+        (Some((x, z)), _) => p.section_under(x, z),
+        // Off the network the ring stays where it was.
+        (None, Some(f)) => section_under(&p, f),
+        (None, None) => Some(p.section_at(p.track.start_s)),
     };
-    let _ = section_under;
     if let Some(k) = under {
         if st.at != Some(k) {
             info!(

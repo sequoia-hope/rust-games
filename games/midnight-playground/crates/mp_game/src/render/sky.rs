@@ -148,6 +148,12 @@ impl SkyState {
         }
     }
 
+    /// Other keys than the level's (the atlas's daylight over a level
+    /// that is night throughout).
+    pub fn set_keys(&mut self, keys: &[mp_track::SkyKey]) {
+        self.keys = keys.iter().map(Key::from).collect();
+    }
+
     /// With the track's zones, for their fog.
     pub fn with_zones(mut self, track: &mp_track::Track) -> SkyState {
         self.zones = track.zones.clone();

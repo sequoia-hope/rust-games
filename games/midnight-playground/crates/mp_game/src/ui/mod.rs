@@ -133,6 +133,9 @@ pub enum Act {
     MusicLink,
     /// The level viewer on the chosen level (SPEC 8.6).
     Viewer,
+    /// The atlas: the open world in 3D, its starts as pins
+    /// (`viewer::atlas`).
+    Atlas,
     PadSetup,
     /// The Settings screen, from the menu or the pause screen (D1196),
     /// and its Done.
@@ -1312,6 +1315,7 @@ fn activate(ui: &mut UiState, ctx: &mut ActCtx, controls: &ControlQuery, act: Ac
     if matches!(
         act,
         Act::Level(_)
+            | Act::Atlas
             | Act::Car(_)
             | Act::Mode(_)
             | Act::StartAt(_)
@@ -1487,6 +1491,11 @@ fn activate(ui: &mut UiState, ctx: &mut ActCtx, controls: &ControlQuery, act: Ac
         Act::Viewer => {
             if ui.screen == Screen::Menu && !busy {
                 crate::viewer::open(&ui.settings.level);
+            }
+        }
+        Act::Atlas => {
+            if ui.screen == Screen::Menu && !busy {
+                crate::viewer::open_atlas();
             }
         }
         Act::Settings => {
