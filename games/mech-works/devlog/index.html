@@ -27,6 +27,16 @@
 <h1>MECH WORKS</h1>
 <p class="sub">Dev log: what was built, what was found, what is next. Newest first. Spec: <code>docs/SPEC.md</code>.</p>
 
+<article id="2026-10-27-webgl2-light">
+<h2>WebGL2 was dark: one directional light</h2>
+<time>2026-10-27</time>
+<p>In a browser without WebGPU every mode was close to black: the ground, the rocks, the mech. Bevy draws one directional light on WebGL2 (it logs &ldquo;the amount of directional lights of 3 is exceeding the supported limit of 1&rdquo;), and the scene had three: the sun, the sky fill and the ground bounce. The one kept was not the sun, so lit faces got only the ambient term. The earlier &ldquo;too dark&rdquo; fix was judged from native pictures, which draw all three, so it never showed there.</p>
+<p>On WebGL2 the sun is now the only directional light, and the two fills come back as ambient light (<code>scene::WEBGL2_FILL_AMBIENT</code>, +750). WebGPU and native are unchanged. Pictures from now on are taken in WebGL2 too, not only natively.</p>
+<img src="img/2026-10-27-webgl2-before.jpg" alt="Before: the level in WebGL2, near black">
+<img src="img/2026-10-27-webgl2-after.jpg" alt="After: the level in WebGL2, lit by the sun">
+<p class="cap">The level's start in WebGL2, before and after.</p>
+</article>
+
 <article id="2026-10-27-teacher-v4">
 <h2>teacher-v4: it turns when asked, and walks at 1.9 m/s</h2>
 <time>2026-10-27</time>
