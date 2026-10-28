@@ -355,7 +355,7 @@ impl Viewer {
         if let Some(a) = self.atlas_mode.as_mut() {
             // The map: the whole network from the south, no fog, the far
             // plane out.
-            a.pins = atlas::pins();
+            a.pins = atlas::pins(Some(track));
             self.orbit = atlas::whole(self);
             self.mode = Mode::Orbit;
             self.flight = None;
