@@ -46,7 +46,7 @@ const DRUM_PAD_LANES = [
 
 const CLASSIC_TO_PROFILE = {
   house: 'chicago', techno: 'detroit', trance: 'uplifting', eurobeat: 'outrun',
-  psytrance: 'acid', dnb: 'liquid', garage: 'deep', chicha: 'synthwave', country: 'orchestral',
+  psytrance: 'acid', dnb: 'liquid', garage: 'deep', chicha: 'acoustic', country: 'acoustic',
 };
 
 // ── 3×5 Pixel Font for the 16×8 RGB LED Matrix HUD Overlay ──

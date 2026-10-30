@@ -1,5 +1,5 @@
 [
   {"key": "ten-eighty", "name": "Ten-Eighty FM", "freq": "108.0", "dj": "dani-wren",
-   "genres": [["dnb", 0.25], ["techno", 0.2], ["eurobeat", 0.2], ["trance", 0.15], ["garage", 0.1], ["house", 0.1]],
+   "genres": [["liquid", 0.16], ["dnb", 0.12], ["outrun", 0.14], ["synthwave", 0.12], ["uplifting", 0.1], ["french", 0.08], ["detroit", 0.06], ["acid", 0.06], ["dubstep", 0.04], ["eurobeat", 0.04], ["techno", 0.04], ["garage", 0.04]],
    "seed": 1080}
 ]
