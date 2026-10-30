@@ -103,6 +103,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
   display: grid;
   grid-template-rows: 38px 1fr 68px;
+  grid-template-columns: minmax(0, 1fr); /* the screen's width, whatever the top bar holds */
   gap: 6px;
   background:
     radial-gradient(circle at 50% 0%, rgba(58,168,255,0.07), transparent 55%),
@@ -119,7 +120,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   padding: 3px 8px;
 }
 #hw .brand {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 6px; flex: none;
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
   color: var(--silk);
   white-space: nowrap;
@@ -131,14 +132,23 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   display: inline-block;
 }
 #hw .brand b { color: var(--silk-hi); }
+/* A live readout is as wide as the widest value it can show (data-widest, one
+   value per line), so a value changing never moves anything around it. */
+#hw [data-widest] { display: inline-block; text-align: center; font-variant-numeric: tabular-nums; }
+#hw [data-widest]::after {
+  content: attr(data-widest); display: block; height: 0; overflow: hidden;
+  visibility: hidden; white-space: pre;
+}
 #hw .brand .chip {
   font-size: 9px; padding: 1px 5px; border-radius: 4px;
   background: #1d2432; color: var(--cyan); border: 1px solid #2e3b52;
 }
 #hw .top-controls {
   display: flex; align-items: center; gap: 5px; flex-wrap: nowrap;
-  overflow-x: auto;
+  overflow-x: auto; min-width: 0;
 }
+#hw #seedVal { text-align: left; }
+#hw #genreSel { flex: 0 1 auto; min-width: 96px; } /* gives way first when the bar is short */
 #hw .hw-btn, #hw .hw-sel {
   background: linear-gradient(180deg, #252b39 0%, #191e28 100%);
   color: var(--silk-hi);
@@ -191,10 +201,13 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   border-bottom: 1px solid #252b38;
   padding-bottom: 3px; margin-bottom: 4px;
   text-transform: uppercase;
+  gap: 6px; white-space: nowrap;
 }
+#hw .mod-head > span:first-child { flex: none; }
 #hw .mod-head span.badge {
   color: var(--amber); font-weight: 600; letter-spacing: 0.03em; text-transform: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 145px;
+  min-width: 0; text-align: right;
 }
 #hw .matrix-wrap {
   flex: 1;
@@ -229,7 +242,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
 }
 #hw .switch-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 3px;
   margin-bottom: 4px;
 }
@@ -245,7 +258,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   box-shadow: 0 0 6px rgba(58,168,255,0.35);
 }
 #hw .toggle-strip {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px;
   margin-bottom: 4px;
 }
 #hw .tog-btn {
@@ -253,6 +266,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   border: 1px solid #2a3242; border-radius: 4px;
   padding: 3px 4px; font: inherit; font-size: 9px; font-weight: 700;
   cursor: pointer; text-align: center; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
 }
 #hw .tog-btn b { color: var(--silk-hi); }
 #hw .tog-btn.on {
@@ -261,13 +275,13 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
 }
 #hw .knob-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px 4px;
   flex: 1;
   align-items: center;
 }
 #hw .knob-grid.four {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 #hw .knob-cell {
   display: flex; flex-direction: column; align-items: center;
@@ -276,6 +290,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   border: 1px solid #222836;
   border-radius: 6px;
   padding: 3px 2px;
+  min-width: 0;
   cursor: ns-resize;
   position: relative;
 }
@@ -295,11 +310,11 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
 #hw .knob-val {
   font-size: 9px; font-weight: 600; color: var(--silk-hi);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 #hw .bottombar {
   display: grid;
-  grid-template-columns: 1.15fr 1fr;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   gap: 6px;
   min-height: 0;
 }
@@ -314,7 +329,8 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   display: flex; align-items: center; justify-content: space-between;
   font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--silk);
 }
-#hw .bank-head .mini-btns { display: flex; gap: 3px; }
+#hw .bank-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#hw .bank-head .mini-btns { display: flex; gap: 3px; flex: none; }
 #hw .bank-head .mini-btns button {
   background: #12151e; color: var(--silk); border: 1px solid #2b3344;
   border-radius: 3px; padding: 1px 5px; font: inherit; font-size: 8.5px; font-weight: 700; cursor: pointer;
@@ -324,13 +340,13 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
 }
 #hw .role-grid, #hw .jam-grid {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 4px;
   flex: 1;
   margin-top: 3px;
 }
 #hw .role-pad, #hw .jam-pad {
-  position: relative;
+  position: relative; min-width: 0;
   background: linear-gradient(180deg, #232938 0%, #161a24 100%);
   border: 1px solid #353f54;
   border-radius: 5px;
@@ -552,15 +568,15 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
       <i class="screw"></i>
       <a id="backLab" href="index.html" class="hw-btn" title="Return to Music Lab player without interrupting audio">← LAB</a>
       <b>RP2350 GROOVEBOX</b>
-      <span class="chip" id="cpuChip">DSP 0%</span>
+      <span class="chip" id="cpuChip" data-widest="DSP 000%">DSP 0%</span>
     </div>
     <div class="top-controls">
       <select id="genreSel" class="hw-sel" aria-label="Genre Preset"></select>
-      <button id="seedBtn" class="hw-btn" title="Current seed (tap to enter)">SEED <span id="seedVal">1</span></button>
+      <button id="seedBtn" class="hw-btn" title="Current seed (tap to enter)">SEED <span id="seedVal" data-widest="00000">1</span></button>
       <button id="diceBtn" class="hw-btn" title="Roll new seed">🎲 DICE</button>
       <button id="resetDnaBtn" class="hw-btn" title="Reset knobs to genre profile defaults">↺ PROFILE</button>
       <button id="loopBtn" class="hw-btn amber" title="Loop current 4-bar phrase">🔁 LOOP 4B</button>
-      <button id="playBtn" class="hw-btn ok">▶ PLAY</button>
+      <button id="playBtn" class="hw-btn ok"><span id="playLbl" data-widest="▶ PLAY&#10;■ STOP">▶ PLAY</span></button>
       <button id="fsBtn" class="hw-btn" title="Full Screen">⛶</button>
     </div>
   </header>
@@ -571,7 +587,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
     <section class="module">
       <div class="mod-head">
         <span>1 · GENRE DNA & GROOVE</span>
-        <span class="badge" id="dnaBadge">Profile Default</span>
+        <span class="badge" id="dnaBadge">Profile</span>
       </div>
 
       <!-- 8 Bass Style Pills -->
@@ -592,7 +608,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
     <section class="module" style="padding:5px 6px">
       <div class="mod-head">
         <span>16×8 RGB PIXEL MATRIX</span>
-        <span class="badge" id="posBadge">BAR 1 · STEP 1</span>
+        <span class="badge" id="posBadge" data-widest="BREAKDOWN · BAR 000 · 00">INTRO · BAR 1 · 1</span>
       </div>
       <div class="matrix-wrap">
         <canvas id="ledMatrix" width="640" height="300"></canvas>
@@ -611,7 +627,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
     <section class="module">
       <div class="mod-head">
         <span>2 · ERA & BUS PHYSICS</span>
-        <span class="badge" id="grBadge">GLUE 0.0 dB</span>
+        <span class="badge" id="grBadge" data-widest="GLUE -00.0 dB">GLUE 0.0 dB</span>
       </div>
       <div class="knob-grid four" id="busKnobs"></div>
 
@@ -627,7 +643,7 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
   <footer class="bottombar">
     <div class="pad-bank">
       <div class="bank-head">
-        <span>CHANNELS (TAP = MUTE · FOCUS MODE = SELECT SYNTH)</span>
+        <span>CHANNELS (TAP = MUTE · FOCUS = SYNTH)</span>
         <div class="mini-btns">
           <button id="actMute" class="on" title="Tap role pad to Mute/Unmute">MUTE</button>
           <button id="actFocus" title="Tap role pad to Focus its synth knobs">FOCUS</button>
@@ -655,6 +671,6 @@ body:not(.groovebox-open) #rotateHint { display: none !important; }
 
 <div id="rotateHint">↻ Rotate iPhone to Landscape for the full RP2350 Hardware Groovebox layout</div>
 
-<script type="module" src="main.js?v=20261024b"></script>
+<script type="module" src="main.js?v=20261030a"></script>
 </body>
 </html>
