@@ -460,11 +460,23 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
                 let third = if c.minor { 3.0 } else { 4.0 };
                 let vels = [0.92, 0.69, 0.82, 0.76, 0.85, 0.73];
                 let lens = [1.68, 1.34, 1.78, 1.44, 1.72, 1.38];
+                let changes = (next - root).abs() > 0.5;
                 for (k, s) in [0, 3, 6, 8, 11, 14].iter().enumerate() {
                     let iv = if k == 2 {
                         third
                     } else if turnaround && k == 4 {
-                        10.0
+                        if c.minor { 10.0 } else { 7.0 }
+                    } else if k == 5 {
+                        // Avoid `root - 2` on major chords (e.g. bVI F major in A minor,
+                        // where F - 2 = Eb is out of key); walk into `next` on chord
+                        // changes or play the fifth on major chords.
+                        if changes {
+                            (next - root).clamp(-7.0, 12.0)
+                        } else if c.minor {
+                            -2.0
+                        } else {
+                            7.0
+                        }
                     } else {
                         roll_figure[k] as f64
                     };
@@ -516,7 +528,14 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
             }
             BassStyle::Acid303 => {
                 for &(st, iv, acc, sld) in &acid_steps {
-                    let m = (root + iv as f64).clamp(lo as f64, (lo + 20) as f64);
+                    // Keep 303 intervals diatonic over major chords (where +10 / -2
+                    // would be a flat-7 clashing with the scale's major 7th).
+                    let adj_iv = if !c.minor && (iv == 10 || iv == -2) {
+                        7
+                    } else {
+                        iv
+                    };
+                    let m = (root + adj_iv as f64).clamp(lo as f64, (lo + 20) as f64);
                     let vel = (if acc { 0.95 } else { 0.74 } + (de.f() * 2.0 - 1.0) * 0.035)
                         .clamp(0.60, 0.99);
                     let mut note = Note::pitched(
@@ -745,16 +764,29 @@ pub fn chords(style: ChordStyle, voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
     }
 }
 
-/// The arpeggio: eight 8ths a bar spelling the chord ("Nightcall"), with
-/// downbeat or off-beat emphasis ("A Real Hero") [synthwave#38][synthwave#39].
+/// The arpeggio: spells the chord across the bar ("Nightcall", "A Real Hero",
+/// or fingerstyle / syncopated pluck patterns) [synthwave#38][synthwave#39].
 pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
     let offbeat = d.chance(0.3);
     let shape: &[usize] = d.pick(&[
-        &[0, 1, 2, 3, 4, 3, 2, 1][..],
-        &[0, 2, 1, 3, 2, 4, 3, 1][..],
-        &[0, 1, 2, 4, 0, 1, 2, 4][..],
+        &[0, 1, 2, 3, 4, 3, 2, 1, 0, 2][..],
+        &[0, 2, 1, 3, 2, 4, 3, 1, 2, 3][..],
+        &[0, 1, 2, 4, 0, 1, 2, 4, 1, 3][..],
+        &[0, 3, 1, 4, 2, 3, 1, 2, 0, 4][..],
+        &[0, 1, 3, 2, 4, 2, 3, 1, 0, 3][..],
+        &[4, 3, 2, 1, 0, 1, 2, 3, 4, 2][..],
     ]);
     let mut de = d.fork("arp_expr");
+    // Choose between classic straight 8ths, Travis/fingerstyle syncopated
+    // weave, and Spanish/bossa 9- or 10-note plucked figures.
+    let grid: &[f64] = de.pick(&[
+        &[0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0][..],
+        &[0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0][..],
+        &[0.0, 3.0, 4.0, 6.0, 8.0, 10.0, 11.0, 14.0][..],
+        &[0.0, 2.0, 3.0, 6.0, 8.0, 10.0, 12.0, 14.0, 15.0][..],
+        &[0.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 11.0, 12.0, 14.0][..],
+    ]);
+    let let_ring = de.chance(0.45);
     let n_bars = voiced.len().max(1) as f64;
     let mut notes = Vec::new();
     for (bar, v) in voiced.iter().enumerate() {
@@ -767,34 +799,54 @@ pub fn arp(voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
         }
         let b0 = bar as f64 * 16.0;
         let bar_swell = 0.94 + 0.08 * ((bar as f64 + 0.5) / n_bars * std::f64::consts::PI).sin();
-        for k in 0..8 {
-            let idx = shape[k] % tones.len();
-            let m = tones[idx];
-            let accent = (k % 2 == 1) == offbeat;
+        let turnaround = bar + 1 == voiced.len();
+        for (k, &st) in grid.iter().enumerate() {
+            let shape_idx = if turnaround && k + 2 >= grid.len() {
+                (shape[k % shape.len()] + 1) % tones.len()
+            } else {
+                shape[k % shape.len()] % tones.len()
+            };
+            let m = tones[shape_idx];
+            let next_st = grid.get(k + 1).copied().unwrap_or(16.0);
+            let step_gap = (next_st - st).max(1.0);
+            let accent = ((st as i32 / 2) % 2 == 1) == offbeat || st == 0.0;
             // Pitch-height contour + metric wave + human touch so the ostinato
             // breathes across the bar instead of pressing every key identically.
-            let pitch_lift = 0.04 * (idx as f64 / 4.0);
+            let pitch_lift = 0.04 * (shape_idx as f64 / 4.0);
             let base_v = if accent { 0.80 } else { 0.66 } + pitch_lift;
             let vel = (base_v * bar_swell + (de.f() * 2.0 - 1.0) * 0.045).clamp(0.52, 0.92);
-            let len = if idx >= 3 {
-                1.65 + de.f() * 0.22
-            } else if accent {
-                1.52 + de.f() * 0.20
-            } else {
-                1.32 + de.f() * 0.22
-            };
-            let micro = if k % 2 == 1 { de.f() * 0.024 } else { 0.0 };
-            notes.push(Note::pitched(
-                b0 + k as f64 * 2.0 + micro,
-                len,
-                vec![m as f64],
-                vel,
-            ));
+            let ring_mul = if let_ring { 1.35 } else { 0.82 };
+            let len = (step_gap * ring_mul + de.f() * 0.25).clamp(0.95, 3.4);
+            let micro = if st > 0.0 { de.f() * 0.024 } else { 0.0 };
+            notes.push(Note::pitched(b0 + st + micro, len, vec![m as f64], vel));
         }
     }
     Pattern {
         name: "arp".into(),
         len: voiced.len() as f64 * 16.0,
+        notes,
+    }
+}
+
+/// Variation of an arpeggio pattern for second-half chorus/drop evolution or
+/// `Mark::Var` blocks: lifts selected upper notes an octave and adds subtle
+/// syncopated sparkle.
+pub fn arp_var(p: &Pattern, d: &mut Dice) -> Pattern {
+    let mut notes = p.notes.clone();
+    for (i, n) in notes.iter_mut().enumerate() {
+        let step_in_bar = n.at.rem_euclid(16.0);
+        if (step_in_bar >= 10.0 || i % 5 == 4) && d.chance(0.45) {
+            for m in &mut n.midis {
+                if *m <= 74.0 {
+                    *m += 12.0;
+                }
+            }
+            n.vel = (n.vel * 1.05).min(0.94);
+        }
+    }
+    Pattern {
+        name: format!("{} var", p.name),
+        len: p.len,
         notes,
     }
 }
@@ -871,7 +923,7 @@ fn draft(
                 } else {
                     0.6
                 };
-            if (d.chance(p) || e == 0) && !(last && e > 4) {
+            if (d.chance(p) || e == 0) && !(last && e >= 4) {
                 f.push((e, d.weighted(&ws) as i32 - 3));
             }
         }
@@ -888,12 +940,20 @@ fn draft(
             motif
                 .iter()
                 .copied()
-                .filter(|(e, _)| !(last && *e > 4))
+                .filter(|(e, _)| !(last && *e >= 4))
                 .collect()
         } else {
             figure(d, last)
         };
-        for (e, step) in fig {
+        for (idx, &(e, step)) in fig.iter().enumerate() {
+            if last && e >= 4 {
+                continue;
+            }
+            let next_e = fig
+                .get(idx + 1)
+                .map(|&(ne, _)| if last && ne >= 4 { 4 } else { ne })
+                .unwrap_or(if last { 4 } else { 8 });
+            let dur_e = next_e.saturating_sub(e);
             let strong = e % 4 == 0;
             let n_sc = scale.len() as i32;
             let raw = cur + step;
@@ -902,7 +962,15 @@ fn draft(
             } else {
                 raw
             };
-            if strong {
+            let rel_pc = (scale[next as usize] - line.tonic).rem_euclid(12);
+            // A note 1 semitone above any chord tone (e.g. natural 4th over a
+            // major 3rd, or flat 6th over the 5th) is a harsh avoid note; also
+            // snap sustained notes (quarter note or longer) that aren't a chord
+            // tone or consonant 9th.
+            let semitone_clash =
+                !pcs.contains(&rel_pc) && pcs.contains(&((rel_pc - 1).rem_euclid(12)));
+            let is_ninth = (rel_pc - c.root).rem_euclid(12) == 2;
+            if strong || semitone_clash || (dur_e >= 2 && !pcs.contains(&rel_pc) && !is_ninth) {
                 // Snap to the nearest chord tone.
                 let mut bestd = i32::MAX;
                 for (i, m) in scale.iter().enumerate() {
@@ -946,27 +1014,27 @@ fn draft(
         vec![scale[target as usize] as f64],
         0.8,
     ));
-    // Legato & human expression: consecutive notes within a beat overlap
-    // slightly and glide; phrase-arch dynamics, pitch-height contour, and
-    // subtle rubato micro-timing give the soloist a human touch without
-    // disturbing the melody model's RNG stream.
+    // Legato & human expression: consecutive stepwise 8th notes occasionally
+    // slur; phrase-arch dynamics, pitch-height contour, and subtle rubato
+    // micro-timing give the soloist a human touch without disturbing the
+    // melody model's RNG stream.
     let mut de = d.fork("lead_expr");
     let total_len = prog.len().max(1) as f64 * 16.0;
     for i in 0..notes.len() {
         let grid_at = notes[i].at;
         let next_at = notes.get(i + 1).map_or(total_len, |n| n.at);
-        let gap = next_at - grid_at;
+        let gap = (next_at - grid_at).max(1.0);
         let step_dist = notes
             .get(i + 1)
             .and_then(|n| n.midis.first().zip(notes[i].midis.first()))
             .map_or(0.0, |(a, b)| (a - b).abs());
-        if gap <= 4.0 && (0.5..=7.5).contains(&step_dist) {
-            notes[i].len = (gap + 0.12 + de.f() * 0.12).clamp(0.8, 8.0);
+        if gap <= 2.1 && (0.5..=2.5).contains(&step_dist) && de.chance(0.28) {
+            notes[i].len = (gap + 0.10 + de.f() * 0.10).clamp(0.9, 8.0);
             if let Some(n1) = notes.get_mut(i + 1) {
                 n1.slide = true;
             }
         } else {
-            notes[i].len = (gap * (0.76 + de.f() * 0.14)).clamp(0.8, 8.0);
+            notes[i].len = (gap * (0.80 + de.f() * 0.12)).clamp(0.9, 8.0);
         }
         // Phrase arch (swelling into the middle of the 4-bar phrase and
         // tapering gently at the cadence) + pitch-contour expression.

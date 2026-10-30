@@ -435,13 +435,20 @@ pub const SYNTHWAVE: Profile = Profile {
         "fmBass",
     ],
     pad_sounds: &["warmPad", "superPad", "superPadWide", "darkPad", "choir"],
-    arp_sounds: &["pluck", "modernPluck", "sqArp", "pluckTrance"],
+    arp_sounds: &[
+        "pluck",
+        "modernPluck",
+        "sqArp",
+        "pluckTrance",
+        "acousticGuitar",
+    ],
     lead_sounds: &[
         "sawLead",
         "moogLead",
         "syncLead",
         "supersaw",
         "leadGuitar",
+        "nylonGuitar",
         "brassLead",
         "vocalLead",
         "sqLead",
@@ -451,7 +458,7 @@ pub const SYNTHWAVE: Profile = Profile {
     intros: SYNTH_INTROS,
     // The arp is the hook [synthwave#38]: in the chorus, K-weighted, the
     // arp about 5–7 LU under the bass and the lead 3–5 (engine default).
-    levels: &[("A", 5.5), ("L", 2.5), ("Pd", 3.5)],
+    levels: &[("A", 5.5), ("L", 3.2), ("Pd", 3.5)],
     pump: 0.3,
     tom_fills: true,
     tape: 0.4,
@@ -497,6 +504,7 @@ pub const OUTRUN: Profile = Profile {
         "brassLead",
     ],
     intros: OUTRUN_INTROS,
+    levels: &[("A", 5.5), ("L", 2.5), ("Pd", 3.5)],
     pump: 0.4,
     gated: (0.45, 0.06),
     ..SYNTHWAVE
@@ -717,10 +725,26 @@ pub const DEEP: Profile = Profile {
         "sub",
         "dxBass",
         "fmBass",
+        "fingerBass",
     ],
-    pad_sounds: &["dubChord", "stab", "ep", "modernPluck"],
-    arp_sounds: &["modernPluck", "pluck", "glass"],
+    pad_sounds: &[
+        "dubChord",
+        "stab",
+        "ep",
+        "modernPluck",
+        "nylonGuitar",
+        "acousticGuitar",
+    ],
+    arp_sounds: &[
+        "nylonGuitar",
+        "acousticGuitar",
+        "modernPluck",
+        "pluck",
+        "glass",
+    ],
     lead_sounds: &[
+        "nylonGuitar",
+        "acousticGuitar",
         "ep",
         "moogLead",
         "modernPluck",
@@ -894,7 +918,14 @@ pub const ORCHESTRAL: Profile = Profile {
     bass_range: (31, 43),
     bass_sounds: &["contrabass"],
     pad_sounds: &["stringSection", "celloPad", "choir"],
-    arp_sounds: &["stringSection", "celloPad", "glass", "bell"],
+    arp_sounds: &[
+        "nylonGuitar",
+        "acousticGuitar",
+        "stringSection",
+        "celloPad",
+        "glass",
+        "bell",
+    ],
     lead_sounds: &["brassSection", "frenchHorn"],
     form: ORCH_FORM,
     template: ORCH_TEMPLATE,
@@ -1242,10 +1273,32 @@ pub const FRENCH: Profile = Profile {
     arp: false,
     lead: (3.5, 10, 0.55),
     bass_range: (31, 43),
-    bass_sounds: &["moogBass", "dxBass", "organBass", "roundBass", "pluckBass"],
-    pad_sounds: &["ep", "stab", "piano", "organ", "dubChord"],
-    arp_sounds: &["modernPluck", "pluck"],
-    lead_sounds: &["ep", "syncLead", "moogLead", "brassLead"],
+    bass_sounds: &[
+        "fingerBass",
+        "moogBass",
+        "dxBass",
+        "organBass",
+        "roundBass",
+        "pluckBass",
+    ],
+    pad_sounds: &[
+        "ep",
+        "rhythmGuitar",
+        "acousticGuitar",
+        "stab",
+        "piano",
+        "organ",
+        "dubChord",
+    ],
+    arp_sounds: &["nylonGuitar", "acousticGuitar", "modernPluck", "pluck"],
+    lead_sounds: &[
+        "nylonGuitar",
+        "leadGuitar",
+        "ep",
+        "syncLead",
+        "moogLead",
+        "brassLead",
+    ],
     form: FRENCH_FORM,
     template: FRENCH_TEMPLATE,
     intros: &[],
@@ -1426,10 +1479,25 @@ pub const LIQUID: Profile = Profile {
     arp: true,
     lead: (2.6, 12, 0.75),
     bass_range: (29, 40),
-    bass_sounds: &["reese", "sub", "wobble", "roundBass"],
+    bass_sounds: &["reese", "sub", "wobble", "roundBass", "fingerBass"],
     pad_sounds: &["warmPad", "superPad", "ep", "darkPad"],
-    arp_sounds: &["ep", "glass", "pluck", "modernPluck"],
-    lead_sounds: &["ep", "vocalLead", "moogLead", "flute", "glass"],
+    arp_sounds: &[
+        "nylonGuitar",
+        "acousticGuitar",
+        "ep",
+        "glass",
+        "pluck",
+        "modernPluck",
+    ],
+    lead_sounds: &[
+        "nylonGuitar",
+        "acousticGuitar",
+        "ep",
+        "vocalLead",
+        "moogLead",
+        "flute",
+        "glass",
+    ],
     form: LIQUID_FORM,
     template: LIQUID_TEMPLATE,
     intros: &[],
@@ -1441,6 +1509,144 @@ pub const LIQUID: Profile = Profile {
     reverb: 1.25,
     gated: (0.0, 0.0),
     notes: LIQUID_NOTES,
+};
+
+// ── Acoustic & Nylon Guitar (Spanish / Fingerstyle / Folk) ───────────
+
+const ACOUSTIC_MINOR: &[(&str, f64)] = &[
+    ("i–VII–VI–V", 0.28),
+    ("i–VI–III–VII", 0.22),
+    ("i7–iv7–VII–III", 0.18),
+    ("i–iv–v–i", 0.16),
+    ("VI–VII–i–i", 0.16),
+];
+const ACOUSTIC_MAJOR: &[(&str, f64)] = &[
+    ("I–V–vi–IV", 0.32),
+    ("I–IV–I–V", 0.26),
+    ("vi–IV–I–V", 0.24),
+    ("I–♭VII–IV–I", 0.18),
+];
+
+const ACOUSTIC_DRUMS: &[DrumLane] = &[
+    DrumLane {
+        steps2: Some(&[1, 7, 9, 15]),
+        ..lane("kick", "K", &[1, 9], 0.85)
+    },
+    lane("sidestick", "C", &[5, 13], 0.78),
+    DrumLane {
+        p: 0.55,
+        ..lane("snare", "C", &[5, 13], 0.55)
+    },
+    DrumLane {
+        vel_even: Some(0.50),
+        jitter: 0.14,
+        ..lane("brush", "H", &[1, 3, 5, 7, 9, 11, 13, 15], 0.48)
+    },
+    DrumLane {
+        p: 0.75,
+        jitter: 0.12,
+        ..lane("shaker", "P", &[3, 7, 11, 15], 0.42)
+    },
+    DrumLane {
+        p: 0.50,
+        vel_even: Some(0.45),
+        jitter: 0.12,
+        ..lane("hat", "H", &[1, 5, 9, 13], 0.40)
+    },
+];
+
+const ACOUSTIC_FORM: &[Block] = &[
+    block("intro", 8, 0.35),
+    block("verse", 16, 0.55),
+    block("chorus", 16, 0.85),
+    block("verse", 16, 0.65),
+    block("middle eight", 8, 0.50),
+    block("solo", 16, 0.95),
+    block("chorus", 16, 1.00),
+    block("outro", 8, 0.40),
+];
+const ACOUSTIC_TEMPLATE: &[(&str, &str)] = &[
+    ("K", "- x x x - x x -"),
+    ("C", "- x x x - x x -"),
+    ("H", "s x x x s x x s"),
+    ("P", "- + x x - x x -"),
+    ("B", "s x x x s x v s"),
+    ("Pd", "s x x x x x x s"),
+    ("A", "x x x x x v x s"),
+    ("L", "- s x s x v x s"),
+    ("Sn", "- - - - r - - -"),
+    ("X", "- - 1 - - 1 1 -"),
+];
+
+const GUITAR_SOLO_INTRO: Intro = Intro {
+    name: "solo guitar",
+    p: 0.60,
+    cells: &[
+        ("K", "- x"),
+        ("C", "- x"),
+        ("B", "- x"),
+        ("Pd", "s x"),
+        ("A", "x x"),
+        ("L", "s s"),
+    ],
+    note: "It opens with fingerpicked nylon and steel-string acoustic guitar alone before the upright bass and brushed percussion enter at bar 9.",
+};
+const DUET_INTRO: Intro = Intro {
+    name: "bass and guitar duet",
+    p: 0.40,
+    cells: &[("K", "- x"), ("B", "s x"), ("Pd", "x x"), ("A", "x x")],
+    note: "It opens as an intimate duet between acoustic guitar and upright/fingerstyle bass before the rhythm section joins at bar 9.",
+};
+const ACOUSTIC_INTROS: &[Intro] = &[GUITAR_SOLO_INTRO, DUET_INTRO];
+
+const ACOUSTIC_NOTES: &[&str] = &[
+    "Centred on physical-modelled nylon-string (`nylonGuitar`) and phosphor-bronze steel-string (`acousticGuitar`) guitars with 3-mode wood body resonators, bridge knock, fret/finger transients, and per-note human pluck-position and pick-angle variation.",
+    "Chord strums alternate downstrokes and upstrokes with an accelerating human strum curve, while the arpeggio layer weaves fingerstyle patterns with overlapping `let ring` sustain.",
+    "Backed by upright or fingerstyle bass and brushed acoustic percussion (`country` kit) in a warm room (`reverb = 1.15`, gentle `pump = 0.08`).",
+];
+
+pub const ACOUSTIC: Profile = Profile {
+    key: "acoustic",
+    name: "Acoustic & nylon",
+    tempo: (92.0, 116.0, 104.0),
+    swing: (52.0, 57.0),
+    modes: &[
+        (AEOLIAN, 0.45),
+        (DORIAN, 0.25),
+        (IONIAN, 0.20),
+        (MIXOLYDIAN, 0.10),
+    ],
+    minor_progs: ACOUSTIC_MINOR,
+    major_progs: ACOUSTIC_MAJOR,
+    ext: (0.45, 0.25, 0.0),
+    kit: "country",
+    drums: ACOUSTIC_DRUMS,
+    bass: BassStyle::HouseCells,
+    chords: ChordStyle::Stabs,
+    arp: true,
+    lead: (3.2, 14, 1.0),
+    bass_range: (33, 45),
+    bass_sounds: &["uprightBass", "fingerBass"],
+    pad_sounds: &["acousticGuitar", "nylonGuitar"],
+    arp_sounds: &["nylonGuitar", "acousticGuitar"],
+    lead_sounds: &[
+        "nylonGuitar",
+        "acousticGuitar",
+        "flute",
+        "fiddle",
+        "pedalSteel",
+    ],
+    form: ACOUSTIC_FORM,
+    template: ACOUSTIC_TEMPLATE,
+    intros: ACOUSTIC_INTROS,
+    levels: &[("A", 5.5), ("Pd", 3.5), ("L", 4.5)],
+    pump: 0.06,
+    tom_fills: true,
+    tape: 0.20,
+    glue: 0.38,
+    reverb: 1.15,
+    gated: (0.0, 0.0),
+    notes: ACOUSTIC_NOTES,
 };
 
 /// What the generator changes in a kit, per lane, as the research has it:
@@ -1712,15 +1918,86 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
                 ],
             ),
         ],
+        "country" => vec![
+            lane(
+                "kick",
+                &[
+                    ("tune", 56.0),
+                    ("decay", 0.32),
+                    ("pitch", 1.9),
+                    ("pt", 0.024),
+                    ("click", 0.18),
+                    ("drive", 1.1),
+                    ("lvl", 0.56),
+                ],
+            ),
+            lane(
+                "sidestick",
+                &[
+                    ("tune", 360.0),
+                    ("decay", 0.048),
+                    ("tone", 0.65),
+                    ("snappy", 0.14),
+                    ("lvl", 0.44),
+                ],
+            ),
+            lane(
+                "snare",
+                &[
+                    ("tune", 195.0),
+                    ("decay", 0.15),
+                    ("snappy", 0.36),
+                    ("tone", 0.52),
+                    ("nlp", 5400.0),
+                    ("lvl", 0.36),
+                ],
+            ),
+            lane(
+                "brush",
+                &[
+                    ("decay", 0.14),
+                    ("snappy", 0.88),
+                    ("tone", 0.08),
+                    ("nhp", 1600.0),
+                    ("nlp", 5200.0),
+                    ("lvl", 0.20),
+                ],
+            ),
+            lane(
+                "shaker",
+                &[
+                    ("hp", 5200.0),
+                    ("lp", 9200.0),
+                    ("attack", 0.008),
+                    ("decay", 0.045),
+                    ("lvl", 0.16),
+                ],
+            ),
+            lane(
+                "hat",
+                &[
+                    ("hp", 5800.0),
+                    ("lp", 10500.0),
+                    ("decay", 0.045),
+                    ("lvl", 0.18),
+                ],
+            ),
+            lane("crash", &[("hp", 4200.0), ("decay", 1.3), ("lvl", 0.24)]),
+        ],
         _ => Vec::new(),
     }
 }
 
 /// Loads a base patch from [`crate::patches::bpatch`] and sets its `name`
 /// and measured Juno chorus parameters (sound-design.md §6).
-pub fn sound_patch(_genre: &str, name: &str) -> Option<Lab> {
+pub fn sound_patch(genre: &str, name: &str) -> Option<Lab> {
     let mut lab = bpatch(name)?;
     lab.name = Some(name.to_owned());
+    if matches!(name, "acousticGuitar" | "nylonGuitar")
+        && !matches!(genre, "acoustic" | "orchestral")
+    {
+        lab.gain = lab.gain.map(|g| g * 0.68);
+    }
     // The Juno chorus at its measured depth: ±0.5 ms (I), ±1.1 ms (II),
     // through 15 kHz (sound-design.md §6).
     match lab.chorus {
@@ -1736,7 +2013,8 @@ pub fn sound_patch(_genre: &str, name: &str) -> Option<Lab> {
 
 /// The new generator's genres, in the lab's order.
 pub const PROFILES: &[Profile] = &[
-    SYNTHWAVE, OUTRUN, CHICAGO, DEEP, FRENCH, ACID, DETROIT, UPLIFTING, LIQUID, DUBSTEP, ORCHESTRAL,
+    SYNTHWAVE, OUTRUN, CHICAGO, DEEP, FRENCH, ACID, DETROIT, UPLIFTING, LIQUID, DUBSTEP, ACOUSTIC,
+    ORCHESTRAL,
 ];
 
 pub fn profile(key: &str) -> Option<&'static Profile> {
