@@ -12375,3 +12375,52 @@ menu's tabs.
   and later in order, and Bevy gives the UI to the last camera unless one is
   marked: on the web the viewer's panel laid out but was never drawn. The
   viewer marks its 3D camera `IsDefaultUiCamera` (`viewer::ui_camera`).
+
+## D1255 (2026-10-30): an overpass drawn as a structure
+
+Stage 9a.4 of `docs/vision/bay-cities.md`. The owner: the freeway
+overpasses "aren't rendered properly". Pictures of all six crossings and
+the San Francisco viaducts (natively, the viewer's `--screenshot`) showed
+what was wrong:
+
+- **Piers in the street.** The road kit stood a bent every 32 m along an
+  elevated stretch, two columns at ±0.55 of the half-width, whatever lay
+  under them: under 101 over Mission Street the columns stood in the
+  traffic lanes.
+- **No piers at all on most of the city's viaducts.** In the open world
+  a streamed section built every bent of its road and the cut kept the
+  whole instanced mesh only in the section owning the bents' joint
+  centre: 280's piers over El Camino, kilometres from that centre, were
+  never drawn.
+- **No abutments.** Where the real freeway stands on fill (the terrain's
+  heights hold the embankment) the fill sloped down under the deck to the
+  lower road's edge; the deck looked like a plank laid on two hills.
+- **A plank of a deck.** Its sides were the shoulder's 1.6 m fascia and
+  its soffit a sheet 1.8 m down with a slot between them.
+
+What the road kit does now on an open level (its ground open, the network known);
+a level's own viaducts (the Harbor's, the City's) are drawn as before:
+
+- **The deck** is one closed section: a girder 0.62 m past each barrier
+  (`DECK_EDGE`), its fascia down to the soffit 1.8 m under the surface
+  (`DECK_DEPTH`), with hard edges.
+- **Bents clear of every other road** (`bent_columns`): a column may not
+  stand within a lower road's barrier (or its pavement and verge) plus
+  1.5 m. A column that would moves out under the deck (0.85 of the
+  half-width), then past its edge on an outrigger; with room on one side
+  only the bent is a hammerhead on that side; with none there is no bent.
+  Each overpass gets a bent either side of the road under it, 3 m past
+  that road's reach, unless an abutment stands there.
+- **Abutments** (`build_abutments`): where the ground under the deck's
+  next 20 m past the lower road comes within 2.5 m of the soffit (fill),
+  a wall 0.8 m thick stands along the lower road, its face 1 m past the
+  verge (a street's: behind its pavement), from a metre under that road
+  up to the soffit (sheared so its top follows it), as long as the deck's
+  girders reach along that road. Not at crossings shallower than about
+  27° (sin 0.45: a freeway along a street).
+- **Each section builds its own metres' bents and walls**, so a streamed
+  square owns the piers that stand in it.
+
+Nothing the simulation reads changed (the ground under a deck is already
+the lower road's for a car held by it, D1249), and no material is new: the
+deck, the walls and the bents are the road kit's concrete.

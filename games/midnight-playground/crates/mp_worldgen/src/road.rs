@@ -264,6 +264,120 @@ pub fn runs(pred: impl Fn(f64) -> bool, step: f64, s0: f64, s1: f64) -> Vec<[f64
     out
 }
 
+/// How far a deck's girders stand out past its barriers (m), and how deep
+/// the deck is under its surface: the soffit's depth.
+pub const DECK_EDGE: f64 = 0.62;
+pub const DECK_DEPTH: f64 = 1.8;
+
+/// A road a deck passes over (one of the network's overpasses, from the
+/// deck's side): where along the deck, the road under it and where along
+/// that, the sine of the angle between them, and half the metres of the
+/// deck the lower road's pavement and verges take.
+#[derive(Clone, Copy, Debug)]
+pub struct Under {
+    pub s: f64,
+    pub road: usize,
+    pub road_s: f64,
+    pub sin: f64,
+    pub half: f64,
+}
+
+/// The overpasses where road `road` (`t`) is the deck.
+pub fn crossings_under(net: &Track, road: usize, t: &Track) -> Vec<Under> {
+    let mut out = Vec::new();
+    for j in &net.overpasses {
+        let (s, o, os) = if j.road == road {
+            (j.s, j.other, j.other_s)
+        } else if j.other == road {
+            (j.other_s, j.road, j.s)
+        } else {
+            continue;
+        };
+        let ot = net.road(o);
+        let os = os.clamp(0.0, ot.length);
+        if t.surface_y(s, 0.0) < ot.surface_y(os, 0.0) + 3.0 {
+            continue;
+        }
+        let (f, of) = (t.frame(s), ot.frame(os));
+        let cos = f.fx * of.fx + f.fz * of.fz;
+        let sin = (1.0 - cos * cos).max(0.09).sqrt();
+        let reach = js::max(of.wall_l, of.wall_r).max(of.hw + of.margin) + ABUT_OUT;
+        out.push(Under {
+            s,
+            road: o,
+            road_s: os,
+            sin,
+            half: reach / sin,
+        });
+    }
+    out
+}
+
+/// Whether the deck lands on fill past the lower road on the side `dir`
+/// (along the deck) of crossing `u`: the ground under its next 20 m comes
+/// within a little of its soffit, an embankment the abutment holds back.
+fn has_fill(t: &Track, tr: &Terrain, u: &Under, dir: f64) -> bool {
+    (0..=5).any(|k| {
+        let sb = (u.s + dir * (u.half + 4.0 * k as f64)).clamp(0.0, t.length);
+        let fb = t.frame(sb);
+        fb.y - DECK_DEPTH - tr.height_at(fb.x, fb.z) < 2.5
+    })
+}
+
+/// Abutment walls stand this far outside the lower road's barriers (m),
+/// and a pier no nearer another road's than this.
+const ABUT_OUT: f64 = 1.6;
+const PIER_CLEAR: f64 = 1.5;
+const ABUT_FACE: f64 = 1.0;
+
+/// Where a bent at `s` on road `road` (`t`) stands its two columns
+/// (lateral metres) clear of every other road under it, neither on
+/// another road's pavement or verge: under the deck where it can, else
+/// out past the deck's edge on an outrigger, else nowhere on that side.
+/// `None` when neither side has room.
+pub fn bent_columns(net: &Track, road: usize, t: &Track, s: f64) -> Option<[f64; 2]> {
+    let f = t.frame(s);
+    let edge = |side: f64| if side < 0.0 { f.wall_l } else { f.wall_r } + DECK_EDGE;
+    let mut out = [f64::NAN; 2];
+    for (j, side) in [(0usize, -1.0f64), (1, 1.0)] {
+        for lat in [f.hw * 0.55, f.hw * 0.85, edge(side) + 2.5] {
+            let lat = side * lat;
+            if column_clear(net, road, &f, lat) {
+                out[j] = lat;
+                break;
+            }
+        }
+    }
+    match (out[0].is_nan(), out[1].is_nan()) {
+        (true, true) => None,
+        // One column alone: a hammerhead on the side with room.
+        (true, false) => Some([out[1], out[1]]),
+        (false, true) => Some([out[0], out[0]]),
+        (false, false) => Some(out),
+    }
+}
+
+fn column_clear(net: &Track, road: usize, f: &mp_track::Frame, lat: f64) -> bool {
+    let (x, z) = (f.x + f.rx * lat, f.z + f.rz * lat);
+    let mut clear = true;
+    net.net.for_each_road_near(x, z, 40.0, |a| {
+        if a == road {
+            return true;
+        }
+        let at = net.road(a);
+        let d = at.distance_to_road(x, z, 40.0);
+        let Some(sa) = d.s else { return true };
+        let af = at.frame(sa);
+        let wall = if d.lat < 0.0 { af.wall_l } else { af.wall_r };
+        if af.y < f.y - 2.0 && d.d < wall.max(af.hw + af.margin) + PIER_CLEAR {
+            clear = false;
+            return false;
+        }
+        true
+    });
+    clear
+}
+
 // ── The Road class ──────────────────────────────────────────────────────
 
 /// A stretch where scenery blanks the paint across junctions (an entry of
@@ -1439,30 +1553,101 @@ impl Road {
             Material::standard().set("map", map).set("roughness", 0.9)
         });
         let ranges = runs(elevated, 2.0, 0.0, t.length);
+        // In the open world a deck is a structure (stage 9a.4 of
+        // docs/vision/bay-cities.md): a girder either side, its fascia
+        // from the parapet's foot down to the soffit, closed under the
+        // deck. A level's own viaduct keeps its soffit alone.
+        let net = c.network.filter(|_| t.open_ground.is_some());
+        let structure = net.is_some();
         for r in c.clip_runs(group_runs(&ranges, 560.0)) {
-            let g = extrude(
-                t,
-                &r,
-                &[
+            let prof = if structure {
+                let wr = |d: f64| Lat::f(move |f, _| f.wall_r + d);
+                let wl = |d: f64| Lat::f(move |f, _| -(f.wall_l + d));
+                // Hard edges: each corner twice, no faces between.
+                vec![
+                    ProfilePoint::new(wr(0.3)),
+                    ProfilePoint::new(wr(DECK_EDGE)).gap_after(),
+                    ProfilePoint::new(wr(DECK_EDGE)),
+                    ProfilePoint::new(wr(DECK_EDGE)).dy(-DECK_DEPTH).gap_after(),
+                    ProfilePoint::new(wr(DECK_EDGE)).dy(-DECK_DEPTH),
+                    ProfilePoint::new(wl(DECK_EDGE)).dy(-DECK_DEPTH).gap_after(),
+                    ProfilePoint::new(wl(DECK_EDGE)).dy(-DECK_DEPTH),
+                    ProfilePoint::new(wl(DECK_EDGE)).gap_after(),
+                    ProfilePoint::new(wl(DECK_EDGE)),
+                    ProfilePoint::new(wl(0.3)),
+                ]
+            } else {
+                vec![
                     ProfilePoint::new(Lat::f(|f, _| f.wall_r + 0.62)).dy(-1.8),
                     ProfilePoint::new(Lat::f(|f, _| -(f.wall_l + 0.62))).dy(-1.8),
-                ],
-                &opts(4.0, 8.0),
-            );
+                ]
+            };
+            let g = extrude(t, &r, &prof, &opts(4.0, 8.0));
             self.add_mesh(c, g, concrete, false, false);
         }
         let filter_non_partition = c.clip.as_ref().is_some_and(|sec| !sec.partition);
-        let mut piers = Vec::new();
+        // The crossings this road passes over (the network's overpasses
+        // where it is the deck): a bent either side of the road under it,
+        // abutment walls along that road's edges.
+        let under: Vec<Under> = match net {
+            Some(net) => crossings_under(net, c.road, t),
+            None => Vec::new(),
+        };
+        let mut cand: Vec<f64> = Vec::new();
         for &[s0, s1] in &ranges {
             let mut s = s0 + 15.0;
             while s < s1 - 5.0 {
-                if (!filter_non_partition || c.wants(s))
-                    && !spans.iter().any(|g| s > g[0] - 10.0 && s < g[1] + 10.0)
-                {
-                    piers.push(s);
-                }
+                cand.push(s);
                 s += 32.0;
             }
+        }
+        for u in &under {
+            for dir in [-1.0, 1.0] {
+                // Where the deck lands on fill, the abutment carries it.
+                if has_fill(t, c.terrain, u, dir) {
+                    continue;
+                }
+                let s = u.s + dir * (u.half + 3.0);
+                if ranges.iter().any(|r| s > r[0] + 2.0 && s < r[1] - 2.0) {
+                    cand.push(s);
+                }
+            }
+        }
+        cand.sort_by(f64::total_cmp);
+        // Each bent: where along, and its two columns' lateral metres.
+        let mut piers: Vec<(f64, [f64; 2])> = Vec::new();
+        for s in cand {
+            if structure && piers.last().is_some_and(|&(p, _)| s - p < 12.0) {
+                continue;
+            }
+            // A streamed section of the open world builds the bents on its
+            // own metres, so each lands in the section that holds it (a
+            // partitioned section keeps a mesh by its centre).
+            let mine = if structure {
+                c.clip.is_none() || c.wants(s)
+            } else {
+                !filter_non_partition || c.wants(s)
+            };
+            if !mine || spans.iter().any(|g| s > g[0] - 10.0 && s < g[1] + 10.0) {
+                continue;
+            }
+            let cols = match net {
+                Some(net) => bent_columns(net, c.road, t, s),
+                None => {
+                    let hw = t.frame(s).hw;
+                    Some([-hw * 0.55, hw * 0.55])
+                }
+            };
+            if let Some(cols) = cols {
+                piers.push((s, cols));
+            }
+        }
+        let under: Vec<Under> = under
+            .into_iter()
+            .filter(|u| c.clip.is_none() || c.wants(u.s))
+            .collect();
+        if structure && !under.is_empty() {
+            self.build_abutments(c, &under, concrete);
         }
         if piers.is_empty() {
             return;
@@ -1474,11 +1659,11 @@ impl Road {
         let gk = c.graph.add_geometry(cap_geo);
         let im_col = c.graph.instanced_mesh(gc, concrete, piers.len() as u32 * 2);
         let im_cap = c.graph.instanced_mesh(gk, concrete, piers.len() as u32);
-        for (k, &s) in piers.iter().enumerate() {
+        for (k, &(s, cols)) in piers.iter().enumerate() {
             let f = t.frame(s);
             let q = yaw_quaternion(-kernel::atan2(f.fz, f.fx));
             let top = f.y - 2.8;
-            for (j, lat) in [(0usize, -f.hw * 0.55), (1, f.hw * 0.55)] {
+            for (j, lat) in [(0usize, cols[0]), (1, cols[1])] {
                 let x = f.x + f.rx * lat;
                 let z = f.z + f.rz * lat;
                 let g = tr.height_at(x, z) - 0.5;
@@ -1490,10 +1675,13 @@ impl Road {
                 instances(c.graph, im_col).set_matrix_at(k * 2 + j, &m4);
             }
             // Crossbeam: local z maps onto the road's right vector, so stretch z.
+            // Across the deck, and out to a column past its edge.
+            let (lo, hi) = (cols[0].min(-f.hw), cols[1].max(f.hw));
+            let mid = (lo + hi) / 2.0;
             let m4 = Matrix4::compose(
-                Vector3::new(f.x, top + 0.4, f.z),
+                Vector3::new(f.x + f.rx * mid, top + 0.4, f.z + f.rz * mid),
                 q,
-                Vector3::new(1.0, 1.0, f.hw * 2.0 + 2.0),
+                Vector3::new(1.0, 1.0, hi - lo + 2.0),
             );
             instances(c.graph, im_cap).set_matrix_at(k, &m4);
         }
@@ -1503,5 +1691,84 @@ impl Road {
         c.graph.compute_instance_bounding_sphere(im_cap);
         c.graph.add(self.group, im_col);
         c.graph.add(self.group, im_cap);
+    }
+
+    /// The walls that hold a deck's fill back from the road it passes
+    /// over (stage 9a.4): along each edge of that road, outside its
+    /// barriers, from below its surface up to the soffit, where the ground
+    /// under the deck past that edge is near the soffit (an embankment).
+    /// Where the deck stands high over open ground its bents carry it.
+    fn build_abutments(&mut self, c: &mut RoadCtx, under: &[Under], concrete: MaterialId) {
+        let (t, tr) = (c.track, c.terrain);
+        let Some(net) = c.network else { return };
+        let mut walls: Vec<Matrix4> = Vec::new();
+        for u in under {
+            // A shallow crossing (a freeway along a street) has no
+            // abutments to speak of.
+            if u.sin < 0.45 {
+                continue;
+            }
+            let ot = net.road(u.road);
+            let of = ot.frame(u.road_s);
+            for dir in [-1.0, 1.0] {
+                // Which edge of the lower road this end of the deck is over,
+                // and whether there is fill behind it.
+                let sd = (u.s + dir * u.half).clamp(0.0, t.length);
+                let fd = t.frame(sd);
+                let q = ot.project(fd.x, fd.z, u.road_s);
+                let side = if q.lat < 0.0 { -1.0 } else { 1.0 };
+                if !has_fill(t, tr, u, dir) {
+                    continue;
+                }
+                // Its face just past the road's verge, where the cut through
+                // the fill begins (a street's: behind its pavement).
+                let kerbed = road_type_at(ot, ot.idx(u.road_s)).edge == "curb";
+                let wall = if side < 0.0 { of.wall_l } else { of.wall_r };
+                let edge = if kerbed { wall } else { of.hw + of.margin };
+                let lat = side * (edge + ABUT_FACE + 0.4);
+                // Along the lower road, as far as the deck's girders reach.
+                let deck = js::max(fd.wall_l, fd.wall_r) + DECK_EDGE + 0.5;
+                let along = deck / u.sin;
+                let end = |k: f64| {
+                    let so = (u.road_s + k * along).clamp(0.0, ot.length);
+                    let f = ot.frame(so);
+                    let (x, z) = (f.x + f.rx * lat, f.z + f.rz * lat);
+                    let p = t.project(x, z, u.s);
+                    let top = t.surface_y(p.s, 0.0) - DECK_DEPTH;
+                    (x, z, top, f.y - 1.0)
+                };
+                let (ax, az, at, ab) = end(-1.0);
+                let (bx, bz, bt, bb) = end(1.0);
+                let h = js::max(at - ab, bt - bb);
+                if h < 1.0 {
+                    continue;
+                }
+                let (dx, dz) = (bx - ax, bz - az);
+                let l = kernel::hypot(dx, dz).max(1e-6);
+                // Sheared so its top follows the soffit from end to end.
+                let mut m = Matrix4::make_basis(
+                    Vector3::new(dx, bt - at, dz),
+                    Vector3::new(0.0, h, 0.0),
+                    Vector3::new(-dz / l * 0.8, 0.0, dx / l * 0.8),
+                );
+                m.elements[12] = (ax + bx) / 2.0;
+                m.elements[13] = (at + bt) / 2.0 - h / 2.0;
+                m.elements[14] = (az + bz) / 2.0;
+                walls.push(m);
+            }
+        }
+        if walls.is_empty() {
+            return;
+        }
+        let gw = c
+            .graph
+            .add_geometry(box_geometry(1.0, 1.0, 1.0, 1.0, 1.0, 1.0));
+        let im = c.graph.instanced_mesh(gw, concrete, walls.len() as u32);
+        for (k, m) in walls.iter().enumerate() {
+            instances(c.graph, im).set_matrix_at(k, m);
+        }
+        c.graph.get_mut(im).cast_shadow = true;
+        c.graph.compute_instance_bounding_sphere(im);
+        c.graph.add(self.group, im);
     }
 }
