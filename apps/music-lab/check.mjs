@@ -159,6 +159,33 @@ try {
     backInLab.view === 'lab' && backInLab.playing && backInLab.bassOverride === 'acid' && backInHw.view === 'groovebox' && backInHw.playing && backInHw.bass === 'acid',
     `seamless round-trip player ↔ groovebox preserves live playback and morphed preset (${backInHw.genre} #${backInHw.seed})`,
   );
+  // The groovebox holds still: each live readout at its shortest and widest value moves nothing
+  // else, and the deck fits the phone's width.
+  const still = await page.evaluate(() => {
+    const els = [...document.querySelectorAll('#hw *')].filter((e) => e.getClientRects().length);
+    const rect = (e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+    const base = els.map(rect);
+    const extremes = {
+      cpuChip: ['DSP 0%', 'DSP 999%'], seedVal: ['1', '99999'], playLbl: ['▶ PLAY', '■ STOP'],
+      posBadge: ['DROP · BAR 1 · 1', 'BREAKDOWN · BAR 128 · 16'], grBadge: ['GLUE 0.0 dB', 'GLUE -99.9 dB'],
+      dnaBadge: ['Custom DNA', 'Chicago House Classic'], synthBadge: ['NONE', 'CHORDS · Juno-style Strings Pad'],
+      jamTitle: ['DRUM PADS (LIVE KIT)', 'SCALE PADS (C# DORIAN)'], lcdLine: ['READY', 'X'.repeat(80)],
+    };
+    const moved = [];
+    for (const [id, vals] of Object.entries(extremes)) {
+      const el = document.getElementById(id), keep = el.textContent;
+      for (const v of vals) {
+        el.textContent = v;
+        els.forEach((e, i) => {
+          if (el.contains(e)) return;
+          if (rect(e).some((x, k) => Math.abs(x - base[i][k]) > 0.25)) moved.push(`${id}="${v}" moves ${e.id || e.className || e.tagName}`);
+        });
+      }
+      el.textContent = keep;
+    }
+    return { moved: [...new Set(moved)], fits: document.documentElement.scrollWidth <= innerWidth };
+  });
+  check(still.moved.length === 0 && still.fits, `groovebox holds still as its readouts change, and fits the phone${still.fits ? '' : ' (wider than the screen)'}${still.moved.length ? ': ' + still.moved.slice(0, 5).join('; ') : ''}`);
   await page.click('#playBtn'); // stop
 
   check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join(' | ') : ''}`);

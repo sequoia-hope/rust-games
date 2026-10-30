@@ -278,8 +278,42 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
     if let Some(pump) = settings.pump {
         p.pump = pump.clamp(0.0, 0.85);
     }
-    let p = &p;
-    let dice = Dice::new(seed).fork(p.key);
+    let p_mut = &mut p;
+    let dice = Dice::new(seed).fork(p_mut.key);
+    // Per-seed sub-style variation (on seeds > 2 when not overridden by explicit
+    // Settings) so consecutive songs within a genre vary their groove, chord
+    // articulation, and arpeggio texture.
+    let mut dsub = dice.fork("substyle");
+    if seed > 2 {
+        if settings.arp.is_none()
+            && !p_mut.arp
+            && matches!(p_mut.key, "deep" | "french" | "chicago")
+            && dsub.chance(0.42)
+        {
+            p_mut.arp = true;
+        }
+        if settings.chords.is_none() && dsub.chance(0.28) {
+            match p_mut.key {
+                "synthwave" | "outrun" | "uplifting" | "liquid" => {
+                    p_mut.chords = ChordStyle::Stabs;
+                }
+                "deep" | "detroit" | "acoustic" => {
+                    p_mut.chords = ChordStyle::Sustain;
+                }
+                _ => {}
+            }
+        }
+        if settings.bass.is_none() && dsub.chance(0.28) {
+            match p_mut.key {
+                "synthwave" => p_mut.bass = BassStyle::Rolling,
+                "outrun" => p_mut.bass = BassStyle::Offbeat16,
+                "deep" | "detroit" => p_mut.bass = BassStyle::HouseCells,
+                "chicago" | "french" | "acoustic" => p_mut.bass = BassStyle::Rolling,
+                _ => {}
+            }
+        }
+    }
+    let p = &*p_mut;
     let (bpm, swing) = tempo(p, &dice, settings);
     let (lo, hi, typ) = p.tempo;
 
@@ -306,19 +340,19 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
         .map(Chord::symbol)
         .collect();
     chord_stm.train(&seq_a);
-    let b = if p.arp || dh.chance(0.4) {
+    let b = if p.arp || dh.chance(0.75) {
         parts::choose_progression(&pool, &chord_stm, &mut dh)
     } else {
         a
     };
     let progs = [pool[a].0.clone(), pool[b].0.clone()];
     // The middle eight (or community climax) a minor third up, then back
-    // (p = 0.15 [synthwave#12]).
+    // (p = 0.28 [synthwave#12]).
     let key_change = p
         .form
         .iter()
         .any(|f| matches!(f.name, "middle eight" | "community"))
-        && dh.chance(0.15);
+        && dh.chance(0.28);
 
     let bars: u32 = p.form.iter().map(|b| b.bars).sum();
     let mut song = Song::new(p.key, seed, bpm, bars);
@@ -471,9 +505,9 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
         tweak: base_tweak.clone(),
     };
     let mut template_rows: Vec<(&str, &str)> = p.template.to_vec();
-    if settings.arp == Some(false) {
+    if !p.arp {
         template_rows.retain(|(k, _)| *k != "A");
-    } else if settings.arp == Some(true) && !template_rows.iter().any(|(k, _)| *k == "A") {
+    } else if !template_rows.iter().any(|(k, _)| *k == "A") {
         let arp_cells = template_rows
             .iter()
             .find(|(k, _)| *k == "Pd")
@@ -498,9 +532,21 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                     _ => p.lead_sounds,
                 };
                 let name = *dice.fork(&format!("sound {rk}")).pick(sounds);
-                let Some(lab) = profile::sound_patch(p.key, name) else {
+                let Some(mut lab) = profile::sound_patch(p.key, name) else {
                     continue;
                 };
+                if matches!(*rk, "A" | "L")
+                    && matches!(
+                        name,
+                        "nylonGuitar"
+                            | "acousticGuitar"
+                            | "surfGuitar"
+                            | "rhythmGuitar"
+                            | "telecaster"
+                    )
+                {
+                    lab.oct = Some(-1.0);
+                }
                 Layer::new(
                     match *rk {
                         "B" => "bass",
@@ -640,6 +686,8 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                             transpose(&solo_pat, tr)
                         } else if *rk == "B" && p.key != "orchestral" {
                             parts::bass_var(&core, &mut dp)
+                        } else if *rk == "A" && p.key != "orchestral" {
+                            parts::arp_var(&core, &mut dp)
                         } else {
                             core.clone()
                         };
@@ -737,7 +785,7 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                         // chorus or drop (energy >= 0.9, >= 16 bars), the bass
                         // steps up to its variation in the second half.
                         let total_len = b1 - from;
-                        if *rk == "B"
+                        if matches!(*rk, "B" | "A")
                             && p.key != "orchestral"
                             && want == Mark::Core
                             && p.form[bi].energy >= 0.9

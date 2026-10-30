@@ -46,7 +46,7 @@ const DRUM_PAD_LANES = [
 
 const CLASSIC_TO_PROFILE = {
   house: 'chicago', techno: 'detroit', trance: 'uplifting', eurobeat: 'outrun',
-  psytrance: 'acid', dnb: 'liquid', garage: 'deep', chicha: 'synthwave', country: 'orchestral',
+  psytrance: 'acid', dnb: 'liquid', garage: 'deep', chicha: 'acoustic', country: 'acoustic',
 };
 
 // ── 3×5 Pixel Font for the 16×8 RGB LED Matrix HUD Overlay ──
@@ -239,7 +239,7 @@ export function mountGroovebox(app) {
   let hudOverlay = null;
   let morphTimer = null;
 
-  const setLcd = (msg) => { $('lcdLine').textContent = msg; };
+  const setLcd = (msg) => { $('lcdLine').textContent = msg; $('lcdLine').title = msg; };
   function showHud(label, norm, color = [58, 168, 255]) {
     hudOverlay = { text: label.toUpperCase().slice(0, 6), norm: Math.max(0, Math.min(1, norm)), color, until: performance.now() + 750 };
   }
@@ -279,7 +279,7 @@ export function mountGroovebox(app) {
         pump: ov.pump ?? Number(p.pump.toFixed(2)),
       };
       const hasCustomDna = Object.keys(ov).some((k) => !['bpm', 'key'].includes(k));
-      $('dnaBadge').textContent = hasCustomDna ? 'Custom DNA' : `${p.name} Profile`;
+      $('dnaBadge').textContent = hasCustomDna ? 'Custom DNA' : p.name;
     } else {
       const T = S.track;
       dna = {
@@ -1148,7 +1148,7 @@ export function mountGroovebox(app) {
 
   function syncTransportUI() {
     const isPlaying = app.getPlaying();
-    $('playBtn').textContent = isPlaying ? '■ STOP' : '▶ PLAY';
+    $('playLbl').textContent = isPlaying ? '■ STOP' : '▶ PLAY';
     $('playBtn').classList.toggle('on', isPlaying);
   }
 
@@ -1158,9 +1158,9 @@ export function mountGroovebox(app) {
     }
     const secName = song?.sections?.[p.sec]?.name?.toUpperCase() || 'SECT';
     $('posBadge').textContent = `${secName} · BAR ${p.barIndex + 1} · ${p.step + 1}`;
-    const grDb = gr < 0.999 ? (20 * Math.log10(gr)).toFixed(1) : '0.0';
+    const grDb = gr < 0.999 ? Math.max(-99.9, 20 * Math.log10(gr)).toFixed(1) : '0.0';
     $('grBadge').textContent = `GLUE ${grDb} dB`;
-    if (load != null) $('cpuChip').textContent = `DSP ${Math.round(load * 100)}%`;
+    if (load != null) $('cpuChip').textContent = `DSP ${Math.min(999, Math.round(load * 100))}%`;
   }
 
   requestAnimationFrame(renderMatrix);

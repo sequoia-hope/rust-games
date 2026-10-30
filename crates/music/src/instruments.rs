@@ -578,8 +578,12 @@ impl MonoVoice {
             self.vib_t = 0.0;
             self.k = 0;
         } else {
-            // `p.glide || 0.06`: a glide of 0 is missing too.
-            self.glide_k = 1.0 - (-1.0 / (tru(p.glide).unwrap_or(0.06) * sr / 3.0)).exp();
+            if tru(p.glide).is_none() {
+                let lo_hz = self.hz * 2f64.powf(-3.5 / 12.0);
+                let hi_hz = self.hz * 2f64.powf(3.5 / 12.0);
+                self.cur = self.cur.clamp(lo_hz, hi_hz);
+            }
+            self.glide_k = 1.0 - (-1.0 / (tru(p.glide).unwrap_or(0.028) * sr / 3.0)).exp();
             if self.env.st == 4 {
                 self.env.st = 2;
                 self.fenv.st = 2;
@@ -959,9 +963,15 @@ struct StringVoice {
     exc_n: i64,
     exc_d: i64,
     exc_lp: OnePole,
+    exc_lp2: OnePole,
     body: Svf,
     body2: Svf,
+    body3: Svf,
     tone: OnePole,
+    thump: f64,
+    thump_d: f64,
+    fret_nz: f64,
+    bloom_c: f64,
     midi: f64,
     cur: f64,
     hz: f64,
@@ -999,9 +1009,15 @@ impl StringVoice {
             exc_n: 0,
             exc_d: 0,
             exc_lp: OnePole::new(4000.0, sr),
+            exc_lp2: OnePole::new(4000.0, sr),
             body: Svf::new(),
             body2: Svf::new(),
+            body3: Svf::new(),
             tone: OnePole::new(6000.0, sr),
+            thump: 0.0,
+            thump_d: 0.996,
+            fret_nz: 0.0,
+            bloom_c: 0.0,
             midi: -1.0,
             cur: 110.0,
             hz: 110.0,
@@ -1030,52 +1046,139 @@ impl StringVoice {
     ) {
         let sr = self.sr;
         self.midi = midi;
-        self.vel = vel;
+        // Subtle human velocity micro-variation per string pluck.
+        let v_var = 1.0 + (self.r.next() - 0.5) * 0.08;
+        self.vel = (vel * v_var).clamp(0.05, 1.15);
         self.left = to_i32(dur_s).max(1);
         self.on = true;
         self.age = t;
         self.wait = wait;
-        self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
-        let legato = glide_from.is_some();
-        self.cur = if let Some(g) = glide_from {
-            mtof(g + 12.0 * p.oct.unwrap_or(0.0))
+        // Tiny organic per-note tuning variation (±1.6 cents on acoustic instruments).
+        let is_acoustic = truthy(p.body2);
+        let det_c = if is_acoustic {
+            (self.r.next() - 0.5) * 3.2
+        } else {
+            (self.r.next() - 0.5) * 1.2
+        };
+        self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0)) * cents(det_c);
+        // On a plucked string, only slide when `glide` is explicitly set to a
+        // slide-guitar time (>= 0.05 s, like pedalSteel) or the interval is a
+        // 1–2 semitone hammer-on/slide on the same string; larger leaps cross
+        // strings and re-fret cleanly at `self.hz`.
+        let same_string_slur =
+            glide_from.is_some_and(|g| (midi - g).abs() <= 2.2 || p.glide.unwrap_or(0.0) >= 0.05);
+        self.cur = if let Some(g) = glide_from.filter(|_| same_string_slur) {
+            let clamped_g = g.clamp(midi - 3.5, midi + 3.5);
+            mtof(clamped_g + 12.0 * p.oct.unwrap_or(0.0))
         } else if let Some(b) = tru(p.bend) {
             self.hz * 2f64.powf(-b / 12.0)
         } else {
             self.hz
         };
-        let gt = if legato { p.glide } else { p.bend_t };
-        self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.05) * sr / 3.0)).exp();
-        // The pluck: a burst one period long, low-passed by the pick's
-        // softness, brighter when hit harder, made now so the pick position
-        // can comb it (the burst less itself delayed by that fraction of the
-        // period: the partials with a node at the pick are not excited). The
-        // loop is cleared: a new pluck on a ringing string restarts it (the
-        // voice would be another one if not).
-        let n = js_round(sr / self.cur).max(2.0) as i64;
-        self.exc_lp
-            .set_hz(1200.0 + p.pick.unwrap_or(0.5) * 9000.0 * (0.4 + 0.6 * vel));
+        let gt = if same_string_slur {
+            tru(p.glide).or(Some(0.024))
+        } else {
+            p.bend_t
+        };
+        self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.04) * sr / 3.0)).exp();
+
+        // Human player variation in pick brightness and pluck position along the string.
+        let base_pick = p.pick.unwrap_or(0.5);
+        let pick_var =
+            (base_pick * (0.68 + 0.42 * self.vel) + (self.r.next() - 0.5) * 0.15).clamp(0.08, 0.98);
+        let n = js_round(sr / self.cur.min(self.hz)).max(2.0) as i64;
+        let pick_hz = if is_acoustic {
+            (950.0 + self.cur * (1.6 + pick_var * 3.8) + pick_var * 3200.0)
+                .min(sr * 0.44)
+                .max(900.0)
+        } else {
+            (1100.0 + pick_var * 8500.0)
+                .min(sr * 0.45)
+                .max(self.cur * 3.5)
+        };
+        self.exc_lp.set_hz(pick_hz);
         self.exc_lp.reset();
+        self.exc_lp2.set_hz((pick_hz * 1.45).min(sr * 0.46));
+        self.exc_lp2.reset();
+
+        let pos_frac = match tru(p.pick_pos) {
+            Some(pos) => (pos * (1.0 + (self.r.next() - 0.5) * 0.28)).clamp(0.06, 0.46),
+            None => 0.0,
+        };
+        let peak_idx = (pos_frac.max(0.18) * n as f64).clamp(1.0, (n - 1).max(1) as f64);
+        let mut mean = 0.0;
         for i in 0..n as usize {
+            let fi = i as f64;
+            let fn_ = n as f64;
+            let edge = (fi / (fn_ * 0.12).max(1.0))
+                .min((fn_ - 1.0 - fi) / (fn_ * 0.12).max(1.0))
+                .clamp(0.0, 1.0);
+            let tri = if fi < peak_idx {
+                fi / peak_idx
+            } else {
+                (fn_ - fi) / (fn_ - peak_idx).max(1.0)
+            };
+            let arch = (tri * 2.0 - 1.0) * edge;
             let w = self.r.next() * 2.0 - 1.0;
-            self.burst[i] = self.exc_lp.lp(w) as f32;
+            let v = if is_acoustic {
+                let nz = self.exc_lp2.lp(self.exc_lp.lp(w)) * (0.4 + 0.6 * edge);
+                arch * (0.56 - 0.22 * pick_var) + nz * (0.74 + 0.38 * pick_var)
+            } else {
+                let nz = self.exc_lp.lp(w) * (0.35 + 0.65 * edge);
+                arch * 0.18 + nz * 0.95
+            };
+            self.burst[i] = v as f32;
+            mean += v;
         }
-        self.exc_d = match tru(p.pick_pos) {
-            Some(pos) => (js_round(pos * n as f64) as i64).max(1),
-            None => 0,
+        if n > 0 {
+            let dc = (mean / n as f64) as f32;
+            for i in 0..n as usize {
+                self.burst[i] -= dc;
+            }
+        }
+        self.exc_d = if pos_frac > 0.0 {
+            (js_round(pos_frac * n as f64) as i64).max(1)
+        } else {
+            0
         };
         self.exc_n = n + self.exc_d;
         self.exc = self.exc_n;
-        self.body
-            .set(p.body.unwrap_or(2500.0), p.body_q.unwrap_or(1.2), sr);
+        let b1_hz = p.body.unwrap_or(2500.0);
+        self.body.set(b1_hz, p.body_q.unwrap_or(1.2), sr);
         if let Some(b2) = tru(p.body2) {
             self.body2.set(b2, p.body2_q.unwrap_or(1.5), sr);
+            // Soundboard presence mode: warm ~460 Hz wood on nylon, crisp ~1850 Hz top shimmer on steel.
+            let b3_hz = if base_pick > 0.45 {
+                (b1_hz * 8.8).clamp(1600.0, 2600.0)
+            } else {
+                (b1_hz * 2.05).min(3200.0)
+            };
+            self.body3.set(b3_hz, 1.35, sr);
         }
-        self.tone.set_hz(p.tone.unwrap_or(6000.0));
+        let tone_hz = p.tone.unwrap_or(6000.0) * (0.80 + 0.28 * self.vel);
+        self.tone.set_hz(tone_hz);
+        self.exc_lp2.set_hz((tone_hz * 1.15).min(sr * 0.46));
+        self.exc_lp2.reset();
         self.rel = false;
         self.k = 0;
         self.amp = 1.0;
         self.lp = 0.0;
+        // Acoustic wood-body knock + realistic pick/nail attack transient + tension pitch bloom.
+        if is_acoustic {
+            self.thump = self.vel
+                * (0.22 + 0.10 * self.r.next())
+                * if same_string_slur { 0.45 } else { 1.0 };
+            self.thump_d = (-1.0 / (0.012 * sr)).exp();
+            self.fret_nz = self.vel
+                * (0.04 + 0.08 * pick_var + 0.03 * self.r.next())
+                * if same_string_slur { 0.65 } else { 1.0 };
+            self.bloom_c = self.vel * self.vel * (3.5 + 3.0 * self.r.next());
+        } else {
+            self.thump = 0.0;
+            self.thump_d = 0.99;
+            self.fret_nz = 0.0;
+            self.bloom_c = 0.0;
+        }
         // The swell: from silence to full over `swell` seconds, a linear
         // ramp per sample (0 or missing: at once).
         match tru(p.swell) {
@@ -1091,6 +1194,8 @@ impl StringVoice {
         self.vib_t = 0.0;
         self.vib_c = 0.0;
         self.buf.fill(0.0);
+        let d_var = (p.damp.unwrap_or(0.4) + (self.r.next() - 0.5) * 0.04).clamp(0.0, 0.5);
+        self.damp = d_var;
         self.tune(p);
     }
 
@@ -1102,13 +1207,16 @@ impl StringVoice {
     /// filter only lengthens the loop, so it stops there.
     fn tune(&mut self, p: &Lab) {
         let sr = self.sr;
-        let hz = if self.vib_c != 0.0 {
-            self.cur * cents(self.vib_c)
+        let pitch_c = self.vib_c + self.bloom_c;
+        let hz = if pitch_c != 0.0 {
+            self.cur * cents(pitch_c)
         } else {
             self.cur
         };
-        self.damp = clamp(p.damp.unwrap_or(0.4), 0.0, 0.5);
-        self.d = (sr / hz - self.damp).max(2.0);
+        let damp = self.damp;
+        let d2 = if truthy(p.body2) { damp * 0.38 } else { 0.0 };
+        let filt_d = damp + d2;
+        self.d = (sr / hz - filt_d).max(2.0);
         self.g = 10f64.powf(-3.0 / (p.decay.unwrap_or(1.5).max(0.02) * hz));
         self.g_rel = 10f64.powf(-3.0 / (p.r.unwrap_or(0.3).max(0.01) * hz));
     }
@@ -1138,11 +1246,18 @@ impl StringVoice {
                 }
                 retune = true;
             }
+            if self.bloom_c > 0.02 {
+                self.bloom_c *= 0.982;
+                retune = true;
+            } else if self.bloom_c > 0.0 {
+                self.bloom_c = 0.0;
+                retune = true;
+            }
             // The bar's vibrato, after a delay, fading in over a quarter
             // second.
+            let sr = self.sr;
+            self.vib_t += 16.0 / sr;
             if let Some(vib) = tru(p.vib) {
-                let sr = self.sr;
-                self.vib_t += 16.0 / sr;
                 let vd = p.vib_delay.unwrap_or(0.3);
                 self.vib_c = if self.vib_t > vd {
                     ((self.vib_t - vd) / 0.25).min(1.0)
@@ -1158,15 +1273,44 @@ impl StringVoice {
             }
         }
         let n = self.buf.len();
-        let mut rp = self.w as f64 - self.d;
+        let is_acoustic = truthy(p.body2);
+        // Subtle dual-polarization string shimmer on acoustic strings.
+        let pol_mod = if is_acoustic {
+            (TAU * 1.45 * self.vib_t).sin() * 0.035
+        } else {
+            0.0
+        };
+        let mut rp = self.w as f64 - (self.d + pol_mod);
         while rp < 0.0 {
             rp += n as f64;
         }
-        let i = rp as usize;
-        let f = rp - i as f64;
-        let y = self.buf[i] as f64 * (1.0 - f) + self.buf[(i + 1) % n] as f64 * f;
-        let avg = y * (1.0 - self.damp) + self.lp * self.damp;
-        self.lp = y;
+        let i1 = rp as usize;
+        let f = rp - i1 as f64;
+        // 4-point Hermite interpolation prevents fractional-delay HF loss across frets.
+        let i0 = if i1 == 0 { n - 1 } else { i1 - 1 };
+        let i2 = (i1 + 1) % n;
+        let i3 = (i1 + 2) % n;
+        let y0 = self.buf[i0] as f64;
+        let y1 = self.buf[i1] as f64;
+        let y2 = self.buf[i2] as f64;
+        let y3 = self.buf[i3] as f64;
+        let c0 = y1;
+        let c1 = 0.5 * (y2 - y0);
+        let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+        let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+        let y = ((c3 * f + c2) * f + c1) * f + c0;
+
+        let avg = if is_acoustic {
+            let d2 = self.damp * 0.38;
+            let a1 = y * (1.0 - self.damp) + self.lp * self.damp;
+            let a2 = a1 * (1.0 - d2) + self.lp * d2;
+            self.lp = a1;
+            a2
+        } else {
+            let a1 = y * (1.0 - self.damp) + self.lp * self.damp;
+            self.lp = y;
+            a1
+        };
         let mut x = avg
             * (if self.rel {
                 self.g * self.g_rel
@@ -1176,26 +1320,43 @@ impl StringVoice {
         if self.exc > 0 {
             let i = self.exc_n - self.exc;
             self.exc -= 1;
-            let n = self.exc_n - self.exc_d;
-            let mut e = if i < n {
+            let n_exc = self.exc_n - self.exc_d;
+            let mut e = if i < n_exc {
                 self.burst[i as usize] as f64
             } else {
                 0.0
             };
             if self.exc_d > 0 && i >= self.exc_d {
-                e = (e - self.burst[(i - self.exc_d) as usize] as f64) * 0.7;
+                e = (e - self.burst[(i - self.exc_d) as usize] as f64) * 0.72;
             }
-            x += e * self.vel * 0.9;
+            x += e * self.vel * 0.96;
         }
         self.buf[self.w] = x as f32;
         self.w = (self.w + 1) % n;
-        self.body.run(x);
-        let mut out = x + self.body.bp * p.body_mix.unwrap_or(0.6);
-        if truthy(p.body2) {
-            self.body2.run(x);
-            out += self.body2.bp * p.body2_mix.unwrap_or(0.4);
-        }
-        out = self.tone.lp(out);
+
+        // Excite body resonators with both string vibration and bridge wood knock.
+        let body_in = x + self.thump;
+        self.body.run(body_in);
+        let mut out = if is_acoustic {
+            self.body2.run(body_in);
+            self.body3.run(body_in);
+            let b1 = (self.body.bp + self.body.lp * 0.28) * p.body_mix.unwrap_or(0.6);
+            let b2 = (self.body2.bp + self.body2.lp * 0.35) * p.body2_mix.unwrap_or(0.4);
+            let b3 = self.body3.bp * (p.body_mix.unwrap_or(0.6) * 0.42);
+            let mut acc = x * 0.56 + (b1 + b2 + b3) * 1.42;
+            if self.thump > 1e-4 {
+                self.thump *= self.thump_d;
+            }
+            if self.fret_nz > 1e-4 {
+                let fnz = self.exc_lp.lp(self.r.next() * 2.0 - 1.0) * self.fret_nz;
+                self.fret_nz *= 0.991;
+                acc += fnz;
+            }
+            acc
+        } else {
+            x + self.body.bp * p.body_mix.unwrap_or(0.6)
+        };
+        out = self.exc_lp2.lp(self.tone.lp(out));
         if self.sw < 1.0 {
             self.sw = (self.sw + self.sw_k).min(1.0);
             out *= self.sw;
@@ -1283,16 +1444,22 @@ impl BowedVoice {
         self.on = true;
         self.age = t;
         self.hz = mtof(midi + 12.0 * p.oct.unwrap_or(0.0));
-        let legato = glide_from.is_some();
-        self.cur = if let Some(g) = glide_from {
-            mtof(g + 12.0 * p.oct.unwrap_or(0.0))
+        let bow_slur =
+            glide_from.is_some_and(|g| (midi - g).abs() <= 3.5 || tru(p.glide).is_some());
+        self.cur = if let Some(g) = glide_from.filter(|_| bow_slur) {
+            let clamped_g = g.clamp(midi - 4.0, midi + 4.0);
+            mtof(clamped_g + 12.0 * p.oct.unwrap_or(0.0))
         } else if let Some(b) = tru(p.bend) {
             self.hz * 2f64.powf(-b / 12.0)
         } else {
             self.hz
         };
-        let gt = if legato { p.glide } else { p.bend_t };
-        self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.06) * sr / 3.0)).exp();
+        let gt = if bow_slur {
+            tru(p.glide).or(Some(0.032))
+        } else {
+            p.bend_t
+        };
+        self.glide_k = 1.0 - (-1.0 / (gt.unwrap_or(0.045) * sr / 3.0)).exp();
         self.env.set_all(
             p.a.unwrap_or(0.08),
             p.d.unwrap_or(0.3),
@@ -1506,7 +1673,13 @@ impl Poly {
             "bowed" => Kind::Bowed,
             _ => Kind::Juno,
         };
-        let n = if k == Kind::Mono { 1 } else { n_voices };
+        let n = if k == Kind::Mono {
+            1
+        } else if k == Kind::Str {
+            n_voices.max(12)
+        } else {
+            n_voices
+        };
         let voices = (0..n)
             .map(|i| {
                 let s = to_u32(seed as f64 * 101.0 + i as f64 * 7919.0);
@@ -1627,9 +1800,28 @@ impl Poly {
         } else {
             0
         };
+        let upstroke = self.kind == Kind::Str
+            && strum > 0
+            && midis.len() >= 3
+            && self.t > 1
+            && (self.t.is_multiple_of(2) && vel < 0.80);
         for (i, &m0) in midis.iter().enumerate() {
-            let finger = if self.kind != Kind::Str && strum > 0 && midis.len() > 1 {
-                if i == 0 {
+            let order_i = if upstroke { midis.len() - 1 - i } else { i };
+            let h_u32 = to_u32((self.t as f64) * 131.0 + (i as f64) * 977.0);
+            let h_norm = (h_u32 & 0xffff) as f64 / 65535.0 - 0.5;
+            let finger = if strum > 0 && midis.len() > 1 {
+                let base_w = if order_i == 0 {
+                    1.08
+                } else if i + 1 == midis.len() {
+                    1.03
+                } else if order_i + 1 == midis.len() && upstroke {
+                    0.82
+                } else {
+                    0.93
+                };
+                if self.kind == Kind::Str {
+                    (base_w + h_norm * 0.10).clamp(0.75, 1.15)
+                } else if i == 0 {
                     1.05
                 } else if i + 1 == midis.len() {
                     1.00
@@ -1638,6 +1830,19 @@ impl Poly {
                 }
             } else {
                 1.0
+            };
+            let wait_s = if order_i == 0 || strum <= 0 {
+                0
+            } else if self.kind == Kind::Str {
+                let curve = (order_i as f64).powf(0.90);
+                let jitter = if order_i == 1 {
+                    h_norm.max(0.0) * 0.14
+                } else {
+                    h_norm * 0.16
+                };
+                ((strum as f64 * (curve + jitter)).round() as i64).max(strum)
+            } else {
+                strum * order_i as i64
             };
             for j in 0..n_s {
                 let m = if n_s > 1 {
@@ -1659,6 +1864,11 @@ impl Poly {
                     }
                 };
                 let v = &mut self.voices[vi];
+                let course_wait = if j > 0 {
+                    (0.0018 * self.sr * j as f64) as i64
+                } else {
+                    0
+                };
                 v.start(
                     &self.p,
                     m,
@@ -1666,7 +1876,7 @@ impl Poly {
                     dur_s,
                     opt.glide_from,
                     self.t,
-                    strum * i as i64,
+                    wait_s + course_wait,
                 );
                 v.set_age(self.t);
             }

@@ -161,6 +161,7 @@ fn the_new_edm_profiles_sit_with_the_bass() {
         "uplifting",
         "liquid",
         "dubstep",
+        "acoustic",
     ] {
         for seed in [1, 2] {
             let bass = loudness(genre, seed, "bass").unwrap();
