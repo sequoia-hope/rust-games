@@ -189,7 +189,7 @@ async function findData() {
 
 // The shipped policy and the estimator distilled from it: a pair (an
 // estimator guesses its own teacher's latent, no other's).
-const SHIPPED = 'teacher-v4';
+const SHIPPED = 'teacher-v5';
 let shipped = null;
 async function loadShipped(lane) {
   shipped ??= Promise.all(['.bin', '.estimator.bin'].map((ext) =>

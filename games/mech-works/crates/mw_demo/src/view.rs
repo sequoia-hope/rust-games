@@ -293,9 +293,9 @@ fn torso() -> Vec<Part> {
         plate([0.45, 0.75, 1.0], Dark, Vec3::new(-0.78, c + 0.1, 0.0)),
         plate([0.1, 0.5, 0.8], Joint, Vec3::new(-1.03, c + 0.1, 0.0)),
         // The skirt over the hips and pelvic hydraulic accumulator.
-        plate([1.0, 0.22, 1.2], Dark, Vec3::new(0.0, -0.02, 0.0)),
+        plate([1.0, 0.22, 1.6], Dark, Vec3::new(0.0, -0.02, 0.0)),
         plate([0.18, 0.3, 1.0], Joint, Vec3::new(0.5, 0.0, 0.0)).rot(Quat::from_rotation_z(0.25)),
-        drum_z(0.14, 0.72, Chrome, Vec3::new(-0.18, -0.06, 0.0)),
+        drum_z(0.14, 1.1, Chrome, Vec3::new(-0.18, -0.06, 0.0)),
         // Overhead cockpit roll-cage cross-bar.
         drum_z(0.032, 0.86, Chrome, Vec3::new(0.46, c + 1.03, 0.0)),
     ];

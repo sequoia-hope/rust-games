@@ -28,6 +28,31 @@
 <p class="sub">Dev log: what was built, what was found, what is next. Newest first. Spec: <code>docs/SPEC.md</code>.</p>
 
 <article id="2026-10-27-webgl2-light">
+<h2>teacher-v5: wider hips, and 3.3 m/s</h2>
+<time>2026-11-02</time>
+<p>Two asks: walk faster, and stand with the legs farther apart. The hips are now 1.3 m apart (<code>dims::HIP_Z</code> 0.45 → 0.65 m), and the commanded speed goes up to 3.5 m/s (<code>env::MAX_FORWARD</code>, was 2.0). A longer stride alone could not do it: at the old 1.3 s gait cycle, 3.5 m/s is a 2.3 m step on a 1.8 m leg. So the gait clock now quickens with the command, 1.3 s up to 1.5 m/s and down to 0.9 s at 3.5 m/s. It accumulates rather than being computed from the step count, so a new command changes its rate without a jump in phase.</p>
+<p>teacher-v5 fine-tunes teacher-v4 for 150M steps (2 hours), starting at curriculum level 0.2; estimator-v5 is distilled from it (40M steps). v4 already walked on the wider hips without retraining: no falls on the nominal body at 1 or 2 m/s. The demos and the game now ship v5; v4 is gone from <code>assets/policies/</code>. Shift, the right trigger, the stick and the page's slider reach 3.5 m/s.</p>
+<img src="img/2026-11-02-wide-front.jpg" alt="The mech seen from the front, standing with its legs wide apart">
+<p class="cap">The new stance, with the skirt and the pelvic drum widened to meet the hips (native render).</p>
+<img src="img/2026-11-02-run.jpg" alt="The mech mid-stride from the side, asked for 3.5 m/s">
+<p class="cap">Mid-stride, asked for 3.5 m/s (native render).</p>
+<p>Measured with the eval: 32 episodes of 20 s each, walking on the estimator's guess as in the game. Each cell is the speed reached and the falls out of 32.</p>
+<table>
+<tr><th>Asked</th><th>nominal</th><th>random bodies</th><th>bodies + pushes + damage</th></tr>
+<tr><td>1 m/s</td><td>1.02 m/s, 0</td><td>0.92 m/s, 6</td><td>0.89 m/s, 17</td></tr>
+<tr><td>2 m/s</td><td>1.97 m/s, 0</td><td>1.79 m/s, 6</td><td>1.66 m/s, 16</td></tr>
+<tr><td>3 m/s</td><td>2.88 m/s, 0</td><td>2.63 m/s, 6</td><td>2.35 m/s, 21</td></tr>
+<tr><td>3.5 m/s</td><td>3.29 m/s, 0</td><td>3.02 m/s, 6</td><td>2.63 m/s, 24</td></tr>
+</table>
+<p>Top speed on the nominal body is up from 1.87 m/s (v4). What it costs:</p>
+<ul>
+<li>A damaged, pushed mech cannot run flat out: 24 of 32 fall at 3.5 m/s. Falls on random bodies alone do not rise with speed.</li>
+<li>The curriculum held at level 0.75 (v4: 0.80), with the fall rate on the widest bodies above the 0.15 that steps it up, so the damage range is a little narrower than v4 trained on.</li>
+<li>The joints work harder: RMS acceleration 32 rad/s² at 3.5 m/s, against 21 at 1 m/s.</li>
+<li>The estimator earns less at top speed: with pushes and damage, told only the nominal body it falls 25 of 32 at 3.5 m/s against the estimator's 24, where at 2 m/s the gap is 21 against 16.</li>
+</ul>
+<p>In the level, with the blade held (<code>examples/rubble_walk.rs</code>): the route opens at 33 s after 54 shoves with no falls (v4: 35 s, 57 shoves). Without the blade it still trips on the rubble pile within 20 s.</p>
+
 <h2>WebGL2 was dark: one directional light</h2>
 <time>2026-10-27</time>
 <p>In a browser without WebGPU every mode was close to black: the ground, the rocks, the mech. Bevy draws one directional light on WebGL2 (it logs &ldquo;the amount of directional lights of 3 is exceeding the supported limit of 1&rdquo;), and the scene had three: the sun, the sky fill and the ground bounce. The one kept was not the sun, so lit faces got only the ambient term. The earlier &ldquo;too dark&rdquo; fix was judged from native pictures, which draw all three, so it never showed there.</p>

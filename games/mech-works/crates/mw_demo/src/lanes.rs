@@ -590,7 +590,7 @@ fn keys(keys: Res<ButtonInput<KeyCode>>, mode: Res<Mode>, mut lanes: ResMut<Lane
     let mut c = lanes.command;
     let mut changed = false;
     if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
-        c.forward = (c.forward + 0.25).min(1.5);
+        c.forward = (c.forward + 0.25).min(mw_sim::env::MAX_FORWARD);
         changed = true;
     }
     if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
