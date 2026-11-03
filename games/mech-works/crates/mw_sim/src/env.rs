@@ -18,8 +18,15 @@ pub const POLICY_DT: f32 = DT * DECIMATION as f32;
 /// Joint targets are the standing pose plus this many radians per unit of action.
 pub const ACTION_SCALE: f32 = 0.4;
 
-/// The gait clock's period, s (a full cycle: two steps).
+/// The gait clock's period, s (a full cycle: two steps), up to
+/// [`GAIT_BRISK`]; it shortens to [`GAIT_PERIOD_FAST`] at [`MAX_FORWARD`], as
+/// the stride alone would have to be longer than the legs can reach.
 pub const GAIT_PERIOD: f32 = 1.3;
+pub const GAIT_PERIOD_FAST: f32 = 0.9;
+pub const GAIT_BRISK: f32 = 1.5;
+
+/// The fastest forward speed the policy is commanded, m/s.
+pub const MAX_FORWARD: f32 = 3.5;
 
 /// Episode length, s.
 pub const EPISODE_S: f32 = 20.0;
@@ -111,6 +118,8 @@ pub struct Env {
     pub believed: BodyParams,
     rng: Rng,
     pub steps: u32,
+    /// The gait clock, 0 to 1: its rate follows the commanded speed.
+    phase: f32,
     pub action: [f32; JOINTS],
     pub last_action: [f32; JOINTS],
     /// The action before `last_action`, for the smoothness reward.
@@ -140,6 +149,7 @@ impl Env {
             believed: BodyParams::default(),
             rng: Rng::new(seed),
             steps: 0,
+            phase: 0.0,
             action: [0.0; JOINTS],
             last_action: [0.0; JOINTS],
             prev_last_action: [0.0; JOINTS],
@@ -165,6 +175,7 @@ impl Env {
         self.believed = params.clone();
         self.sim = Sim::new(params, &self.terrain, 0.0, 0.0);
         self.steps = 0;
+        self.phase = 0.0;
         self.action = [0.0; JOINTS];
         self.last_action = [0.0; JOINTS];
         self.prev_last_action = [0.0; JOINTS];
@@ -226,14 +237,20 @@ impl Env {
             return Command { forward: 0.0, yaw };
         }
         Command {
-            forward: r.range(-0.3 * s, 2.0 * s),
+            forward: r.range(-0.3 * s, MAX_FORWARD * s),
             yaw,
         }
     }
 
     /// The gait clock's phase, 0 to 1.
     pub fn phase(&self) -> f32 {
-        (self.steps as f32 * POLICY_DT / GAIT_PERIOD).fract()
+        self.phase
+    }
+
+    /// The gait clock's period at the commanded speed, s.
+    pub fn gait_period(&self) -> f32 {
+        let t = (self.command.forward.abs() - GAIT_BRISK) / (MAX_FORWARD - GAIT_BRISK);
+        GAIT_PERIOD + (GAIT_PERIOD_FAST - GAIT_PERIOD) * t.clamp(0.0, 1.0)
     }
 
     /// Whether each foot should be on the ground now.
@@ -350,6 +367,7 @@ impl Env {
         }
         torque_cost /= DECIMATION as f32;
         self.steps += 1;
+        self.phase = (self.phase + POLICY_DT / self.gait_period()).fract();
 
         if self.terrain.density > 0.0 {
             let x = self.sim.torso().translation().x;
@@ -609,6 +627,24 @@ mod tests {
             com(&bare)
         );
         assert!(env.sim.tool_shape().is_some() && bare.sim.tool_shape().is_none());
+    }
+
+    #[test]
+    fn the_gait_clock_quickens_with_speed_without_jumping() {
+        let mut env = Env::new(1);
+        env.hold_command = true;
+        env.command = Command {
+            forward: 1.0,
+            yaw: 0.0,
+        };
+        assert_eq!(env.gait_period(), GAIT_PERIOD);
+        env.step(&[0.0; JOINTS]);
+        let before = env.phase();
+        env.command.forward = MAX_FORWARD;
+        assert_eq!(env.gait_period(), GAIT_PERIOD_FAST);
+        env.step(&[0.0; JOINTS]);
+        let advance = env.phase() - before;
+        assert!((advance - POLICY_DT / GAIT_PERIOD_FAST).abs() < 1e-5);
     }
 
     #[test]

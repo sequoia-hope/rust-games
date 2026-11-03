@@ -149,7 +149,7 @@ pub mod dims {
     pub const TORSO_MASS: f32 = 2400.0;
     /// The hips, below the torso origin and to each side.
     pub const HIP_Y: f32 = -0.1;
-    pub const HIP_Z: f32 = 0.45;
+    pub const HIP_Z: f32 = 0.65;
     /// The small links inside the hip and ankle.
     pub const HIP_LINK_MASS: f32 = 60.0;
     pub const ANKLE_LINK_MASS: f32 = 40.0;

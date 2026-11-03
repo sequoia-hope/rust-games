@@ -28,7 +28,7 @@ use crate::view::LinkView;
 /// Walk speeds the keys ask for, m/s, and the turn rate, rad/s (the
 /// policy's command range).
 const WALK: f32 = 1.0;
-const RUN: f32 = 2.0;
+const RUN: f32 = mw_sim::env::MAX_FORWARD;
 const BACK: f32 = -0.3;
 const TURN: f32 = 0.8;
 

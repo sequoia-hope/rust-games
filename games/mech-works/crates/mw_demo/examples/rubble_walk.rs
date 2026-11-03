@@ -13,7 +13,7 @@ fn main() {
     let blob = args.first().cloned().unwrap_or_else(|| {
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../assets/policies/teacher-v4.bin"
+            "/../../assets/policies/teacher-v5.bin"
         )
         .into()
     });
