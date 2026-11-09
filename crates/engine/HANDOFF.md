@@ -87,7 +87,7 @@ move is recorded in `docs/DECISIONS.md` (D1 to D9).
    session `game-engine`. The `game-engine` and `web-game-engine` tmux
    sessions are live.
 5. **Agent memory is keyed by path**:
-   `~/.claude/projects/-home-sequoia-Software-game-engine/memory/` holds
+   `~/.claude/projects/-home-<user>-Software-game-engine/memory/` holds
    the owner's kit decisions and the snowboarding hands-off rule. Copy it
    to the directory for the new path.
 6. **Sibling agents.** Midnight Playground and Snowboarding have their

@@ -81,7 +81,7 @@ is; `CLAUDE.md` holds the working rules.
    - `launch.sh` names its tmux session `snowboarding`; keep it unique in
      the new workspace.
    - Claude's project memory is keyed by path
-     (`~/.claude/projects/-home-sequoia-Software-snowboarding/`); it does
+     (`~/.claude/projects/-home-<user>-Software-snowboarding/`); it does
      not follow the move.
    - Tooling referenced by `CLAUDE.md` lives outside: the announcers' TTS
      and ASR venvs and models on `/mnt/carson/qwen3-speech-bench/`, and

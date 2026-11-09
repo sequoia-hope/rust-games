@@ -243,7 +243,7 @@ None of this happens before you have verified the new tree.
   - Then `proj down` / `proj up` each one, and run `proj doctor`.
   - Midnight Playground's `stream`/`signal` extras move with it.
   - Until then, the old folders keep serving as they do now.
-- **Claude memory:** copy the three memory folders (`~/.claude/projects/-home-sequoia-Software-{midnight-playground,snowboarding,game-engine}/memory/`) into the `rust-games` project memory, with a prefix per source and an updated index.
+- **Claude memory:** copy the three memory folders (`~/.claude/projects/-home-<user>-Software-{midnight-playground,snowboarding,game-engine}/memory/`) into the `rust-games` project memory, with a prefix per source and an updated index.
 - **`render/bevy_runtime`:** its patch paths must point at `…/rust-games/crates/engine/patches/*` before the old `game-engine` folder is deleted. That repo is outside this one, so I won't edit it unless you ask.
 - **The kit's `template/`** still assumes a sibling `../game-engine` and the `playground-kit` clone. It's excluded from the build, so it's left as is and noted in `crates/engine/CHANGELOG.md` and `status/` as follow-up work.
 - **tmux sessions:** stop the old agent sessions (`game-engine`, `snowboarding`, Midnight Playground's) before you delete the old folders. The new tree's per-game `launch.sh` scripts keep unique session names.
