@@ -79,7 +79,7 @@ move is recorded in `docs/DECISIONS.md` (D1 to D9).
    repo root's `.github/workflows/`, so `ci.yml` has to move or be merged.
    Decide which repo `main` gets pushed to.
 4. **The port registry.** `~/scripts/launcher.toml` registers
-   `game-engine` with `dir = /home/sequoia/Software/game-engine`.
+   `game-engine` with `dir = ~/Software/game-engine`.
    `serve.sh` gets its port from `proj port` via the current directory,
    and the server is running now on its registered port. Before the move,
    run `proj down game-engine`. After it, update the registry `dir`, then

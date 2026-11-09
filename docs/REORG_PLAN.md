@@ -131,7 +131,7 @@ These are the only code changes in the migration phase:
 
   In the monorepo, both games would write to the same `rust-games/dist/`. I'll add a game root, taken from the calling xtask's manifest directory, for `dist/`. Target paths will come from `cargo metadata`'s `target_directory`, and `deps.toml` stays at the workspace root. This changes `pk_xtask`'s public API, so it gets a CHANGELOG entry.
 - **Snowboarding's xtask** already uses its own manifest directory for `dist/`. It needs the same `target_directory` fix.
-- **Midnight Playground's JS tools** reach the kit through `../../../game-engine/js/*` (`tools/parity/*.mjs`, `e2e/harness.mjs`, `lib/server.mjs`). These become paths to `crates/engine/js`. `tools/parity/gen-index.py:10` has an absolute `/home/sequoia/Software/game-engine/...` path, which becomes a relative one.
+- **Midnight Playground's JS tools** reach the kit through `../../../game-engine/js/*` (`tools/parity/*.mjs`, `e2e/harness.mjs`, `lib/server.mjs`). These become paths to `crates/engine/js`. `tools/parity/gen-index.py:10` has an absolute path to the kit checkout, which becomes a relative one.
 - **The music golden tests** read `../../parity/golden/music/*.json`. The goldens move to `crates/music/tests/golden/`, and the Music Lab's `golden.mjs`, which stays in the game, writes them there.
 - **CI workflows** that clone the kit to `../game-engine` aren't touched in this phase (decision 5).
 - **Docs and comments that mention `../game-engine`.** I'll fix the operational ones: CLAUDE.md files, READMEs, Cargo.toml comments and scripts. Historical logs (`DECISIONS.md`, handoffs) stay as written, because they record what was true then.

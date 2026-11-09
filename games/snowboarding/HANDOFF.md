@@ -70,7 +70,7 @@ is; `CLAUDE.md` holds the working rules.
    `wasm-bindgen = "=0.2.129"` must match the installed `wasm-bindgen-cli`.
 3. **Absolute paths outside the repo.**
    - The port registry: `~/scripts/launcher.toml` has
-     `dir = "/home/sequoia/Software/snowboarding"`. Update it (or re-`proj
+     `dir = "~/Software/snowboarding"`. Update it (or re-`proj
      add`), then `proj doctor`. `serve.sh` resolves its port with `proj
      port` from its own directory, so it fails loudly until the registry
      knows the new path.
