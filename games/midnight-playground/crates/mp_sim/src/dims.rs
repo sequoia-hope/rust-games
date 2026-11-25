@@ -36,8 +36,9 @@ const fn d(
     }
 }
 
-/// `VEHICLE_KINDS` in `CarModel.js` order, then the sawhorse.
-pub const DIMS: [(&str, Dims); 14] = [
+/// `VEHICLE_KINDS` in `CarModel.js` order, then the sawhorse, then the
+/// expanded garage cars.
+pub const DIMS: [(&str, Dims); 21] = [
     ("sports", d(4.47, 1.9, 1.25, 0.34, 2.6, 1.62)),
     ("muscle", d(4.86, 1.95, 1.35, 0.36, 2.8, 1.64)),
     ("super", d(4.57, 2.05, 1.14, 0.35, 2.7, 1.72)),
@@ -62,6 +63,13 @@ pub const DIMS: [(&str, Dims); 14] = [
             track: None,
         },
     ),
+    ("firebird", d(4.8, 1.92, 1.26, 0.35, 2.72, 1.62)),
+    ("vr4", d(4.56, 1.9, 1.26, 0.34, 2.62, 1.62)),
+    ("audax", d(4.58, 1.84, 1.38, 0.34, 2.66, 1.58)),
+    ("roadster", d(4.24, 1.86, 1.22, 0.33, 2.48, 1.58)),
+    ("diablo", d(4.6, 2.08, 1.15, 0.35, 2.68, 1.74)),
+    ("cgt", d(4.62, 1.98, 1.17, 0.35, 2.72, 1.68)),
+    ("volt", d(4.68, 2.0, 1.24, 0.36, 2.86, 1.7)),
 ];
 
 /// The dimensions of a kind; `None` for one the game does not build.

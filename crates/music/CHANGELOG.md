@@ -6,6 +6,51 @@ notable additions too. Newest first.
 
 ## Unreleased
 
+### Classical & chamber genre, simulated acoustic instruments, and morphing synthesizers (2026-11-25)
+
+- **New synthesis engines & opt-in DSP upgrades (`instruments.rs`, `track.rs`):**
+  all new parameters default to `None` so every existing patch, track, and golden
+  render remains bit-for-bit identical.
+  - **`WindVoice` (`kind: "wind"`):** air-jet concert flute (`reed` unset/0,
+    soft-saturated harmonic jet + tracked breath chiff) and reed woodwinds
+    (`reed > 0`: cylindrical odd-harmonic clarinet when `wave == "square"`,
+    conical double-reed oboe/bassoon otherwise) through three fixed vocalic
+    formants (`body`, `body2`, `body3`), tonguing envelope, legato slurs, and
+    delayed vibrato.
+  - **`ModalVoice` (`kind: "modal"`):** 5-mode struck bar/bell resonator
+    (`celesta`, `vibraphone` with fan tremolo, `marimba`, `tubularBells`
+    selected by `morph`) and 2-oscillator morphing harmonic wavetable / CS-80
+    synthesizer (`wave: "wt"`).
+  - **`StringVoice` & `BowedVoice` & `FmVoice` extensions:** velocity-hardened
+    felt piano hammer (`hammer`), 1-pole allpass partial-stretch dispersion
+    (`inharm`), key-scaled decay (`decayKey`), and harpsichord quill/jack
+    release (`jack`) on `StringVoice`; bow-bite transient (`fenv`), bow-position
+    comb (`pickPos`), 3rd bridge-hill formant (`body3`), true legato slurs, and
+    multi-desk `strings` spread on `BowedVoice`; `"brass"` and `"pad"`
+    algorithms, delayed vibrato, and post-filter `cutoff` on `FmVoice`.
+- **22 new base patches (`patches.rs`, `LAB_SHA256` updated):**
+  - Acoustic keyboards, plucked & mallets: `concertGrand`, `feltPiano`,
+    `harpsichord`, `concertHarp`, `pizzicatoStrings`, `celesta`, `vibraphone`,
+    `marimba`, `tubularBells`.
+  - Solo & chamber bowed strings: `soloViolin`, `soloViola`, `soloCello`,
+    `chamberStrings`, `spiccatoStrings`.
+  - Woodwinds & concert flute: `concertFlute`, `oboe`, `clarinet`, `bassoon`.
+  - Expressive synthesizers: `cs80Lead`, `wavetablePad`, `dxRhodes`,
+    `prophetBrass` (also drawn on seeds > 2 in `synthwave`, `outrun`, `deep`,
+    `chicago`, `french`, `detroit`, `uplifting`, and `liquid`).
+- **Classical generator profile (`"classical"` in `generator/`):**
+  - Deterministic sub-styles via `profile::resolve_profile(p, seed)` (`seed % 3`):
+    **Baroque** concerto grosso / invention (`0`: harpsichord bariolage,
+    `BassStyle::Baroque` walking continuo, solo violin/oboe/flute),
+    **Classical / Romantic Chamber** (`1`: concert grand / harp Alberti
+    accompaniment, `BassStyle::Classical`, conversing soloists), and
+    **Minimalist / Neo-classical** (`2`: felt piano / marimba / celesta
+    `3+3+2` & rolling ostinati under chamber strings).
+  - Secondary dominants (`V/V`, `V7/V`, `V/vi`, `vii°7/V`) in
+    `theory::numeral`, species counterpoint second soloist (`Role::Vocal` /
+    `"V"` layer `"counter"` in `parts::counterpoint`), and diatonic melodic
+    inversion + sequence (`parts::develop_motif`).
+
 ### Genre DNA: settings that morph a playing song, and the lab's groovebox (2026-10-24)
 
 - **Breaking (small): `generator::Settings` has more fields.** Beside `bpm`

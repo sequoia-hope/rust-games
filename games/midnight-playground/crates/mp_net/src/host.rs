@@ -49,11 +49,12 @@ pub const MAX_CATCH_UP: u32 = 24;
 /// Points by finishing place (MULTIPLAYER 4.5).
 pub const POINTS: [u32; 8] = [10, 8, 6, 5, 4, 3, 2, 1];
 
-/// The cars a player may pick.
-const CARS: [&str; 5] = ["sports", "muscle", "super", "rally", "electric"];
-
 fn car_id(s: &str) -> &'static str {
-    CARS.iter().copied().find(|c| *c == s).unwrap_or("sports")
+    mp_sim::physics::CAR_SPECS
+        .iter()
+        .map(|&(id, _)| id)
+        .find(|&c| c == s)
+        .unwrap_or("sports")
 }
 
 struct Player {
@@ -732,10 +733,11 @@ pub fn multi_opts(s: &RaceStart) -> MultiOpts {
     }
 }
 
-/// Whether `id` is one of the game's levels (`level_by_id` falls back to
-/// the first for anything else, which a lobby must not do quietly).
+/// Whether `id` is a raceable level (`level_by_id` falls back to the first for
+/// anything else, and endless cruise / open-world corridors have no finish in a
+/// multiplayer lobby).
 pub fn known_level(id: &str) -> bool {
-    mp_levels::levels().iter().any(|l| l.id == id)
+    mp_levels::race_levels().iter().any(|l| l.id == id)
 }
 
 /// A name as the lobby shows it: trimmed, at most 16 characters, never

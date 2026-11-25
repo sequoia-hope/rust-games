@@ -647,6 +647,95 @@ pub fn bass(style: BassStyle, prog: &[Chord], tonic: i32, lo: i32, d: &mut Dice)
                     notes.push(n4);
                 }
             }
+            BassStyle::Baroque => {
+                // Walking 8th-note basso continuo (Bach / Vivaldi): steps cleanly
+                // through chord root, third, fifth, octave, and scalar approach
+                // into the next bar's harmony.
+                let third = if c.minor { 3.0 } else { 4.0 };
+                let fifth = if c.tones.contains(&6) { 6.0 } else { 7.0 };
+                let approach = if (next - root).abs() <= 2.5 {
+                    next - root
+                } else if next > root {
+                    (next - root - 2.0).clamp(-5.0, 10.0)
+                } else {
+                    (next - root + 2.0).clamp(-7.0, 9.0)
+                };
+                let walk = if bar % 2 == 0 {
+                    [0.0, 12.0, third, fifth, 0.0, third, fifth, approach]
+                } else {
+                    [0.0, third, fifth, 12.0, fifth, third, 0.0, approach]
+                };
+                for (k, &iv) in walk.iter().enumerate() {
+                    let m = (root + iv).clamp(lo as f64, (lo + 19) as f64);
+                    let strong = k % 2 == 0;
+                    let base_v = if k == 0 {
+                        0.88
+                    } else if k == 4 {
+                        0.83
+                    } else if strong {
+                        0.78
+                    } else {
+                        0.70
+                    };
+                    let vel = (base_v + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.56, 0.94);
+                    let len = (if strong { 1.72 } else { 1.48 }) + de.f() * 0.16;
+                    let micro = if k > 0 { de.f() * 0.022 } else { 0.0 };
+                    notes.push(Note::pitched(
+                        b0 + k as f64 * 2.0 + micro,
+                        len,
+                        vec![m],
+                        vel,
+                    ));
+                }
+            }
+            BassStyle::Classical => {
+                // Chamber cello / contrabass cantabile foundation: warm half-note
+                // or dotted-quarter root, third/fifth inversion on beat 3, and a
+                // singing passing note into cadence changes.
+                let third = if c.minor { 3.0 } else { 4.0 };
+                let fifth = if c.tones.contains(&6) {
+                    6.0
+                } else if root + 7.0 <= (lo + 17) as f64 {
+                    7.0
+                } else {
+                    -5.0
+                };
+                let arch = 0.94
+                    + 0.08 * ((bar as f64 + 0.5) / n.max(1) as f64 * std::f64::consts::PI).sin();
+                notes.push(Note::pitched(
+                    b0,
+                    7.4 + de.f() * 0.25,
+                    vec![root],
+                    (0.86 * arch + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.64, 0.94),
+                ));
+                let beat3 = if turnaround || bar % 2 == 0 {
+                    fifth
+                } else {
+                    third
+                };
+                notes.push(Note::pitched(
+                    b0 + 8.0 + de.f() * 0.02,
+                    if turnaround { 3.7 } else { 5.6 } + de.f() * 0.2,
+                    vec![(root + beat3).clamp(lo as f64, (lo + 18) as f64)],
+                    (0.78 * arch + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.58, 0.90),
+                ));
+                if turnaround || bar % 2 == 1 {
+                    let pass = if (next - root).abs() > 0.5 {
+                        next
+                    } else {
+                        (root + fifth).clamp(lo as f64, (lo + 18) as f64)
+                    };
+                    let start_st = if turnaround { 12.0 } else { 14.0 };
+                    let mut p_note = Note::pitched(
+                        b0 + start_st + de.f() * 0.025,
+                        (16.0 - start_st) * 0.92,
+                        vec![pass],
+                        (0.75 * arch + (de.f() * 2.0 - 1.0) * 0.03).clamp(0.56, 0.88),
+                    );
+                    p_note.slide = true;
+                    notes.push(p_note);
+                }
+            }
         }
     }
     Pattern {
@@ -847,6 +936,316 @@ pub fn arp_var(p: &Pattern, d: &mut Dice) -> Pattern {
     Pattern {
         name: format!("{} var", p.name),
         len: p.len,
+        notes,
+    }
+}
+
+/// Classical keyboard/harp/mallet figurations by sub-style:
+/// `0` = Baroque 16th bariolage (`[0, 2, 1, 2, 3, 2, 1, 2, ...]`),
+/// `1` = Classical/Romantic Alberti broken-chord accompaniment (`[0, 2, 1, 2, ...]`),
+/// `2` = Minimalist / Neo-classical additive `3+3+2` & rolling ostinato.
+pub fn classical_arp(substyle: u8, voiced: &[Vec<i32>], d: &mut Dice) -> Pattern {
+    let mut de = d.fork("classical_arp");
+    let n_bars = voiced.len().max(1) as f64;
+    let mut notes = Vec::new();
+    let min_grid_choice = de.int(0, 2);
+    for (bar, v) in voiced.iter().enumerate() {
+        let mut tones: Vec<i32> = v.clone();
+        let mut oct = 0;
+        while tones.len() < 5 {
+            let src = v[oct % v.len()] + 12 * (oct / v.len() + 1) as i32;
+            tones.push(src);
+            oct += 1;
+        }
+        let b0 = bar as f64 * 16.0;
+        let swell = 0.92 + 0.12 * ((bar as f64 + 0.5) / n_bars * std::f64::consts::PI).sin();
+        match substyle {
+            0 => {
+                // Baroque concerto grosso / harpsichord continuo figuration:
+                // stately 8th + two-16th cells (10 notes/bar) with breathing space
+                // for the soloists instead of relentless 16th-note walls.
+                const STEPS_B: [f64; 10] = [0.0, 2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 11.0, 12.0, 14.0];
+                const BAROQUE: [usize; 10] = [0, 2, 1, 2, 3, 0, 3, 2, 4, 1];
+                for (k, (&st, &idx)) in STEPS_B.iter().zip(&BAROQUE).enumerate() {
+                    let next_st = STEPS_B.get(k + 1).copied().unwrap_or(16.0);
+                    let gap = (next_st - st).max(1.0);
+                    let m = tones[idx % tones.len()] as f64;
+                    let base_v = match k {
+                        0 | 5 => 0.78,
+                        3 | 8 => 0.71,
+                        _ => 0.61,
+                    };
+                    let vel = (base_v * swell + (de.f() * 2.0 - 1.0) * 0.04).clamp(0.46, 0.88);
+                    let micro = if st > 0.0 {
+                        0.010 + de.f() * 0.022
+                    } else {
+                        0.0
+                    };
+                    notes.push(Note::pitched(
+                        b0 + st + micro,
+                        (gap * 0.88).clamp(0.85, 2.2),
+                        vec![m],
+                        vel,
+                    ));
+                }
+            }
+            1 => {
+                // Classical / Romantic Alberti accompaniment (low-high-mid-high).
+                const ALBERTI: [usize; 8] = [0, 2, 1, 2, 0, 3, 1, 2];
+                for (k, &idx) in ALBERTI.iter().enumerate() {
+                    let m = tones[idx % tones.len()] as f64;
+                    let base_v = match k % 4 {
+                        0 => 0.78,
+                        2 => 0.68,
+                        _ => 0.60,
+                    };
+                    let vel = (base_v * swell + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.46, 0.86);
+                    let micro = if k > 0 { 0.012 + de.f() * 0.025 } else { 0.0 };
+                    notes.push(Note::pitched(
+                        b0 + k as f64 * 2.0 + micro,
+                        2.35 + de.f() * 0.35,
+                        vec![m],
+                        vel,
+                    ));
+                }
+            }
+            _ => {
+                // Minimalist / Neo-classical (Glass / Frahm / Richter): 3+3+2 additive
+                // 8th-16th cells or hypnotic undulating 16th-note broken chords.
+                if min_grid_choice == 0 {
+                    const STEPS: [f64; 10] =
+                        [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 13.0, 14.0, 15.0];
+                    const SHAPE: [usize; 10] = [0, 1, 2, 0, 1, 3, 0, 2, 3, 1];
+                    for (k, (&st, &idx)) in STEPS.iter().zip(&SHAPE).enumerate() {
+                        let next_st = STEPS.get(k + 1).copied().unwrap_or(16.0);
+                        let gap = (next_st - st).max(1.0);
+                        let accent = matches!(k, 0 | 3 | 6);
+                        let base_v = if accent { 0.80 } else { 0.64 };
+                        let vel = (base_v * swell + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.48, 0.88);
+                        let micro = if st > 0.0 { de.f() * 0.02 } else { 0.0 };
+                        notes.push(Note::pitched(
+                            b0 + st + micro,
+                            (gap * 1.30).clamp(1.1, 3.2),
+                            vec![tones[idx % tones.len()] as f64],
+                            vel,
+                        ));
+                    }
+                } else {
+                    const SHAPE16: [usize; 16] = [0, 1, 2, 3, 2, 1, 0, 1, 2, 4, 3, 2, 1, 2, 3, 1];
+                    for (s, &idx) in SHAPE16.iter().enumerate() {
+                        let accent = matches!(s, 0 | 6 | 12);
+                        let base_v = if accent { 0.78 } else { 0.61 };
+                        let vel = (base_v * swell + (de.f() * 2.0 - 1.0) * 0.035).clamp(0.46, 0.88);
+                        notes.push(Note::pitched(
+                            b0 + s as f64,
+                            1.45 + de.f() * 0.25,
+                            vec![tones[idx % tones.len()] as f64],
+                            vel,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Pattern {
+        name: "arp".into(),
+        len: voiced.len() as f64 * 16.0,
+        notes,
+    }
+}
+
+/// Second-voice counterpoint (`Role::Vocal` / `"V"`): answers `lead` in
+/// consonant contrary and oblique motion (preferring 3rds, 6ths, and 10ths on
+/// strong beats, moving stepwise when the lead holds, and breathing when the
+/// lead is busy).
+pub fn counterpoint(
+    lead: &Pattern,
+    prog: &[Chord],
+    mode: &Mode,
+    tonic: i32,
+    lo: i32,
+    d: &mut Dice,
+) -> Pattern {
+    let scale = scale_notes(mode, tonic, lo, lo + 16);
+    if scale.is_empty() || prog.is_empty() {
+        return Pattern {
+            name: "counter".into(),
+            len: lead.len,
+            notes: Vec::new(),
+        };
+    }
+    let mut dc = d.fork("counterpoint");
+    let total_bars = (lead.len / 16.0).round().max(1.0) as usize;
+    let lead_at = |t: f64| -> Option<(f64, f64)> {
+        let mut prev = None;
+        for n in &lead.notes {
+            if n.at <= t + 0.5 {
+                if let Some(&m) = n.midis.first() {
+                    prev = Some((n.at, m));
+                }
+            } else {
+                break;
+            }
+        }
+        prev
+    };
+    let mut notes: Vec<Note> = Vec::new();
+    let mut cur_idx = (scale.len() / 2) as i32;
+    let mut prev_lead_m: Option<f64> = None;
+    for bar in 0..total_bars {
+        let c = &prog[bar % prog.len()];
+        let pcs = c.pcs();
+        let b0 = bar as f64 * 16.0;
+        let last_bar = bar + 1 == total_bars;
+        for e in 0..8 {
+            if last_bar && e >= 5 {
+                continue;
+            }
+            let t = b0 + e as f64 * 2.0;
+            let strong = e % 4 == 0;
+            let lead_hit_here = lead.notes.iter().any(|n| (n.at - t).abs() < 0.75);
+            // Oblique/complementary rhythm: sing into the lead's sustained gaps,
+            // and join in 3rds/6ths on selected structural beats.
+            let play = if last_bar && e == 4 {
+                true
+            } else if !lead_hit_here && e % 2 == 0 {
+                dc.chance(0.78)
+            } else if strong {
+                dc.chance(0.68)
+            } else if !lead_hit_here {
+                dc.chance(0.45)
+            } else {
+                dc.chance(0.22)
+            };
+            if !play {
+                continue;
+            }
+            let lead_m = lead_at(t).map(|(_, m)| m).unwrap_or((tonic + 12) as f64);
+            let lead_dir = prev_lead_m.map_or(0.0, |pm| lead_m - pm);
+            prev_lead_m = Some(lead_m);
+
+            // Score candidate scale degrees for contrary motion, stepwise smoothness,
+            // and imperfect consonance (3, 4, 8, 9 semitones mod 12) against `lead_m`.
+            let mut best_i = cur_idx;
+            let mut best_score = f64::NEG_INFINITY;
+            for (i, &cand) in scale.iter().enumerate() {
+                let step = i as i32 - cur_idx;
+                if step.abs() > 4 {
+                    continue;
+                }
+                let iv = (lead_m.round() as i32 - cand).rem_euclid(12);
+                let rel_pc = (cand - tonic).rem_euclid(12);
+                let mut sc = 0.0;
+                // Consonant intervals: 3rds & 6ths prized highest; avoid unisons/2nds/7ths on strong beats.
+                sc += match iv {
+                    3 | 4 | 8 | 9 => 3.2,
+                    7 => 1.4,
+                    0 => -1.5,
+                    1 | 2 | 10 | 11 => {
+                        if strong {
+                            -4.0
+                        } else {
+                            -1.2
+                        }
+                    }
+                    _ => -0.8,
+                };
+                if pcs.contains(&rel_pc) {
+                    sc += if strong { 2.2 } else { 0.8 };
+                }
+                // Contrary motion bonus when lead moved.
+                if (lead_dir > 0.5 && step < 0) || (lead_dir < -0.5 && step > 0) {
+                    sc += 1.8;
+                }
+                // Prefer stepwise motion (1–2 scale steps).
+                sc -= (step.abs() as f64 - 1.2).abs() * 0.65;
+                // Keep counter-voice mostly below or gently weaving under the primo soloist.
+                if cand as f64 > lead_m + 2.0 {
+                    sc -= 1.6;
+                }
+                sc += (dc.f() - 0.5) * 0.35;
+                if sc > best_score {
+                    best_score = sc;
+                    best_i = i as i32;
+                }
+            }
+            cur_idx = best_i;
+            let vel_base = if strong { 0.78 } else { 0.66 };
+            let arch = 0.92 + 0.12 * ((t / lead.len.max(16.0)) * std::f64::consts::PI).sin();
+            notes.push(Note::pitched(
+                t + if strong { 0.0 } else { 0.012 + dc.f() * 0.025 },
+                if last_bar && e == 4 { 6.0 } else { 2.2 },
+                vec![scale[cur_idx as usize] as f64],
+                (vel_base * arch + (dc.f() - 0.5) * 0.05).clamp(0.48, 0.88),
+            ));
+        }
+    }
+    for i in 0..notes.len() {
+        let next_at = notes.get(i + 1).map_or(lead.len, |n| n.at);
+        let gap = (next_at - notes[i].at).max(1.5);
+        let step_dist = notes
+            .get(i + 1)
+            .and_then(|n| n.midis.first().zip(notes[i].midis.first()))
+            .map_or(9.0, |(a, b)| (a - b).abs());
+        if gap <= 4.2 && step_dist <= 2.5 && dc.chance(0.45) {
+            notes[i].len = (gap + 0.08).clamp(1.5, 8.0);
+            if let Some(n1) = notes.get_mut(i + 1) {
+                n1.slide = true;
+            }
+        } else {
+            notes[i].len = (gap * 0.86).clamp(1.4, 8.0);
+        }
+    }
+    Pattern {
+        name: "counter".into(),
+        len: lead.len,
+        notes,
+    }
+}
+
+/// Motivic development for classical `development` / `fugato` sections:
+/// diatonically inverts the first half of `hook` around its opening anchor and
+/// sequences the second half up a scale step while staying strictly in `mode`.
+pub fn develop_motif(hook: &Pattern, mode: &Mode, tonic: i32) -> Pattern {
+    let scale = scale_notes(mode, tonic, tonic - 5, tonic + 31);
+    if hook.notes.is_empty() || scale.is_empty() {
+        return hook.clone();
+    }
+    let nearest_idx = |m: f64| -> i32 {
+        scale
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, s)| (**s - m.round() as i32).abs())
+            .map(|(i, _)| i as i32)
+            .unwrap_or(0)
+    };
+    let anchor = nearest_idx(hook.notes[0].midis[0]);
+    let half = hook.len * 0.5;
+    let max_i = scale.len() as i32 - 1;
+    let notes = hook
+        .notes
+        .iter()
+        .map(|n| {
+            let mut m = n.clone();
+            let idx = nearest_idx(n.midis[0]);
+            let new_idx = if n.at < half {
+                // Melodic inversion in the first 4 bars.
+                (2 * anchor - idx).clamp(0, max_i)
+            } else {
+                // Ascending diatonic sequence (+2 scale degrees) in bars 5..7, resolving on the final note.
+                if n.at + n.len >= hook.len - 8.5 {
+                    idx
+                } else {
+                    (idx + 2).clamp(0, max_i)
+                }
+            };
+            m.midis = vec![scale[new_idx as usize] as f64];
+            m
+        })
+        .collect();
+    Pattern {
+        name: "development".into(),
+        len: hook.len,
         notes,
     }
 }

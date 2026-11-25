@@ -80,8 +80,8 @@
       "text": "Someone just did the coast road faster than the pelicans. I saw. Everyone saw."
      },
      {
-      "template": "Quiet night, and then a [colour] [car] came through town like it owed somebody money. That one's for you.",
-      "text": "Quiet night, and then a silver Audi came through town like it owed somebody money. That one's for you."
+      "template": "Quiet night, and then a [colour] [car] came through town on boost and left the street lamps shaking. That one's for you.",
+      "text": "Quiet night, and then a silver Audax came through town on boost and left the street lamps shaking. That one's for you."
      },
      {
       "template": "Last week you were losing to [rival]. This week [rival] is losing to you. Funny how that works.",
@@ -183,7 +183,7 @@
      "There's a dirt road behind the old fire station that nobody uses. I'm not saying use it. I'm saying it exists."
     ],
     "scene": [
-     "Scanner says two Highway Patrol units are parked at the bottom of 92 doing their little stakeout. Love that for them. Take the long way.",
+     "Scanner says two Highway Patrol units are parked at the bottom of 92 with their coffee flasks out. Take the ridge road instead.",
      "Meet tonight at the summit lot. Bring your car, bring your friends, bring snacks, do not bring drama.",
      "Somebody just went past my van so fast my coffee rippled. Was that you? That was you. Respect.",
      "Okay, the scanner's getting chatty. Lots of units heading for the coast road. Which means the ridge is wide open. I'm just reading the news.",
@@ -195,8 +195,8 @@
     ],
     "player": [
      {
-      "template": "Who is in the [colour] [car]? Because you just took the [road] record, and the whole comment section of my brain is screaming.",
-      "text": "Who is in the black three thousand G T? Because you just took the Skyline record, and the whole comment section of my brain is screaming."
+      "template": "Who is in the [colour] [car]? Because you just took the [road] record, and my whole van is rattling from the wake.",
+      "text": "Who is in the black three thousand G T? Because you just took the Skyline record, and my whole van is rattling from the wake."
      },
      {
       "template": "That [colour] [car] is back! [detail]! In this fog! Absolute legend, absolute menace.",
@@ -507,7 +507,7 @@
      "Marisol on eighty-eight one plays the slow stuff for the harbour. We play the slow stuff for the highway. Same fog. Different pedals.",
      "Kit's up on the ridge going a hundred and seventy a minute. Kit, honey, come down to the roadhouse. There's pie. There's chairs. Nobody has to dance.",
      "Teo on one-oh-four three is asleep. It's nine p.m. He's asleep. I respect that. I don't understand it, but I respect it.",
-     "The pirate, the harbour, the farm, and the bar. Four stations, one highway. Pick your hour. Mine's the late one."
+     "A harbour, a ridge van, a packing shed, a city loft, a concert hall, and a bar. Six stations, one county. Pick your hour. Mine's the late one."
     ],
     "night": [
      "An empty highway at midnight is the most honest thing I know. It doesn't care what you drive. It just asks if you can see.",
@@ -526,10 +526,10 @@
    "lines": {
     "ident": [
      "The Loft, ninety-four nine. House, techno, garage, drum and bass, from a sewing room south of Market. I'm Dez. The machines are off, the music's on, let's go.",
-     "Ninety-four point nine, The Loft. If you can hear a sewing machine under this, that's not a drum machine, sweetheart, that's a rush order.",
+     "Ninety-four point nine, The Loft. Industrial sewing by day, club records after eight, and yes, the bass carries down the stairwell.",
      "You're on The Loft with Dez, eight to two, every night the city's awake. Which is every night. Let's go.",
      "The Loft, ninety-four nine, broadcasting from the fourth floor above a tyre shop south of Market. The elevator's broken. The bass isn't.",
-     "This is Dez. This is The Loft. The dial's got a harbour, a hill, a farm and a bar. We're the city. We're the fast one. Keep up."
+     "This is Dez on The Loft, ninety-four nine. South of Market, fourth floor, windows open to the freeway. Keep your speed up."
     ],
     "music": [
      "Four on the floor, one twenty-eight, and the hi-hats open on the off-beat. That's the whole recipe. That's why it works. Go.",
@@ -542,7 +542,7 @@
     "morning": [
      "Good morning, city. It's six, I'm on a bench at Stow Lake with a long lens and a coffee, and the heron's just landed. This is a recording. Nobody move.",
      "Morning. The Loft is a night show, but if you're up this early you're either a baker, a skater or a bird person, and I love all three of you.",
-     "Good morning from Golden Gate Park. The conservatory doesn't open till ten, so I'm outside the glass looking at a water lily like it owes me money.\n\nTonight I'm on from eight. Right now I'm on a bike. Here's something to pedal to.",
+     "Good morning from Golden Gate Park. The conservatory doesn't open till ten, so I'm outside the glass sketching the fern house in my notebook.\n\nTonight I'm on from eight. Right now I'm on a bike. Here's something to pedal to.",
      "Morning. Rode out to the park at dawn, fog on the lake, heron on the far bank, and three runners who all said hi. Good city. Good morning."
     ],
     "weather": [
@@ -554,7 +554,7 @@
     ],
     "places": [
      "Golden Gate Park, the botanical garden, the far end past the redwoods: the magnolias are out and nobody's there at nine a.m. Nobody. Go.",
-     "Stow Lake. There's a great blue heron who stands on the west bank most mornings like he pays rent. He does not pay rent. Bring a long lens and sit still.",
+     "Stow Lake. There's a great blue heron on the west bank most mornings, dead still in the tule reeds. Bring a long lens and don't rattle your bike chain.",
      "The waterfront plazas at midnight: the smoothest ground in the city. I skate it. The cops don't mind if you're nice. Be nice.",
      "The fabric district, three blocks of it, closing at six. Canvas, webbing, buckles, the good thread. Ask for Rosa. Tell her Dez sent you. She'll roll her eyes. That's love.",
      "The hill above the park, by the tower: fog comes through the gap there first. Watch it arrive. Then it's dark and you're cold and you remember you came on a BMX."
@@ -572,8 +572,8 @@
       "text": "Who is in the orange Lancer? You just took the downtown loop record and I screamed so loud I bent a needle. That's on you. Here's a song."
      },
      {
-      "template": "The [colour] [car] is back. [detail]. In the city. At this hour. Sweetheart. Icon. This one's yours.",
-      "text": "The white Evo is back. Gold wheels. In the city. At this hour. Sweetheart. Icon. This one's yours."
+      "template": "The [colour] [car] is back. [detail], cutting through south of Market under the sodium lights. Clean work. This one's yours.",
+      "text": "The white Mirage V ten is back. Gold wheels, cutting through south of Market under the sodium lights. Clean work. This one's yours."
      },
      {
       "template": "Lost the cops on the [road], huh? I'm not allowed to say nice. I'm going to say gorgeous and play something at one seventy-four.",
@@ -616,10 +616,10 @@
      "There's a magnolia in the park that flowers for about nine days in February. I take the morning off for it every year. It's not optional. It's my church."
     ],
     "callers": [
-     "This one's for Tomas, who's closing the shop with the door open and the radio on. Lock it this time, baby. Please. Love you.",
-     "Somebody called to ask about the heron. The heron's fine. The heron is thriving. Thank you for asking about the heron. Nobody asks about me.",
+     "Going out to Tomas on the late bench, truing a wheel before tomorrow's alleycat. Put the spoke wrench down at midnight, baby.",
+     "Two texts in a row asking what track that just was. White label out of Detroit, stamped in blue ink, no artist name. You had to be here.",
      "Caller says: Dez, you sound like you've had too much coffee. Sweetheart, I've had the right amount of coffee. This is the right amount. Here's a tune.",
-     "Shout-out to the kid who fixed my chain at the skate spot and didn't say a word about my bike. That's grace. That's the whole thing. This one's yours.",
+     "For the courier crew sheltering under the Mission overpass until the squall passes: dry socks in your bag, warm bass in your ears.",
      "For Marco, for Priya, for Tomas, for the whole crew in the second room right now: I can hear you from here. Turn it up. I'm coming after the show."
     ],
     "ads": [
@@ -632,15 +632,15 @@
      "Marisol on eighty-eight one is playing something slow for the harbour. Marisol. Sweetheart. The harbour can wait. The city cannot.",
      "Kit's up on the ridge in a van going a hundred and seventy a minute. Kit, baby, we're going one twenty-eight down here and we have an elevator. It's broken. Come anyway.",
      "Tess at The Roadhouse says she doesn't dance. Tess. I have seen you dance. In the redwoods. At four. You were efficient. I respect it.",
-     "The harbour, the hill, the farm, the bar and the loft. Five stations. The others go to bed. We're on till two. Then I ride home."
+     "Six frequencies across the bay tonight, from strings on ninety point five to four-on-the-floor right here. Whatever road you're on, somebody's awake with you."
     ],
     "night": [
-     "The city at two in the morning is the most honest thing I know. All the lights are for nobody. Drive like they're for you.",
+     "South of Market at two in the morning smells like rain on warm asphalt and espresso from the all-night bakery. Best hour on the clock.",
      "After the show I ride down the boulevard with the lights timed. Twelve greens in a row if you hit it right. I'm not racing. I'm dancing, slowly, on a bicycle.",
      "There's an hour when the clubs let out and the whole street is people holding each other up. That's my favourite hour. That's why the show ends at two.",
-     "Nobody needs a reason to be out this late. You need a working front light and a friend who'll text back. I've got both. Here's a tune.",
-     "Whatever somebody said tonight about you, about your car, about your friends: they're not here. You are. I am. Go home loud.",
-     "It's three in the morning and this is a recording. I'm home, the bike's by the door, the needle's threaded for tomorrow. Night, city. Mind the tram tracks."
+     "When the traffic clears on the upper deck you can hear the bay slap the pilings between records. Roll the glass down on the span.",
+     "Every sodium lamp down the Embarcadero makes its own little pool in the mist. String enough of them together and you're already home.",
+     "Past two a.m. now — the decks are running the late tape while I lock up the shop and pedal down Market. Catch the greens, night owls."
     ]
    }
   }

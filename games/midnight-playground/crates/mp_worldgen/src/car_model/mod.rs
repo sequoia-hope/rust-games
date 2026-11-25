@@ -91,8 +91,11 @@ pub const VEHICLE_KINDS: [&str; 13] = [
     "policeSuv",
 ];
 
-/// `RACERS`.
-const RACERS: [&str; 5] = ["sports", "muscle", "super", "rally", "electric"];
+/// `RACERS`: every player and rival car in the garage.
+const RACERS: [&str; 12] = [
+    "sports", "muscle", "super", "rally", "electric", "firebird", "vr4", "audax", "roadster",
+    "diablo", "cgt", "volt",
+];
 /// `TRAFFIC_COLORS`.
 const TRAFFIC_COLORS: [u32; 10] = [
     0xb8bcc2, 0x2b2f36, 0xe8e6e0, 0x7a1f1f, 0x1f3a5f, 0x4a5a3a, 0x8c7a5a, 0x5f6670, 0x9a9a92,
@@ -821,10 +824,17 @@ impl CarKit {
             // on the supercar.
             let (metalness, roughness, sheen) = match if police { "police" } else { kind } {
                 "sports" => (0.5, 0.36, None),
+                "vr4" => (0.5, 0.34, None),
                 "muscle" => (0.15, 0.28, None),
+                "firebird" => (0.18, 0.27, None),
                 "super" => (0.45, 0.3, Some(0.6)),
+                "diablo" => (0.48, 0.28, Some(0.65)),
+                "cgt" => (0.62, 0.26, Some(0.45)),
+                "audax" => (0.52, 0.32, None),
+                "roadster" => (0.38, 0.29, Some(0.4)),
                 "rally" => (0.1, 0.3, None),
                 "electric" => (0.35, 0.36, None),
+                "volt" => (0.4, 0.34, None),
                 "police" => (0.2, 0.3, None),
                 _ => (0.4, 0.4, None),
             };
@@ -962,6 +972,7 @@ impl CarKit {
             Some(RimMat::Aero) => mm.rim_aero,
             Some(RimMat::Tractor) => mm.rim_tractor,
             Some(RimMat::Dark) => mm.rim_dark,
+            Some(RimMat::Gold) => mm.rim_gold,
             None if opts.rim_dark => mm.rim_dark,
             None if racer => {
                 if seed % 2 == 1 {

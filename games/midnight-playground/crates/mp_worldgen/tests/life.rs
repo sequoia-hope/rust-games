@@ -163,7 +163,7 @@ fn pelicans_fly_along_the_coast_beside_the_player() {
 
 #[test]
 fn nobody_stands_on_the_road() {
-    for (name, w, at_least) in [("coast", coast(), 100), ("seaside", seaside(), 200)] {
+    for (name, w, at_least) in [("coast", coast(), 140), ("seaside", seaside(), 300)] {
         let w = w.lock().unwrap();
         let t = w.track.as_ref().unwrap();
         let ps = people(&w);
@@ -175,6 +175,25 @@ fn nobody_stands_on_the_road() {
             assert!(
                 d.d > hw + 1.0,
                 "{name}: someone at {p:?} is {:.1} m from the centreline (half-width {hw:.1})",
+                d.d
+            );
+            assert!(p.iter().all(|v| v.is_finite()));
+        }
+    }
+    // Desert Run, Sierra and Downtown Streets also get living-world people,
+    // all strictly outside the roadway.
+    for (id, min_people) in [("desert", 12), ("sierra", 12), ("streets", 12)] {
+        let w = build(id);
+        let t = w.track.as_ref().unwrap();
+        let ps = people(&w);
+        assert!(ps.len() >= min_people, "{id}: {} people", ps.len());
+        for p in ps {
+            let d = t.distance_to_road(p[0], p[2], 60.0);
+            let i = d.i.max(0) as usize;
+            let hw = f64::from(t.hw.get(i).copied().unwrap_or(5.0));
+            assert!(
+                d.d > hw + 1.0,
+                "{id}: someone at {p:?} is {:.1} m from the centreline (half-width {hw:.1})",
                 d.d
             );
             assert!(p.iter().all(|v| v.is_finite()));

@@ -85,6 +85,13 @@ try {
   const rows = await page.$$eval('#mTable tr', (rs) => rs.slice(1).map((r) => [...r.children].map((c) => c.textContent)));
   check(measured.startsWith('Done') && rows.length === 4 && rows.every((r) => Number(r[2]) > -60), `measured offline: ${rows.map((r) => `${r[1]} ${r[2]} dB`).join(', ')}`);
 
+  await page.select('#genre', 'classical');
+  await page.click('#make');
+  const classicalOk = await page.waitForFunction(() => window.musicLab.cur.genre === 'classical' && window.musicLab.cur.song && window.musicLab.pos?.playing && window.musicLab.pos.barIndex >= 1, { timeout: 30000 }).then(() => true, () => false);
+  const classicalInfo = await page.evaluate(() => ({ title: window.musicLab.cur.track.title, n: window.musicLab.cur.song.layers.length, counter: window.musicLab.cur.song.layers.some((l) => l.name === 'counter') }));
+  check(classicalOk && classicalInfo.n >= 6 && classicalInfo.counter, `classical mode: ${classicalInfo.title} plays, ${classicalInfo.n} layers including counterpoint`);
+  await page.click('#play'); // stop
+
   // Autoplay with multi-genre select and fine-grained key/tempo controls.
   await page.click('#selNone');
   await page.click('#autoGenres button[data-g="french"]');

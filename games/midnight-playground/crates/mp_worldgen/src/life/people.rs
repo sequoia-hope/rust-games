@@ -124,10 +124,29 @@ pub fn build(w: &mut World, level: &str) -> Result<Option<People>, String> {
         "seaside" => {
             if let Some(d) = w.level_data.clone() {
                 fans(w, t, &d, &mut rng, &mut people);
+                grandstand_crowd(t, &d, &mut rng, &mut people);
+                bridge_crews_and_marshals(w, t, &d, &mut rng, &mut people);
             }
         }
-        "coast" => seabright(w, t, &mut rng, &mut people, &mut paths),
-        _ => {}
+        "coast" => {
+            seabright(w, t, &mut rng, &mut people, &mut paths);
+            pier_and_beach(w, t, &mut rng, &mut people, &mut paths);
+            harbor_workers(w, t, &mut rng, &mut people, &mut paths);
+        }
+        "sierra" => {
+            summit_hikers(w, t, &mut rng, &mut people);
+            city_sidewalks(w, t, &mut rng, &mut people, &mut paths);
+        }
+        "desert" => desert_oasis(w, t, &mut rng, &mut people, &mut paths),
+        "streets" => downtown_pedestrians(w, t, &mut rng, &mut people, &mut paths),
+        "cruise" => city_sidewalks(w, t, &mut rng, &mut people, &mut paths),
+        _ => {
+            seabright(w, t, &mut rng, &mut people, &mut paths);
+            harbor_workers(w, t, &mut rng, &mut people, &mut paths);
+            summit_hikers(w, t, &mut rng, &mut people);
+            city_sidewalks(w, t, &mut rng, &mut people, &mut paths);
+            desert_oasis(w, t, &mut rng, &mut people, &mut paths);
+        }
     }
     if people.is_empty() {
         return Ok(None);
@@ -267,9 +286,20 @@ fn fans(w: &World, t: &Track, d: &SeasideData, rng: &mut Mulberry32, out: &mut V
                             * (wall + 1.1 + 1.7 + f64::from(row) * 0.85 + rrange(rng, -0.2, 0.2));
                         let p = t.point_at(sw, lat);
                         let y = ground(w, p.x, p.z, f.y);
-                        // Not in a ditch or up a bank, and clear of things.
+                        // Allow spectators to stand on rising grassy banks up
+                        // to 7.5 m above the wall so they are visible above the
+                        // 2.2 m sponsor boards (`living-world.md` 2.0), while
+                        // avoiding ditches below the wall.
                         let wall_y = t.surface_y(sw, side * wall);
-                        if (y - wall_y).abs() > 2.5 || blocked(p.x, p.z) {
+                        let dy = y - wall_y;
+                        if dy < -1.2 || dy > 7.5 || blocked(p.x, p.z) {
+                            continue;
+                        }
+                        // Behind the 2.2 m banner boards (`ZONES`), skip ground
+                        // so low that only the top of a fan's head peeks over,
+                        // placing fans slightly higher up the bank or along the
+                        // unboarded fence stretches below.
+                        if dy < 0.75 && row == 0 {
                             continue;
                         }
                         // Not near another stretch of the track.
@@ -296,6 +326,560 @@ fn fans(w: &World, t: &Track, d: &SeasideData, rng: &mut Mulberry32, out: &mut V
             }
         }
     }
+    // Fans along unbannered catch-fence stretches where the whole figure shows
+    // cleanly over the 1.05 m concrete wall.
+    const OPEN_FENCE: [(f64, f64); 3] = [(180.0, 420.0), (880.0, 1310.0), (2750.0, 3160.0)];
+    for (a, b) in OPEN_FENCE {
+        for side in [-1.0, 1.0] {
+            let mut s = a;
+            while s < b {
+                let sw = t.wrap(s);
+                let f = t.frame(sw);
+                let wall = if side < 0.0 { f.wall_l } else { f.wall_r };
+                let lat = side * (wall + rrange(rng, 2.4, 4.2));
+                let p = t.point_at(sw, lat);
+                let y = ground(w, p.x, p.z, f.y);
+                let wall_y = t.surface_y(sw, side * wall);
+                if y >= wall_y - 0.8 && y <= wall_y + 6.5 && !blocked(p.x, p.z) {
+                    let rd = t.distance_to_road(p.x, p.z, 60.0);
+                    let clear = rd.s.is_none_or(|rs| {
+                        let ds = (rs - sw).rem_euclid(t.length);
+                        ds.min(t.length - ds) <= 30.0 || rd.d >= 14.0
+                    });
+                    if clear {
+                        out.push(Person {
+                            kind: Kind::Fan { s: sw },
+                            pos: [p.x, y, p.z],
+                            yaw: heading(f.x - p.x, f.z - p.z) + rrange(rng, -0.25, 0.25),
+                            scale: rrange(rng, 0.9, 1.08),
+                            phase: rng.next_f64() * PI * 2.0,
+                            moved: false,
+                        });
+                    }
+                }
+                s += rrange(rng, 2.2, 7.5);
+            }
+        }
+    }
+}
+
+/// Spectators standing and cheering on the tiers of Seaside Raceway's
+/// grandstands (`raceway::build_grandstands`).
+fn grandstand_crowd(t: &Track, d: &SeasideData, rng: &mut Mulberry32, out: &mut Vec<Person>) {
+    for poly in &d.grandstands {
+        if poly.len() < 4 {
+            continue;
+        }
+        let n = poly.len() - 1;
+        // Find the longest edge and its perpendicular to orient tiers toward the track.
+        let mut best = (0.0, 0usize);
+        for i in 0..n {
+            let (a, b) = (&poly[i], &poly[(i + 1) % n]);
+            let l2 = (b.x - a.x) * (b.x - a.x) + (b.z - a.z) * (b.z - a.z);
+            if l2 > best.0 {
+                best = (l2, i);
+            }
+        }
+        if best.0 < 36.0 {
+            continue;
+        }
+        let (ea, eb) = (&poly[best.1], &poly[(best.1 + 1) % n]);
+        let el = best.0.sqrt();
+        let (ux, uz) = ((eb.x - ea.x) / el, (eb.z - ea.z) / el);
+        let (vx, vz) = (-uz, ux);
+        let (mut u0, mut u1, mut v0, mut v1) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for p in &poly[..n] {
+            let pu = p.x * ux + p.z * uz;
+            let pv = p.x * vx + p.z * vz;
+            u0 = u0.min(pu);
+            u1 = u1.max(pu);
+            v0 = v0.min(pv);
+            v1 = v1.max(pv);
+        }
+        let hu = (u1 - u0) * 0.5;
+        let hv = (v1 - v0) * 0.5;
+        if hu < 4.0 || hv < 1.5 {
+            continue;
+        }
+        let cu = (u0 + u1) * 0.5;
+        let cv = (v0 + v1) * 0.5;
+        let cx = ux * cu + vx * cv;
+        let cz = uz * cu + vz * cv;
+        let d1 = t.distance_to_road(cx + vx * hv, cz + vz * hv, 200.0).d;
+        let d2 = t.distance_to_road(cx - vx * hv, cz - vz * hv, 200.0).d;
+        let (bx, bz) = if d1 < d2 { (-vx, -vz) } else { (vx, vz) };
+        let fx = cx - bx * hv;
+        let fz = cz - bz * hv;
+        let near = t.distance_to_road(fx, fz, 200.0);
+        let Some(s_stand) = near.s else { continue };
+        if (s_stand - 1500.0).abs() <= FAN_NEAR + 20.0 {
+            continue;
+        }
+        let base_y = t.frame(s_stand).y + 0.85;
+        let depth = hv * 2.0;
+        let rows = ((depth / 0.85) as usize).clamp(3, 10);
+        for row in 0..rows {
+            let b = 0.55 + row as f64 * 0.82;
+            if b >= depth - 0.3 {
+                break;
+            }
+            let y = base_y + row as f64 * 0.42;
+            let mut a = -hu + 0.8;
+            while a <= hu - 0.8 {
+                if rng.next_f64() < 0.42 {
+                    let px = fx + ux * a + bx * b;
+                    let pz = fz + uz * a + bz * b;
+                    let d_road = t.distance_to_road(px, pz, 80.0);
+                    let hw = f64::from(t.hw.get(d_road.i.max(0) as usize).copied().unwrap_or(6.0));
+                    if d_road.d > hw + 3.0 {
+                        out.push(Person {
+                            kind: Kind::Fan { s: s_stand },
+                            pos: [px, y, pz],
+                            yaw: heading(-bx, -bz) + rrange(rng, -0.2, 0.2),
+                            scale: rrange(rng, 0.9, 1.06),
+                            phase: rng.next_f64() * PI * 2.0,
+                            moved: false,
+                        });
+                    }
+                }
+                a += rrange(rng, 1.1, 1.8);
+            }
+        }
+    }
+}
+
+/// Camera operators on Seaside's pedestrian bridges and corner marshals
+/// behind the barriers at key turns (`living-world.md` 2.2).
+fn bridge_crews_and_marshals(
+    w: &World,
+    t: &Track,
+    d: &SeasideData,
+    rng: &mut Mulberry32,
+    out: &mut Vec<Person>,
+) {
+    for br in &d.bridges {
+        for seg in br.pts.windows(2) {
+            let mx = (seg[0].x + seg[1].x) * 0.5;
+            let mz = (seg[0].z + seg[1].z) * 0.5;
+            let near = t.distance_to_road(mx, mz, 25.0);
+            let Some(s) = near.s else { continue };
+            let f = t.frame(s);
+            let wall = f.wall_l.max(f.wall_r);
+            if near.d > wall + 2.0 {
+                continue;
+            }
+            let deck_y = f.y + 5.9;
+            for side in [-1.0, 1.0] {
+                let lat = side * (f.hw + 2.2);
+                let p = t.point_at(s, lat);
+                let check = t.distance_to_road(p.x, p.z, 30.0);
+                if check.d > f.hw + 1.5 {
+                    out.push(Person {
+                        kind: Kind::Still,
+                        pos: [p.x, deck_y, p.z],
+                        yaw: heading(-f.fx, -f.fz) + rrange(rng, -0.18, 0.18),
+                        scale: rrange(rng, 0.94, 1.05),
+                        phase: rng.next_f64() * PI * 2.0,
+                        moved: false,
+                    });
+                }
+            }
+            break;
+        }
+    }
+    // Corner marshals stationed well behind the barriers around the lap.
+    let mut s = 260.0;
+    while s < t.length - 200.0 {
+        if (s - 1500.0).abs() > FAN_NEAR + 30.0 {
+            let f = t.frame(s);
+            let side = if rng.next_f64() < 0.5 { -1.0 } else { 1.0 };
+            let wall = if side < 0.0 { f.wall_l } else { f.wall_r };
+            let p = t.point_at(s, side * (wall + 2.6));
+            let check = t.distance_to_road(p.x, p.z, 40.0);
+            if check.d > f.hw + 2.0 {
+                let y = ground(w, p.x, p.z, f.y);
+                out.push(Person {
+                    kind: Kind::Fan { s },
+                    pos: [p.x, y, p.z],
+                    yaw: heading(f.x - p.x, f.z - p.z),
+                    scale: 1.02,
+                    phase: rng.next_f64() * PI * 2.0,
+                    moved: false,
+                });
+            }
+        }
+        s += 420.0;
+    }
+}
+
+/// Seabright's wooden pier walkers/anglers and beachgoers on the sand.
+fn pier_and_beach(
+    w: &World,
+    t: &Track,
+    rng: &mut Mulberry32,
+    out: &mut Vec<Person>,
+    paths: &mut Vec<WalkPath>,
+) {
+    let Some(z) = w.level.zones.iter().position(|z| z.scenery == "Beach") else {
+        return;
+    };
+    let zs0 = t.zone_start[z] as f64;
+    let zs1 = if z + 1 < t.zone_start.len() {
+        t.zone_start[z + 1] as f64
+    } else {
+        t.length
+    };
+    let pier_s = t
+        .tags
+        .iter()
+        .find(|g| g.tag == "pier" && g.s0 >= zs0 - 5.0 && g.s0 < zs1)
+        .map_or(zs0 + 700.0, |g| (g.s0 + g.s1) * 0.5);
+    let pf = t.frame(pier_s);
+    let deck_y = t.surface_y(pier_s, 0.0) + 0.25;
+    // Two stroll lanes out along the wooden pier deck (`beach::build_pier`).
+    for ds in [-2.6, 2.6] {
+        let mut pts = Vec::new();
+        let mut out_d = pf.wall_l + 8.0;
+        while out_d <= pf.wall_l + 190.0 {
+            let p = t.point_at(pier_s + ds, -out_d);
+            pts.push([p.x, deck_y, p.z]);
+            out_d += PATH_STEP;
+        }
+        if pts.len() >= 4 {
+            let idx = paths.len();
+            let len = (pts.len() - 1) as f64 * PATH_STEP;
+            paths.push(WalkPath { pts });
+            for _ in 0..8 {
+                let speed = rrange(rng, 0.9, 1.35) * if rng.next_f64() < 0.5 { 1.0 } else { -1.0 };
+                out.push(Person {
+                    kind: Kind::Walker {
+                        path: idx,
+                        p0: rng.next_f64() * 2.0 * len,
+                        speed,
+                    },
+                    pos: [0.0; 3],
+                    yaw: 0.0,
+                    scale: rrange(rng, 0.9, 1.06),
+                    phase: rng.next_f64() * PI * 2.0,
+                    moved: false,
+                });
+            }
+        }
+    }
+    // Beachgoers on dry sand seaward of the promenade.
+    let mut s = zs0 + 260.0;
+    while s < zs1 - 160.0 {
+        s += rrange(rng, 18.0, 44.0);
+        if (s - pier_s).abs() < 34.0 {
+            continue;
+        }
+        let f = t.frame(s);
+        let lat = -(f.wall_l + rrange(rng, 15.0, 34.0));
+        let p = t.point_at(s, lat);
+        let y = ground(w, p.x, p.z, 1.2);
+        if y > 0.45 && safe_off_road(t, p.x, p.z) {
+            out.push(Person {
+                kind: Kind::Still,
+                pos: [p.x, y, p.z],
+                yaw: heading(-f.rx, -f.rz) + rrange(rng, -0.7, 0.7),
+                scale: rrange(rng, 0.88, 1.06),
+                phase: rng.next_f64() * PI * 2.0,
+                moved: false,
+            });
+        }
+    }
+}
+
+/// Dock workers on the container apron in Harbor zones (`living-world.md` 2.3).
+fn harbor_workers(
+    w: &World,
+    t: &Track,
+    rng: &mut Mulberry32,
+    out: &mut Vec<Person>,
+    paths: &mut Vec<WalkPath>,
+) {
+    let Some(z) = w.level.zones.iter().position(|z| z.scenery == "Harbor") else {
+        return;
+    };
+    let zs0 = t.zone_start[z] as f64;
+    let zs1 = if z + 1 < t.zone_start.len() {
+        t.zone_start[z + 1] as f64
+    } else {
+        t.length
+    };
+    let s0 = t
+        .tags
+        .iter()
+        .find(|g| (g.tag == "port" || g.tag == "containers") && g.s0 >= zs0 - 5.0 && g.s0 < zs1)
+        .map_or(zs0 + 500.0, |g| g.s0 + 40.0);
+    let s1 = (zs1 - 120.0).max(s0);
+    if s1 - s0 < 120.0 {
+        return;
+    }
+    let mut pts = Vec::new();
+    let mut s = s0;
+    while s <= s1 {
+        let f = t.frame(s);
+        let p = t.point_at(s, f.wall_r + 11.0);
+        if safe_off_road(t, p.x, p.z) {
+            pts.push([p.x, ground(w, p.x, p.z, f.y), p.z]);
+        }
+        s += PATH_STEP;
+    }
+    if pts.len() >= 10 {
+        let idx = paths.len();
+        let len = (pts.len() - 1) as f64 * PATH_STEP;
+        paths.push(WalkPath { pts });
+        for _ in 0..10 {
+            let speed = rrange(rng, 1.0, 1.45) * if rng.next_f64() < 0.5 { 1.0 } else { -1.0 };
+            out.push(Person {
+                kind: Kind::Walker {
+                    path: idx,
+                    p0: rng.next_f64() * 2.0 * len,
+                    speed,
+                },
+                pos: [0.0; 3],
+                yaw: 0.0,
+                scale: rrange(rng, 0.94, 1.08),
+                phase: rng.next_f64() * PI * 2.0,
+                moved: false,
+            });
+        }
+    }
+}
+
+/// Hikers admiring the view at mountain summit pullouts (`living-world.md` 2.3).
+fn summit_hikers(w: &World, t: &Track, rng: &mut Mulberry32, out: &mut Vec<Person>) {
+    let mut spots: Vec<f64> = t
+        .tags
+        .iter()
+        .filter(|g| g.tag == "summit" || g.tag == "crest")
+        .map(|g| (g.s0 + g.s1) * 0.5)
+        .collect();
+    if spots.is_empty()
+        && let Some(z) = w.level.zones.iter().position(|z| z.scenery == "Mountain")
+    {
+        spots.push(t.zone_start[z] as f64 + 650.0);
+    }
+    for s_mid in spots {
+        for k in 0..8 {
+            let s = s_mid - 16.0 + f64::from(k) * 4.5;
+            let f = t.frame(t.wrap(s));
+            let p = t.point_at(t.wrap(s), -(f.wall_l + rrange(rng, 4.2, 7.5)));
+            if safe_off_road(t, p.x, p.z) {
+                let y = ground(w, p.x, p.z, f.y);
+                out.push(Person {
+                    kind: Kind::Fan { s: t.wrap(s) },
+                    pos: [p.x, y, p.z],
+                    yaw: heading(-f.rx, -f.rz) + rrange(rng, -0.35, 0.35),
+                    scale: rrange(rng, 0.9, 1.06),
+                    phase: rng.next_f64() * PI * 2.0,
+                    moved: false,
+                });
+            }
+        }
+    }
+}
+
+/// Patrons at the Oasis diner, gas station and motel forecourt on Desert Run.
+fn desert_oasis(
+    w: &World,
+    t: &Track,
+    rng: &mut Mulberry32,
+    out: &mut Vec<Person>,
+    paths: &mut Vec<WalkPath>,
+) {
+    let oasis_s = t
+        .tags
+        .iter()
+        .find(|g| g.tag == "oasis")
+        .map(|g| (g.s0 + g.s1) * 0.5)
+        .or_else(|| {
+            w.level
+                .zones
+                .iter()
+                .position(|z| z.scenery == "Desert")
+                .map(|z| t.zone_start[z] as f64 + 900.0)
+        });
+    let Some(s0) = oasis_s else { return };
+    let f0 = t.frame(t.wrap(s0));
+    let lot_y = f0.y - 0.17;
+    let mut pts = Vec::new();
+    let mut ds = -54.0;
+    while ds <= 58.0 {
+        let s = t.wrap(s0 + ds);
+        let f = t.frame(s);
+        let p = t.point_at(s, f.wall_r + 12.5);
+        if safe_off_road(t, p.x, p.z) {
+            pts.push([p.x, ground(w, p.x, p.z, lot_y), p.z]);
+        }
+        ds += PATH_STEP;
+    }
+    if pts.len() >= 8 {
+        let idx = paths.len();
+        let len = (pts.len() - 1) as f64 * PATH_STEP;
+        paths.push(WalkPath { pts });
+        for _ in 0..8 {
+            let speed = rrange(rng, 0.85, 1.25) * if rng.next_f64() < 0.5 { 1.0 } else { -1.0 };
+            out.push(Person {
+                kind: Kind::Walker {
+                    path: idx,
+                    p0: rng.next_f64() * 2.0 * len,
+                    speed,
+                },
+                pos: [0.0; 3],
+                yaw: 0.0,
+                scale: rrange(rng, 0.9, 1.06),
+                phase: rng.next_f64() * PI * 2.0,
+                moved: false,
+            });
+        }
+    }
+    for ds in [-42.0, -8.0, 2.0, 8.0, 44.0, 50.0] {
+        let s = t.wrap(s0 + ds);
+        let f = t.frame(s);
+        let p = t.point_at(s, f.wall_r + 15.5);
+        if safe_off_road(t, p.x, p.z) {
+            out.push(Person {
+                kind: Kind::Still,
+                pos: [p.x, ground(w, p.x, p.z, lot_y), p.z],
+                yaw: heading(-f.rx, -f.rz) + rrange(rng, -0.5, 0.5),
+                scale: rrange(rng, 0.9, 1.06),
+                phase: rng.next_f64() * PI * 2.0,
+                moved: false,
+            });
+        }
+    }
+}
+
+/// Nightlife pedestrians along Downtown Streets' sidewalks, kept well clear of
+/// grid intersections.
+fn downtown_pedestrians(
+    w: &World,
+    t: &Track,
+    rng: &mut Mulberry32,
+    out: &mut Vec<Person>,
+    paths: &mut Vec<WalkPath>,
+) {
+    for side in [-1.0, 1.0] {
+        let mut s = 180.0;
+        while s < t.finish_s - 200.0 {
+            let run_end = (s + 96.0).min(t.finish_s - 200.0);
+            let mut pts = Vec::new();
+            let mut u = s;
+            while u <= run_end {
+                let f = t.frame(u);
+                // Stay on straight avenues away from tight 90° turns.
+                if f.kappa.abs() > 0.004 {
+                    break;
+                }
+                let lat = side * (f.wall_r.max(f.wall_l) + 2.4);
+                let p = t.point_at(u, lat);
+                if !safe_off_road(t, p.x, p.z) {
+                    break;
+                }
+                pts.push([p.x, ground(w, p.x, p.z, f.y) + 0.15, p.z]);
+                u += PATH_STEP;
+            }
+            if pts.len() >= 14 {
+                let idx = paths.len();
+                let len = (pts.len() - 1) as f64 * PATH_STEP;
+                paths.push(WalkPath { pts });
+                for _ in 0..3 {
+                    let speed =
+                        rrange(rng, 0.95, 1.4) * if rng.next_f64() < 0.5 { 1.0 } else { -1.0 };
+                    out.push(Person {
+                        kind: Kind::Walker {
+                            path: idx,
+                            p0: rng.next_f64() * 2.0 * len,
+                            speed,
+                        },
+                        pos: [0.0; 3],
+                        yaw: 0.0,
+                        scale: rrange(rng, 0.88, 1.06),
+                        phase: rng.next_f64() * PI * 2.0,
+                        moved: false,
+                    });
+                }
+            }
+            s += 260.0;
+        }
+    }
+}
+
+/// Sidewalk strollers along ground-level City zones (`sierra`, `cruise`).
+fn city_sidewalks(
+    w: &World,
+    t: &Track,
+    rng: &mut Mulberry32,
+    out: &mut Vec<Person>,
+    paths: &mut Vec<WalkPath>,
+) {
+    let Some(z) = w.level.zones.iter().position(|z| z.scenery == "City") else {
+        return;
+    };
+    let zs0 = t.zone_start[z] as f64 + 120.0;
+    let zs1 = if z + 1 < t.zone_start.len() {
+        t.zone_start[z + 1] as f64 - 120.0
+    } else {
+        t.length - 220.0
+    };
+    let city_y = w.terrain.as_ref().map_or(0.0, |tr| tr.city_y);
+    let mut s = zs0;
+    while s < zs1 {
+        let f = t.frame(t.wrap(s));
+        // Only place walkers where the roadway runs near street level (not on elevated viaducts).
+        if (f.y - city_y).abs() < 2.2 {
+            let mut pts = Vec::new();
+            let mut u = s;
+            while u <= (s + 110.0).min(zs1) {
+                let fu = t.frame(t.wrap(u));
+                if (fu.y - city_y).abs() > 2.4 {
+                    break;
+                }
+                let p = t.point_at(t.wrap(u), fu.wall_r + 3.2);
+                if !safe_off_road(t, p.x, p.z) {
+                    break;
+                }
+                pts.push([p.x, city_y + 0.16, p.z]);
+                u += PATH_STEP;
+            }
+            if pts.len() >= 14 {
+                let idx = paths.len();
+                let len = (pts.len() - 1) as f64 * PATH_STEP;
+                paths.push(WalkPath { pts });
+                for _ in 0..3 {
+                    let speed =
+                        rrange(rng, 0.95, 1.35) * if rng.next_f64() < 0.5 { 1.0 } else { -1.0 };
+                    out.push(Person {
+                        kind: Kind::Walker {
+                            path: idx,
+                            p0: rng.next_f64() * 2.0 * len,
+                            speed,
+                        },
+                        pos: [0.0; 3],
+                        yaw: 0.0,
+                        scale: rrange(rng, 0.88, 1.06),
+                        phase: rng.next_f64() * PI * 2.0,
+                        moved: false,
+                    });
+                }
+            }
+        }
+        s += 320.0;
+    }
+}
+
+fn safe_off_road(t: &Track, x: f64, z: f64) -> bool {
+    let d = t.distance_to_road(x, z, 60.0);
+    let i = d.i.max(0) as usize;
+    let hw = f64::from(t.hw.get(i).copied().unwrap_or(6.0));
+    d.d > hw + 2.2
 }
 
 /// Seabright: walkers on the promenade (the sea side) and the town's

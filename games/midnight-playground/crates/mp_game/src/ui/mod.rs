@@ -1718,8 +1718,9 @@ fn multiplayer(ui: &mut UiState, ctx: &mut ActCtx, m: lobby::MpAct, busy: bool) 
             match m {
                 MpAct::Level(d) => {
                     // Seaside needs its survey data on the host; every
-                    // level is offered.
-                    let ids: Vec<&str> = mp_levels::levels().iter().map(|l| l.id).collect();
+                    // raceable level (excluding cruise and open world) is offered.
+                    let race = mp_levels::race_levels();
+                    let ids: Vec<&str> = race.iter().map(|l| l.id).collect();
                     let i = ids.iter().position(|l| *l == s.level).unwrap_or(0) as i64;
                     let n = ids.len() as i64;
                     s.level = ids[(i + i64::from(d)).rem_euclid(n) as usize].into();
@@ -2386,7 +2387,8 @@ pub(crate) mod tests {
     /// whole settings with one thing changed.
     #[test]
     fn the_leaders_settings_cycle() {
-        let ids: Vec<&str> = mp_levels::levels().iter().map(|l| l.id).collect();
+        let race = mp_levels::race_levels();
+        let ids: Vec<&str> = race.iter().map(|l| l.id).collect();
         let mut w = world(Screen::Lobby, lobby_of_two(0), Options::default());
         let set = |w: &mut World, s: MpSettings| {
             w.resource_mut::<NetView>().lobby.settings = Some(s);

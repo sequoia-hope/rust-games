@@ -20,7 +20,6 @@
 //! a re-placement (SPEC 4.7).
 
 use mp_track::Track;
-use mp_vdyn::cars::vento_gt;
 use mp_vdyn::{Controls, Ground, Quat, Vec3, VehicleDef};
 use pk_math::{clamp, js, kernel, smoothstep, wrap_angle};
 
@@ -69,16 +68,9 @@ pub enum VehicleModel {
     Sim(Box<SimCar>),
 }
 
-/// The sim definition for a garage car. V2 has one, the Vento GT; until
-/// the others have theirs (V4) every car drives as a Vento with its own
-/// mass.
+/// The sim definition for a garage car (`mp_vdyn::cars::garage_car`).
 pub fn sim_def(kind: &str, mass: f64) -> VehicleDef {
-    let mut def = vento_gt();
-    if kind != "sports" {
-        def.mass = mass;
-        def.balance_springs();
-    }
-    def
+    mp_vdyn::cars::garage_car(kind, mass)
 }
 
 /// What the sim car last wrote into the body view, to tell what others

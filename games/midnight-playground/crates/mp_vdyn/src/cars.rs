@@ -171,3 +171,102 @@ pub fn vento_gt() -> VehicleDef {
     def.balance_springs();
     def
 }
+
+/// Garage-wide Tier 1 vehicle definitions tuned by drivetrain, wheelbase,
+/// tyre grip and aero balance (`vento_gt` stays exact for `"sports"`).
+pub fn garage_car(kind: &str, mass: f64) -> VehicleDef {
+    if kind == "sports" {
+        return vento_gt();
+    }
+    let mut def = vento_gt();
+    def.mass = mass;
+    match kind {
+        "muscle" | "firebird" => {
+            def.name = if kind == "firebird" {
+                "Phoenix GTA"
+            } else {
+                "Brawler 69"
+            };
+            def.axles[0].tyre.mu0 = 1.38;
+            def.axles[1].tyre.mu0 = if kind == "firebird" { 1.46 } else { 1.42 };
+            def.aero.cla_front = 0.65;
+            def.aero.cla_rear = 0.85;
+            if let Some(e) = def.engine.as_mut() {
+                e.torque = vec![
+                    (900.0, 420.0),
+                    (2200.0, 560.0),
+                    (4000.0, 590.0),
+                    (5400.0, 510.0),
+                    (6400.0, 420.0),
+                ];
+                e.limiter = 6400.0;
+                e.up_rpm = 6000.0;
+                e.down_rpm = 2500.0;
+                e.final_drive = 3.35;
+            }
+        }
+        "vr4" | "audax" | "rally" => {
+            def.name = match kind {
+                "vr4" => "Kaze VR-6",
+                "audax" => "Audax V8",
+                _ => "Kestrel RS",
+            };
+            // All-wheel drive torque split (40% front / 60% rear).
+            def.axles[0].drive = 0.4;
+            def.axles[1].drive = 0.6;
+            def.axles[0].tyre.mu0 = 1.48;
+            def.axles[1].tyre.mu0 = 1.54;
+            if kind == "rally"
+                && let Some(e) = def.engine.as_mut()
+            {
+                e.final_drive = 4.1;
+            }
+        }
+        "roadster" => {
+            def.name = "Solstice RL";
+            def.inertia = Vec3::new(460.0, 1780.0, 1680.0);
+            def.axles[0].x = 1.18;
+            def.axles[1].x = -1.30;
+            def.axles[0].tyre.mu0 = 1.46;
+            def.axles[1].tyre.mu0 = 1.54;
+        }
+        "super" | "diablo" | "cgt" => {
+            def.name = match kind {
+                "diablo" => "Tormenta XII",
+                "cgt" => "Mirage V10",
+                _ => "Stiletto R",
+            };
+            def.axles[0].tyre.mu0 = 1.52;
+            def.axles[1].tyre.mu0 = 1.64;
+            def.aero.cla_front = 1.35;
+            def.aero.cla_rear = 1.75;
+            if let Some(e) = def.engine.as_mut() {
+                e.torque = vec![
+                    (1200.0, 340.0),
+                    (3500.0, 480.0),
+                    (6000.0, 540.0),
+                    (7800.0, 520.0),
+                    (8600.0, 470.0),
+                ];
+                e.limiter = 8600.0;
+                e.up_rpm = 8200.0;
+                e.down_rpm = 3600.0;
+            }
+        }
+        "electric" | "volt" => {
+            def.name = if kind == "volt" { "Volt RS" } else { "Ion Arc" };
+            def.engine = None;
+            def.axles[0].drive = 0.42;
+            def.axles[1].drive = 0.58;
+            def.drive = DriveDef {
+                max_torque: 6200.0,
+                max_power: if kind == "volt" { 420_000.0 } else { 400_000.0 },
+            };
+            def.axles[0].tyre.mu0 = 1.48;
+            def.axles[1].tyre.mu0 = 1.58;
+        }
+        _ => {}
+    }
+    def.balance_springs();
+    def
+}

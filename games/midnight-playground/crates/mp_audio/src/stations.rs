@@ -19,6 +19,9 @@
 //!   the new generator's Chicago and deep house), techno, garage and drum &
 //!   bass from a loft south of Market; the city levels' default, as the
 //!   others' slow DJs don't fit downtown at speed.
+//! - **Nocturne** (90.5, uninterrupted concert hall): Baroque inventions,
+//!   Classical-Romantic chamber nocturnes, Minimalist piano/strings, and
+//!   symphonic scores for late-night mountain and redwood drives.
 
 use music::radio::Station;
 use std::sync::LazyLock;
@@ -41,8 +44,10 @@ pub fn level_station(level: &str) -> &'static str {
     match level {
         "coast" | "seaside" => "tide",
         "sierra" => "ridgeline",
-        // Downtown and the night cruise: the city's club station.
-        "streets" | "cruise" => "loft",
+        "redwoods" => "nocturne",
+        "bayfront" => "pacifico",
+        // Downtown, the midnight ring, and the night cruise: the city's club station.
+        "streets" | "ring" | "cruise" => "loft",
         // The old highway, the freight train, the dry lake bed: country.
         "desert" => "roadhouse",
         _ => "tide",
@@ -55,9 +60,10 @@ mod tests {
 
     #[test]
     fn the_table_parses_and_every_level_has_a_station() {
-        assert_eq!(STATIONS.len(), 5);
+        assert_eq!(STATIONS.len(), 6);
         for level in [
-            "coast", "seaside", "sierra", "streets", "cruise", "desert", "other",
+            "coast", "seaside", "sierra", "redwoods", "bayfront", "ring", "streets", "cruise",
+            "desert", "other",
         ] {
             assert!(station(level_station(level)).is_some(), "{level}");
         }

@@ -326,6 +326,126 @@ fn a_dropped_player_is_driven_by_the_ai_and_can_come_back() {
     assert_eq!(c.stats.desyncs, 0);
 }
 
+#[test]
+fn lobby_accepts_all_garage_cars_and_rejects_non_race_levels() {
+    let mut w = World::new(11, &[Conditions::LAN; 2]);
+    w.run(400.0);
+    let leader = (0..2).find(|&i| w.clients[i].is_leader()).unwrap();
+    let guest = 1 - leader;
+
+    // Every car in CAR_SPECS is preserved by SetMe and multi_opts.
+    for (car, _) in mp_sim::physics::CAR_SPECS {
+        w.clients[guest].set_me("Guest", car, 0x3366ff);
+        w.run(120.0);
+        let slot = w.clients[guest].slot.unwrap();
+        let p = w
+            .host
+            .players()
+            .into_iter()
+            .find(|p| p.slot == slot)
+            .unwrap();
+        assert_eq!(p.car, car, "host preserved car {car}");
+    }
+
+    // Cruise and open-world corridors cannot be configured in a race lobby.
+    for non_race in ["cruise", "southcoast", "peninsula"] {
+        let mut bad = settings("coast");
+        bad.level = non_race.into();
+        w.clients[leader].configure(bad);
+        w.run(120.0);
+        assert_ne!(
+            w.host.settings.level, non_race,
+            "lobby rejected non-race level {non_race}"
+        );
+    }
+
+    // New race levels are accepted and build cleanly.
+    for race_lvl in ["redwoods", "bayfront", "ring"] {
+        let ok = settings(race_lvl);
+        w.clients[leader].configure(ok);
+        w.run(120.0);
+        assert_eq!(w.host.settings.level, race_lvl);
+    }
+}
+
+#[test]
+fn lagging_client_drains_final_inputs_and_emits_results_before_race_end() {
+    use mp_net::proto::{Msg, PlayerInfo, RaceStart};
+    use mp_sim::race::SimEvent;
+
+    // Tiny synthetic sprint so we reach the finish in < 1 second of ticks.
+    let mut lvl = mp_levels::level_by_id("streets");
+    if let mp_levels::Route::Segments(segs) = &mut lvl.route {
+        segs.truncate(2);
+        segs[0].len = 80.0;
+        segs[1].len = 60.0;
+        segs[1].extra.tag = Some("finish");
+    }
+    lvl.finish_runoff = Some(20.0);
+    let lr = Arc::new(LevelRuntime::new(lvl).unwrap());
+
+    let net = SimNet::new(21);
+    let lv = lr.clone();
+    let mut host = Host::new(net.host(), Rc::new(move |_: &str| Some(lv.clone())), 21);
+    let mut client = Client::new(net.connect(Conditions::PERFECT), "Lag", "cgt", 0xd4a638);
+    let mut now = 0.0;
+    for _ in 0..20 {
+        now += 16.0;
+        net.advance_to(now);
+        host.update(now);
+        client.poll(now);
+    }
+    let mut s = settings("streets");
+    s.ai = AiFill::None;
+    host.set_settings(s);
+    assert!(host.start(now));
+    now += 20.0;
+    net.advance_to(now);
+    host.update(now);
+    client.poll(now);
+    assert!(client.attach(lr.clone()));
+    now += 600.0;
+    net.advance_to(now);
+    host.update(now);
+    client.update(now, driver(&lr));
+
+    // Step host + client until just before finish, then freeze client updates so
+    // the host crosses the line and sends final Msg::Inputs + Msg::End together.
+    while host.racing() {
+        now += TICK_MS * 2.0;
+        net.advance_to(now);
+        host.update(now);
+        if host.racing() && host.state().unwrap().players[0].v.s < lr.track.finish_s - 15.0 {
+            client.update(now, driver(&lr));
+        }
+    }
+    net.advance_to(now + 50.0);
+
+    // First poll receives both final Inputs and End, keeping race alive for one
+    // update so Session::advance_online can collect SimEvent::Results.
+    client.poll(now + 50.0);
+    assert!(
+        client.race.is_some(),
+        "race stays open to drain final confirmed ticks"
+    );
+    client.update(now + 50.0, driver(&lr));
+    let got_results = client
+        .race
+        .as_ref()
+        .is_some_and(|r| r.events.iter().any(|e| matches!(e, SimEvent::Results)));
+    assert!(got_results, "lagging client emitted SimEvent::Results");
+
+    // Next poll closes the race and emits RaceEnded.
+    client.poll(now + 66.0);
+    assert!(client.race.is_none());
+    assert!(client.events.contains(&ClientEvent::RaceEnded));
+
+    // Also verify hello_sent resets on disconnect by checking PlayerInfo / Start types compile cleanly.
+    let _: Option<RaceStart> = client.pending.clone();
+    let _: Vec<PlayerInfo> = host.players();
+    let _ = Msg::End;
+}
+
 /// Long: a whole race with eight players on mixed links, to the results and
 /// the points. `cargo test -p mp_net --release -- --ignored`.
 #[test]

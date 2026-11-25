@@ -145,7 +145,8 @@ async function tune(i) {
   p.get('tune').setValueAtTime(serial, t);
   p.get('energy').setValueAtTime(Number($('energy').value), t);
   lastSlot = null;
-  djDue = i >= 0 && Math.random() < 0.5 ? wall + 2 : null;
+  djIdentDue = i >= 0 && Math.random() < 0.5;
+  djDue = djIdentDue ? wall + 2 : null;
   if (i >= 0) await playOut(); else out?.pause();
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = i >= 0 ? 'playing' : 'paused';
   buildDial();
@@ -371,13 +372,13 @@ function refresh(force = false) {
     $('songLink').href = `?station=${st.key}&wall=${current.wall}`;
     showVerdict();
   }
-  if (lastSlot !== null && slot !== lastSlot && Math.random() < 0.35) djDue = wall;
+  if (lastSlot !== null && slot !== lastSlot && Math.random() < 0.55) { djDue = wall; djIdentDue = false; }
   lastSlot = slot;
   maybeDj(wall);
 }
 
 // ── The DJ ───────────────────────────────────────────────────────
-let djIndex = null, djDue = null, djLast = -Infinity, djHistory = [];
+let djIndex = null, djDue = null, djIdentDue = false, djLast = -Infinity, djHistory = [];
 let djSrc = null, djTimer = null; // the clip playing, and its caption's timer
 // Cuts the clip playing (a station change, off): the voice stops at once
 // and the station comes back up over 50 ms.
@@ -402,24 +403,42 @@ async function loadDj() {
   }
   $('dj').textContent = 'No DJ clips here (audio/dj/ is not in this build).';
 }
+function pickDjTopic(wall, identOnly = false) {
+  if (identOnly) return 'ident';
+  const hour = (((Math.floor(wall) - 8 * 3600) % 86400) + 86400) % 86400 / 3600;
+  const weights = [
+    ['music', 0.23], ['ident', 0.09], ['places', 0.11], ['scene', 0.11],
+    ['weather', 0.08], ['callers', 0.07], ['banter', 0.06], ['offair', 0.06],
+    ['ads', 0.05], ['raves', 0.04], ['tired', 0.03], ['camping', 0.03],
+  ];
+  if (hour >= 5 && hour < 10) weights.push(['morning', 0.10]);
+  else if (hour >= 20 || hour < 5) weights.push(['night', 0.12]);
+  let r = Math.random() * weights.reduce((a, [, w]) => a + w, 0);
+  for (const [t, w] of weights) { if (r < w) return t; r -= w; }
+  return 'music';
+}
 async function maybeDj(wall) {
   if (!$('djOn').checked || !djIndex || djDue === null || wall < djDue) return;
-  djDue = null;
-  if (wall - djLast < 150) return;
-  await sayDj(wall);
+  const identOnly = djIdentDue;
+  djDue = null; djIdentDue = false;
+  if (wall - djLast < 95) return;
+  await sayDj(wall, identOnly);
 }
 // A line from the station's DJ now (also the page's hook for tests).
-async function sayDj(wall = wallNow()) {
+async function sayDj(wall = wallNow(), identOnly = false) {
   if (!djIndex || station < 0) return;
   const dj = info.stations[station].dj;
   if (!dj) return;
   const tuned = serial;
-  const topic = Math.random() < 0.7 ? 'music' : 'ident';
-  const ids = Object.keys(djIndex.clips).filter((id) => id.startsWith(`${dj}-${topic}-`) && !djHistory.includes(id));
+  const topic = pickDjTopic(wall, identOnly);
+  let ids = Object.keys(djIndex.clips).filter((id) => id.startsWith(`${dj}-${topic}-`) && !djHistory.includes(id));
+  if (!ids.length && !identOnly) {
+    ids = Object.keys(djIndex.clips).filter((id) => id.startsWith(`${dj}-`) && !id.startsWith(`${dj}-player-`) && !djHistory.includes(id));
+  }
   if (!ids.length) return;
   const id = ids[Math.floor(Math.random() * ids.length)];
-  djHistory.push(id); if (djHistory.length > 8) djHistory.shift();
-  djLast = wall;
+  djHistory.push(id); if (djHistory.length > 14) djHistory.shift();
+  djLast = identOnly ? wall - 95 + 40 : wall;
   const takes = djIndex.clips[id].takes || 1;
   const take = 1 + Math.floor(Math.random() * takes);
   const file = take === 1 ? `${id}.mp3` : `${id}.${take}.mp3`;

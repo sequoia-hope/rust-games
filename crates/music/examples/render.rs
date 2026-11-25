@@ -1,8 +1,9 @@
 //! Renders a song to a WAV file, with no game and no browser:
 //! `cargo run --release -p music --example render -- <genre> <seed> [out.wav] [--classic] [--secs N]`.
-//! A genre of the new generator (`synthwave`, `outrun`, `chicago`, `deep`)
-//! or, with `--classic`, of the classic one (`house`, `techno`, …). Prints
-//! the song's line, its loudness and peak, and its layers.
+//! A genre of the new generator (`synthwave`, `outrun`, `chicago`, `deep`,
+//! `classical`, `orchestral`, …) or, with `--classic`, of the classic one
+//! (`house`, `techno`, …). Prints the song's line, its loudness and peak, and
+//! its layers.
 
 use music::dsp::Reverb;
 use music::engine::Engine;
@@ -202,7 +203,8 @@ fn render_patch_audition(name: &str, data: &mut Vec<f32>) {
             ),
         ],
         "superPad" | "warmPad" | "darkPad" | "superPadWide" | "choir" | "supersaw" | "hoover"
-        | "stringSection" | "celloPad" | "brassSection" | "stab" | "hit" | "dubChord" => vec![
+        | "stringSection" | "celloPad" | "brassSection" | "chamberStrings" | "wavetablePad"
+        | "prophetBrass" | "stab" | "hit" | "dubChord" => vec![
             (
                 0.0,
                 6.5,
@@ -229,7 +231,9 @@ fn render_patch_audition(name: &str, data: &mut Vec<f32>) {
             ),
         ],
         "piano" | "honkyPiano" | "ep" | "organ" | "comboOrgan" | "bell" | "glass" | "pluck"
-        | "sqArp" | "pluckTrance" | "modernPluck" => vec![
+        | "sqArp" | "pluckTrance" | "modernPluck" | "concertGrand" | "feltPiano"
+        | "harpsichord" | "concertHarp" | "celesta" | "vibraphone" | "marimba" | "tubularBells"
+        | "dxRhodes" | "pizzicatoStrings" | "spiccatoStrings" => vec![
             (0.0, 3.8, vec![45.0, 57.0, 60.0, 64.0], 0.85, false, false),
             (2.0, 1.8, vec![67.0], 0.78, false, false),
             (4.0, 3.8, vec![41.0, 53.0, 57.0, 60.0], 0.82, false, false),

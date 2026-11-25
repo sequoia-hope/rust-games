@@ -10,6 +10,7 @@
 // Index loops stay index loops: they mirror the JS line for line (DECISIONS D52).
 #![allow(clippy::needless_range_loop)]
 
+pub use mp_track::Route;
 use mp_track::{Level, Police, Zone};
 
 /// A sky keyframe from the JS literal's values, in its field order: s,
@@ -89,12 +90,15 @@ pub(crate) fn police(heat_cap: &[u32], los_open_ground: &[bool]) -> Police {
     }
 }
 
+pub mod bayfront;
 pub mod city;
 pub mod coast;
 pub mod cruise;
 pub mod desert;
 pub mod ground;
 pub mod peninsula;
+pub mod redwoods;
+pub mod ring;
 pub mod seaside;
 pub mod sierra;
 pub mod south_coast;
@@ -107,7 +111,7 @@ pub use survey::SeasideData;
 /// Everything the menu offers, in order. Coast Highway comes first, which
 /// starts in the dark and drives into sunrise, then Sierra (the owner,
 /// 2026-10-06; D1102); the JS lists Sierra first. The open world comes
-/// last, after the six levels: its first corridor, then the loop.
+/// last, after the curated levels: its first corridor, then the loop.
 pub fn levels() -> Vec<Level> {
     vec![
         coast::level(),
@@ -115,10 +119,22 @@ pub fn levels() -> Vec<Level> {
         streets::level(),
         desert::level(),
         seaside::level(),
+        redwoods::level(),
+        bayfront::level(),
+        ring::level(),
         cruise::level(),
         south_coast::level(),
         peninsula::level(),
     ]
+}
+
+/// Curated race levels suitable for head-to-head multiplayer lobbies
+/// (excluding endless cruise and open-world corridors).
+pub fn race_levels() -> Vec<Level> {
+    levels()
+        .into_iter()
+        .filter(|l| l.mode == mp_track::Mode::Race && !l.open)
+        .collect()
 }
 
 /// The open world's levels, which the menu offers through the atlas

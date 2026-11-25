@@ -471,9 +471,12 @@ impl DesertAnimator {
         let Some(tr) = &mut self.train else {
             return;
         };
-        if s < start {
+        if s < start && (!tr.rolling || s < start - 250.0) {
             // Waiting: the whole train sits stationary ahead of the canyon
-            // mouth (`start`), with its tail 150 m ahead of `start`.
+            // mouth (`start`), with its tail 150 m ahead of `start`. Once
+            // rolling, a reset or brief reverse near `start` keeps it rolling
+            // instead of teleporting the consist backward; only a full race
+            // restart back to the canyon mouth resets it.
             let wait_u = *tr
                 .wait_u
                 .get_or_insert_with(|| Self::rail_u_for(&track, &tr.rail, start));
@@ -514,19 +517,22 @@ impl DesertAnimator {
                 instance(out, c.mesh, c.idx, &Matrix4::compose(p, q, one));
             }
         }
-        // Lights on the lead locomotive.
+        // Lights on the lead locomotive (hidden once the lead unit leaves the rail).
         let lead = tr.cars[0];
-        let lu = head - lead.off + lead.l / 2.0;
+        let lead_u = head - lead.off;
+        let lead_on_rail = lead_u >= lead.l && lead_u <= tr.rail.len - lead.l;
+        let lu = lead_u + lead.l / 2.0;
         let f: RailPt = tr.rail.at(lu);
         let rx = -f.fz;
         let rz = f.fx;
         let k = 0.25 + 0.75 * smoothstep(0.15, 0.6, night);
+        let vis_scale = if lead_on_rail { 1.0 } else { 0.0 };
         let blink = kernel::sin(time * 6.0) > 0.0;
         transform(
             out,
             tr.glow[0],
             [f.x + f.fx * 0.4, f.y + 3.45, f.z + f.fz * 0.4],
-            3.0 + 4.0 * k,
+            (3.0 + 4.0 * k) * vis_scale,
         );
         transform(
             out,
@@ -536,7 +542,7 @@ impl DesertAnimator {
                 f.y + 1.6,
                 f.z + f.fz * 0.3 + rz * 1.0,
             ],
-            (if blink { 2.5 } else { 1.2 }) * (0.5 + k),
+            (if blink { 2.5 } else { 1.2 }) * (0.5 + k) * vis_scale,
         );
         transform(
             out,
@@ -546,9 +552,9 @@ impl DesertAnimator {
                 f.y + 1.6,
                 f.z + f.fz * 0.3 - rz * 1.0,
             ],
-            (if !blink { 2.5 } else { 1.2 }) * (0.5 + k),
+            (if !blink { 2.5 } else { 1.2 }) * (0.5 + k) * vis_scale,
         );
-        opacity(out, Some(tr.glow_mat), 0.5 + 0.5 * k);
+        opacity(out, Some(tr.glow_mat), (0.5 + 0.5 * k) * vis_scale);
         transform(
             out,
             tr.beam,
@@ -565,7 +571,7 @@ impl DesertAnimator {
             target: Handle::Node(tr.beam),
             change: Change::Light {
                 color: tr.beam_color,
-                intensity: 90.0 * smoothstep(0.3, 0.8, night),
+                intensity: 90.0 * smoothstep(0.3, 0.8, night) * vis_scale,
                 ground_color: None,
             },
         });

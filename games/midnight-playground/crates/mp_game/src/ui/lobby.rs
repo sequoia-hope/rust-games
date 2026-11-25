@@ -47,10 +47,11 @@ pub enum MpAct {
     EndRace,
 }
 
-/// Colours to pick from: the cars' own, then a few more.
-pub const COLORS: [u32; 10] = [
+/// Colours to pick from: the initial ten in order, plus the expanded garage's
+/// distinct colours (`the_palette_starts_with_the_cars_colours`).
+pub const COLORS: [u32; 14] = [
     0xd81e36, 0x1f4fd8, 0xf2b705, 0xee5a12, 0xdfe7ee, 0x111111, 0x2e8b57, 0x8a2be2, 0x00a7c4,
-    0xb0b0b0,
+    0xb0b0b0, 0xb5121b, 0x46586e, 0x1e242b, 0x00b4d8,
 ];
 
 pub fn car_label(kind: &str) -> &'static str {

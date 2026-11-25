@@ -250,11 +250,12 @@ impl SkyState {
         light_dir.y = light_dir.y.max(0.12);
         light_dir += (self.moon_dir - light_dir) * to_moon;
         let light_dir = normalize(light_dir);
+        let shadow_focus = snap_shadow_focus(focus, light_dir, &ShadowParams::SKY);
         out.sun = Some(Sun {
             color: k.sun,
             intensity: k.sun_i,
-            position: focus + light_dir * 300.0,
-            target: focus,
+            position: shadow_focus + light_dir * 300.0,
+            target: shadow_focus,
             shadow: Some(ShadowParams::SKY),
         });
         out.hemi = Some(Hemi {
@@ -267,6 +268,23 @@ impl SkyState {
         out.exposure = k.exp;
         k
     }
+}
+
+/// Snaps the directional shadow camera's target to world-stable shadow-map
+/// texel increments along the light's X/Y axes so shadow edges on moving and
+/// distant objects (such as Desert Run's freight train ribs and bogies) do not
+/// shimmer at 60 Hz as the car moves.
+fn snap_shadow_focus(focus: DVec3, light_dir: DVec3, s: &ShadowParams) -> DVec3 {
+    let view = super::lighting::look_at(light_dir * 300.0, DVec3::ZERO, DVec3::Y);
+    let right = view.x_axis.truncate();
+    let up = view.y_axis.truncate();
+    let forward = view.z_axis.truncate();
+    let tx = (s.right - s.left) / f64::from(s.map_size.max(1));
+    let ty = (s.top - s.bottom) / f64::from(s.map_size.max(1));
+    let u = (focus.dot(right) / tx).round() * tx;
+    let v = (focus.dot(up) / ty).round() * ty;
+    let w = focus.dot(forward);
+    right * u + up * v + forward * w
 }
 
 /// `terrainDetailTexture()` (the dome's `tNoise`) as a Bevy image, from

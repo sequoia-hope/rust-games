@@ -104,6 +104,11 @@ pub struct ClientRace {
     /// Events of ticks simulated for the first time, for the client to show.
     pub events: Vec<SimEvent>,
     emitted_to: u32,
+    results_emitted: bool,
+    /// Set when `Msg::End` arrived before local simulation reached `confirmed()`:
+    /// `Some(false)` drains remaining confirmed ticks on the next `update`,
+    /// `Some(true)` closes the race on the following `poll`.
+    ending: Option<bool>,
 }
 
 impl ClientRace {
@@ -162,8 +167,19 @@ impl ClientRace {
         let mut ev = Vec::new();
         step(&self.lr, &mut st, &frames, &mut ev);
         if record_events && tick > self.emitted_to {
-            self.events.extend(ev);
+            for e in ev {
+                if matches!(e, SimEvent::Results) {
+                    if self.results_emitted {
+                        continue;
+                    }
+                    self.results_emitted = true;
+                }
+                self.events.push(e);
+            }
             self.emitted_to = tick;
+        } else if !self.results_emitted && ev.iter().any(|e| matches!(e, SimEvent::Results)) {
+            self.results_emitted = true;
+            self.events.push(SimEvent::Results);
         }
         self.ring.push_back(st);
         self.used.push_back(frames);
@@ -342,6 +358,12 @@ impl<T: Transport> Client<T> {
     /// Polls the transport, handles incoming messages and keeps the clock
     /// alive, without stepping the simulation.
     pub fn poll(&mut self, now: f64) {
+        if self.race.as_ref().is_some_and(|r| r.ending == Some(true)) {
+            self.race = None;
+            self.pending = None;
+            self.begin_at = None;
+            self.events.push(ClientEvent::RaceEnded);
+        }
         let mut inbox = std::mem::take(&mut self.inbox);
         self.net.poll(&mut inbox);
         for ev in inbox.drain(..) {
@@ -351,6 +373,8 @@ impl<T: Transport> Client<T> {
                 }
                 NetEvent::Disconnected(_) => {
                     self.connected = false;
+                    self.hello_sent = false;
+                    self.pings.clear();
                     self.race = None;
                     self.pending = None;
                     self.begin_at = None;
@@ -501,10 +525,16 @@ impl<T: Transport> Client<T> {
                 }
             }
             Msg::End => {
-                self.race = None;
-                self.pending = None;
-                self.begin_at = None;
-                self.events.push(ClientEvent::RaceEnded);
+                if let Some(r) = &mut self.race
+                    && r.local() < r.confirmed()
+                {
+                    r.ending = Some(false);
+                } else {
+                    self.race = None;
+                    self.pending = None;
+                    self.begin_at = None;
+                    self.events.push(ClientEvent::RaceEnded);
+                }
             }
             _ => {}
         }
@@ -531,6 +561,8 @@ impl<T: Transport> Client<T> {
             our_hashes: BTreeMap::new(),
             events: Vec::new(),
             emitted_to: 0,
+            results_emitted: false,
+            ending: None,
         });
     }
 
@@ -629,6 +661,16 @@ impl<T: Transport> Client<T> {
 
     /// Steps forward to the target tick.
     fn advance(&mut self, now: f64, input: &mut impl FnMut(&SimState, usize) -> InputFrame) {
+        if let Some(r) = &mut self.race
+            && r.ending == Some(false)
+        {
+            while r.local() < r.confirmed() {
+                r.step_once(true);
+            }
+            self.stats.ahead = r.local() as i64 - r.confirmed() as i64;
+            r.ending = Some(true);
+            return;
+        }
         let Some(host) = self.host_tick(now) else {
             return;
         };

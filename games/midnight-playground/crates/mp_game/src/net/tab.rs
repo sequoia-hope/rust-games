@@ -74,7 +74,7 @@ impl TabHost {
     }
 }
 
-/// The levels a tab can host: every level of `mp_levels`; Seaside Raceway
+/// The levels a tab can host: every race level of `mp_levels`; Seaside Raceway
 /// once its survey has loaded (the menu loads it), which is when the
 /// client could race it too.
 pub fn levels() -> Levels {
@@ -208,7 +208,8 @@ mod tests {
         let again = lv("coast").unwrap();
         assert!(Arc::ptr_eq(&again, &lv("coast").unwrap()), "built once");
         assert!(lv("moon").is_none());
-        for l in mp_levels::levels() {
+        assert!(lv("cruise").is_none());
+        for l in mp_levels::race_levels() {
             if l.id != "seaside" {
                 assert!(lv(l.id).is_some(), "{}", l.id);
             }

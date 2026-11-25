@@ -118,6 +118,9 @@ fn add(w: &mut World) {
         "streets" => 303,
         "desert" => 404,
         "seaside" => 505,
+        "redwoods" => 707,
+        "bayfront" => 808,
+        "ring" => 909,
         _ => 606,
     };
     let mut c = Ctx {
@@ -129,12 +132,12 @@ fn add(w: &mut World) {
     };
     let mut out = Out::default();
     match id {
-        "sierra" => sierra(&mut c, &mut out),
-        "coast" | "southcoast" | "peninsula" => coast(&mut c, &mut out),
+        "sierra" | "redwoods" => sierra(&mut c, &mut out),
+        "coast" | "bayfront" | "southcoast" | "peninsula" => coast(&mut c, &mut out),
         "streets" => streets(&mut c, &mut out),
         "desert" => desert(&mut c, &mut out),
         "seaside" => seaside(&mut c, &mut out),
-        "cruise" => cruise(&mut c, &mut out),
+        "cruise" | "ring" => cruise(&mut c, &mut out),
         _ => {}
     }
     out.build(w);
