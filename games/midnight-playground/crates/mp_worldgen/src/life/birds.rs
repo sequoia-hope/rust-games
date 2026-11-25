@@ -320,7 +320,9 @@ pub fn build(w: &mut World, level: &str) -> Result<Option<Birds>, String> {
         o.frustum_culled = false;
         o.cast_shadow = false;
         o.receive_shadow = false;
-        o.instances.as_mut().expect("instanced").count = 0;
+        let inst = o.instances.as_mut().expect("instanced");
+        inst.set_color_at(0, Color::hex(0xffffff));
+        inst.count = 0;
         n
     };
     let body = node(body_geo);
@@ -465,10 +467,20 @@ fn convoy_step(pts: &[[f64; 3]], s0: f64, p: &mut Option<f64>, u: &UpdateCtx) ->
         return None;
     }
     let at = match *p {
-        Some(at) if at > me - 450.0 && at < me + 1200.0 && at < span - 10.0 => {
+        Some(at) if at > me - 450.0 && at < me + 1200.0 => {
+            if at >= span {
+                *p = None;
+                return None;
+            }
             at + PELICAN.speed * u.dt
         }
-        _ => (me + 650.0).clamp(0.0, (span - 300.0).max(0.0)),
+        _ => {
+            let spawn = me + 650.0;
+            if spawn >= span - 100.0 {
+                return None;
+            }
+            spawn.max(0.0)
+        }
     };
     *p = Some(at);
     Some(at)

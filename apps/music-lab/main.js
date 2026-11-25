@@ -16,7 +16,7 @@ const $ = (id) => document.getElementById(id);
 const status = (html, err = false) => { $('status').innerHTML = html; $('status').classList.toggle('err', err); };
 
 // ── The engine on the main thread: tables and tracks ─────────────
-const WASM_URL = new URL('music.wasm?v=20261024b', import.meta.url);
+const WASM_URL = new URL('music.wasm?v=20261125', import.meta.url);
 const module = await WebAssembly.compileStreaming(fetch(WASM_URL, { cache: 'no-store' }));
 const wasm = (await WebAssembly.instantiate(module, {})).exports;
 const text = (ptr) => new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, wasm.music_text_len()));
@@ -144,7 +144,7 @@ for (const [label, list] of [['New generator', NEW], ['Classic (the radio today)
 }
 
 const ALL_KEYS = Object.keys(GENRES);
-const EDM_KEYS = ALL_KEYS.filter((k) => !['orchestral', 'chicha', 'country'].includes(k));
+const EDM_KEYS = ALL_KEYS.filter((k) => !['orchestral', 'classical', 'acoustic', 'chicha', 'country'].includes(k));
 function buildAutoGenres() {
   const el = $('autoGenres');
   el.innerHTML = '';
@@ -495,7 +495,7 @@ async function copyJson(obj, noteId) {
 let inst = 'acid' in BPATCH ? 'acid' : Object.keys(BPATCH)[0], instP = structuredClone(BPATCH[inst]), octave = 3;
 const byKind = {};
 for (const [k, v] of Object.entries(BPATCH)) (byKind[v.kind] ||= []).push(k);
-const KIND_NAME = { tb303: 'TB-303', juno: 'Juno-style poly', mono: 'Moog-style mono', fm: 'DX-style FM', string: 'Plucked string', bowed: 'Bowed string' };
+const KIND_NAME = { tb303: 'TB-303', juno: 'Juno-style poly', mono: 'Moog-style mono', fm: 'DX-style FM', string: 'Plucked / hammered string', bowed: 'Bowed string', wind: 'Woodwind / flute', modal: 'Modal mallet / wavetable' };
 for (const [kind, names] of Object.entries(byKind)) {
   const g = document.createElement('optgroup'); g.label = KIND_NAME[kind] ?? kind;
   for (const n of names) g.append(new Option(n, n));

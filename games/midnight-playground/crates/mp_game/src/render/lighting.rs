@@ -134,13 +134,14 @@ pub struct ShadowParams {
 }
 
 impl ShadowParams {
-    /// `Sky.js`: a ±70 m box, near 1, far 600, 2048², bias -0.0004, normal
-    /// bias 0.6.
+    /// `Sky.js` directional shadow box, widened to ±96 m so corridor set-pieces
+    /// like Desert Run's parallel freight train (`RAIL_LAT = -64 m`) stay well
+    /// inside the shadow frustum across all highway lanes.
     pub const SKY: ShadowParams = ShadowParams {
-        left: -70.0,
-        right: 70.0,
-        top: 70.0,
-        bottom: -70.0,
+        left: -96.0,
+        right: 96.0,
+        top: 96.0,
+        bottom: -96.0,
         near: 1.0,
         far: 600.0,
         bias: -0.0004,

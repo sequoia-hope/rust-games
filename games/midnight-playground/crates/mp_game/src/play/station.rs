@@ -12,14 +12,16 @@ use mp_audio::game::GameAudio;
 use mp_audio::stations::{STATIONS, level_station, station};
 use music::radio::{Station, cue};
 
-/// Seconds between two DJ breaks at the least.
-const BREAK_GAP: f64 = 150.0;
+/// Seconds between two full DJ breaks at the least.
+const BREAK_GAP: f64 = 95.0;
+/// Shorter breather after a quick tune-in station ID so song seams still speak.
+const IDENT_GAP: f64 = 40.0;
 /// A break at a song change, this often.
-const BREAK_CHANCE: f64 = 0.35;
+const BREAK_CHANCE: f64 = 0.55;
 /// An ident shortly after tuning in, this often.
 const IDENT_CHANCE: f64 = 0.5;
 /// Lines not said again until this many others have been.
-const HISTORY: usize = 8;
+const HISTORY: usize = 14;
 
 /// The station a setting means for a level: `None` is the playlist.
 pub fn resolve(setting: &str, level: &str) -> Option<usize> {
@@ -96,6 +98,7 @@ pub struct StationState {
     history: Vec<String>,
     last_break: f64,
     due: Option<f64>,
+    due_ident: bool,
     police_at: f64,
     prefetched: Option<&'static str>,
     rng: u64,
@@ -120,6 +123,7 @@ impl StationState {
             history: Vec::new(),
             last_break: f64::MIN,
             due: None,
+            due_ident: false,
             police_at: f64::MIN,
             prefetched: None,
             rng: 0x9E37_79B9_7F4A_7C15,
@@ -138,13 +142,16 @@ impl StationState {
                 Some(i) => {
                     self.flash = Some(label(&STATIONS[i]));
                     // An ident a couple of seconds in, sometimes.
-                    self.due = (self.chance(IDENT_CHANCE)).then_some(wall + 2.0);
+                    let want = self.chance(IDENT_CHANCE);
+                    self.due = want.then_some(wall + 2.0);
+                    self.due_ident = want;
                     self.refresh(wall);
                     self.flash = Some(self.text.clone());
                 }
                 None => {
                     self.flash = Some("Playlist".into());
                     self.due = None;
+                    self.due_ident = false;
                 }
             }
         }
@@ -223,6 +230,7 @@ impl StationState {
             self.flash = Some(self.text.clone());
             if self.chance(BREAK_CHANCE) {
                 self.due = Some(wall);
+                self.due_ident = false;
             }
         }
         let st = &STATIONS[i];
@@ -232,6 +240,7 @@ impl StationState {
             // The menus are music only: a break due now is dropped, not
             // kept for the race (the owner, 2026-10-09).
             self.due = None;
+            self.due_ident = false;
             return;
         }
         if let Some(due) = self.due
@@ -241,14 +250,17 @@ impl StationState {
             if !quiet {
                 return; // keep it pending
             }
+            let ident_only = self.due_ident;
             self.due = None;
+            self.due_ident = false;
             if wall - self.last_break >= BREAK_GAP {
-                self.say(audio, dj, wall);
+                self.say(audio, dj, wall, ident_only);
             }
         }
     }
 
-    /// The DJ's clips, fetched once the index is known.
+    /// Warm the DJ's short station idents ahead of time; song-seam chatter
+    /// fetches lazily per clip via `DjVoice::buffer`.
     fn prefetch(&mut self, audio: &mut GameAudio, dj: &'static str) {
         if self.prefetched == Some(dj) {
             return;
@@ -259,29 +271,86 @@ impl StationState {
         };
         let ids: Vec<String> = index
             .keys()
-            .filter(|id| topic_of(id, dj).is_some())
+            .filter(|id| topic_of(id, dj) == Some("ident"))
             .cloned()
             .collect();
         let _ = voice.prefetch(&ids);
         self.prefetched = Some(dj);
     }
 
-    /// A break: a song line (70 %) or an ident, not one said lately.
-    fn say(&mut self, audio: &mut GameAudio, dj: &'static str, wall: f64) {
-        let Some(voice) = audio.dj() else { return };
-        let Some(Ok(index)) = voice.index().result() else {
-            return;
+    fn pick_topic(&mut self, wall: f64, ident_only: bool) -> &'static str {
+        if ident_only {
+            return "ident";
+        }
+        let local_hour = ((wall as i64 - 8 * 3600).rem_euclid(86_400) / 3600) as u32;
+        let mut weights: [(&'static str, f64); 14] = [
+            ("music", 0.23),
+            ("ident", 0.09),
+            ("places", 0.11),
+            ("scene", 0.11),
+            ("weather", 0.08),
+            ("callers", 0.07),
+            ("banter", 0.06),
+            ("offair", 0.06),
+            ("ads", 0.05),
+            ("raves", 0.04),
+            ("tired", 0.03),
+            ("camping", 0.03),
+            ("morning", 0.0),
+            ("night", 0.0),
+        ];
+        if (5..10).contains(&local_hour) {
+            weights[12].1 = 0.10;
+        } else if !(10..20).contains(&local_hour) {
+            weights[13].1 = 0.12;
+        }
+        let total: f64 = weights.iter().map(|(_, w)| *w).sum();
+        let mut r = self.next() * total;
+        for &(topic, w) in &weights {
+            if w <= 0.0 {
+                continue;
+            }
+            if r < w {
+                return topic;
+            }
+            r -= w;
+        }
+        "music"
+    }
+
+    fn pick_clip(
+        &mut self,
+        index: &mp_audio::dj::Index,
+        dj: &str,
+        wall: f64,
+        ident_only: bool,
+    ) -> Option<(String, u32)> {
+        let wanted = self.pick_topic(wall, ident_only);
+        let local_hour = ((wall as i64 - 8 * 3600).rem_euclid(86_400) / 3600) as u32;
+        let allowed = |t: &str| match t {
+            // `player` clips are filled-in car/road examples, not generic chatter.
+            "player" => false,
+            "morning" => (5..10).contains(&local_hour),
+            "night" => !(10..20).contains(&local_hour),
+            _ => true,
         };
-        let topic = if self.chance(0.7) { "music" } else { "ident" };
         let mut ids: Vec<(&String, u32)> = index
             .iter()
-            .filter(|(id, _)| topic_of(id, dj) == Some(topic))
+            .filter(|(id, _)| topic_of(id, dj) == Some(wanted))
             .filter(|(id, _)| !self.history.contains(id))
             .map(|(id, n)| (id, *n))
             .collect();
+        if ids.is_empty() && !ident_only {
+            ids = index
+                .iter()
+                .filter(|(id, _)| topic_of(id, dj).is_some_and(allowed))
+                .filter(|(id, _)| !self.history.contains(id))
+                .map(|(id, n)| (id, *n))
+                .collect();
+        }
         ids.sort();
         if ids.is_empty() {
-            return;
+            return None;
         }
         let k = (self.next() * ids.len() as f64) as usize;
         let (id, takes) = ids[k.min(ids.len() - 1)];
@@ -291,8 +360,24 @@ impl StationState {
         if self.history.len() > HISTORY {
             self.history.remove(0);
         }
-        self.last_break = wall;
-        audio.dj_say(&id, take.min(takes.max(1)));
+        Some((id, take.min(takes.max(1))))
+    }
+
+    /// A DJ break: station ident on tune-in, or a full contextual topic on song seams.
+    fn say(&mut self, audio: &mut GameAudio, dj: &'static str, wall: f64, ident_only: bool) {
+        let Some(voice) = audio.dj() else { return };
+        let Some(Ok(index)) = voice.index().result() else {
+            return;
+        };
+        let Some((id, take)) = self.pick_clip(&index, dj, wall, ident_only) else {
+            return;
+        };
+        self.last_break = if ident_only {
+            wall - BREAK_GAP + IDENT_GAP
+        } else {
+            wall
+        };
+        audio.dj_say(&id, take);
     }
 }
 
@@ -317,15 +402,17 @@ mod tests {
         assert_eq!(resolve("auto", "desert"), Some(3));
         assert_eq!(resolve("auto", "streets"), Some(4));
         assert_eq!(resolve("auto", "cruise"), Some(4));
+        assert_eq!(resolve("auto", "redwoods"), Some(5));
         assert_eq!(resolve("nope", "coast"), None);
         assert_eq!(step_setting("playlist", "coast", 1), "tide");
         assert_eq!(step_setting("tide", "coast", 1), "ridgeline");
         assert_eq!(step_setting("auto", "sierra", 1), "pacifico");
         assert_eq!(step_setting("pacifico", "coast", 1), "roadhouse");
         assert_eq!(step_setting("roadhouse", "coast", 1), "loft");
+        assert_eq!(step_setting("loft", "coast", 1), "nocturne");
         // Round the stations, never off.
-        assert_eq!(step_setting("loft", "coast", 1), "tide");
-        assert_eq!(step_setting("tide", "coast", -1), "loft");
+        assert_eq!(step_setting("nocturne", "coast", 1), "tide");
+        assert_eq!(step_setting("tide", "coast", -1), "nocturne");
         assert_eq!(radio_on_setting("playlist"), "auto");
         assert_eq!(radio_on_setting("ridgeline"), "ridgeline");
         assert_eq!(radio_on_setting("kzzz"), "auto");
@@ -350,5 +437,43 @@ mod tests {
         s.tuned(None, wall);
         assert_eq!(s.flash.take().as_deref(), Some("Playlist"));
         assert_eq!(s.station, None);
+    }
+
+    #[test]
+    fn dj_director_rotates_contextual_topics_without_player_templates_or_repeats() {
+        let mut index = mp_audio::dj::Index::new();
+        for topic in [
+            "ident", "music", "morning", "weather", "places", "scene", "player", "raves", "tired",
+            "camping", "offair", "callers", "ads", "banter", "night",
+        ] {
+            for k in 1..=4 {
+                index.insert(format!("marisol-{topic}-{k}"), 1);
+            }
+        }
+        let mut s = StationState::new();
+        // 01:00 local Pacific (09:00 UTC): night window, never morning or player.
+        let night_wall = 9.0 * 3600.0;
+        let (first_id, _) = s.pick_clip(&index, "marisol", night_wall, true).unwrap();
+        assert_eq!(topic_of(&first_id, "marisol"), Some("ident"));
+
+        let mut topics = std::collections::BTreeSet::new();
+        let mut recent = std::collections::VecDeque::new();
+        for _ in 0..80 {
+            let (id, take) = s.pick_clip(&index, "marisol", night_wall, false).unwrap();
+            assert_eq!(take, 1);
+            let t = topic_of(&id, "marisol").unwrap().to_owned();
+            assert_ne!(t, "player", "template player lines must not fire randomly");
+            assert_ne!(t, "morning", "morning lines must not fire at 1am");
+            assert!(!recent.contains(&id), "repeated clip {id} within history");
+            recent.push_back(id);
+            if recent.len() > HISTORY {
+                recent.pop_front();
+            }
+            topics.insert(t);
+        }
+        assert!(
+            topics.len() >= 8 && topics.contains("night") && topics.contains("places"),
+            "expected broad topic rotation, got {topics:?}"
+        );
     }
 }

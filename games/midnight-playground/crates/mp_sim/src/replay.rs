@@ -30,6 +30,8 @@ pub struct Recorded {
     pub flash: bool,
     /// Which cars the sim model moves (absent in older recordings: arcade).
     pub physics: Physics,
+    /// Whether AI rivals were matched to the player's car class.
+    pub class_match: bool,
     /// Every tick's input from tick 1, in order.
     pub inputs: Vec<InputFrame>,
     /// (tick, `race::hash` of the state after it).
@@ -55,9 +57,13 @@ impl Recorded {
         })
     }
 
-    /// The field on the grid, with the client's pursuit options.
+    /// The field on the grid, with the client's pursuit and class options.
     pub fn start(&self, lr: &LevelRuntime) -> Result<SimState, String> {
-        let mut st = SimState::new(lr, self.opts()?);
+        let opts = self.opts()?;
+        let mut st = SimState::new(lr, opts);
+        if self.class_match {
+            st.match_rivals_to_class(lr, crate::physics::car_class(opts.car));
+        }
         apply_pursuit_opts(&mut st, self.cops, self.flash);
         Ok(st)
     }
@@ -167,6 +173,7 @@ pub fn parse(text: &str) -> Result<Vec<Recorded>, String> {
                 physics: field(line, "physics")
                     .and_then(Physics::parse)
                     .unwrap_or_default(),
+                class_match: field(line, "class_match") == Some("true"),
                 ..Recorded::default()
             }),
             Some("ticks") => {

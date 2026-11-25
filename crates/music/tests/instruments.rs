@@ -668,3 +668,70 @@ fn chorus_high_pass_keeps_the_bass_fundamental_mono() {
     );
     assert!(high_hp > low_hp * 20.0, "upper harmonics still chorused");
 }
+
+#[test]
+fn classical_acoustic_and_morphing_synth_voices_sound_distinct_and_expressive() {
+    // Concert grand has brighter upper partial energy than felt piano, and both ring cleanly.
+    let (grand, _) = render_inst(
+        &bpatch("concertGrand").unwrap(),
+        &[note(0.0, &[60.0, 64.0, 67.0], 0.8)],
+        1.5,
+    );
+    let (felt, _) = render_inst(
+        &bpatch("feltPiano").unwrap(),
+        &[note(0.0, &[60.0, 64.0, 67.0], 0.8)],
+        1.5,
+    );
+    assert!(finite(&grand) && finite(&felt));
+    let bright_ratio = |x: &[f32]| {
+        band_power(&x[at(0.02)..at(0.25)], 1800.0, 5500.0)
+            / band_power(&x[at(0.02)..at(0.25)], 200.0, 800.0)
+    };
+    assert!(
+        bright_ratio(&grand) > bright_ratio(&felt) * 2.0,
+        "concertGrand is brighter than feltPiano"
+    );
+
+    // Oboe has stronger nasal 1–3.2 kHz formant energy relative to fundamental than concertFlute.
+    let (flute, _) = render_inst(
+        &bpatch("concertFlute").unwrap(),
+        &[note(0.0, &[69.0], 0.7)],
+        1.2,
+    );
+    let (oboe, _) = render_inst(&bpatch("oboe").unwrap(), &[note(0.0, &[69.0], 0.7)], 1.2);
+    let reed_ratio = |x: &[f32]| {
+        band_power(&x[at(0.15)..at(0.45)], 1050.0, 3200.0)
+            / band_power(&x[at(0.15)..at(0.45)], 400.0, 500.0)
+    };
+    assert!(
+        reed_ratio(&oboe) > reed_ratio(&flute) * 2.5,
+        "oboe double-reed formants carry more 1-3 kHz presence than concertFlute"
+    );
+
+    // Solo violin legato slur stays continuously audible across note transition without dropping out.
+    let mut slurred = note(0.35, &[69.0], 0.4);
+    slurred.opt.glide_from = Some(67.0);
+    let (vln, _) = render_inst(
+        &bpatch("soloViolin").unwrap(),
+        &[note(0.0, &[67.0], 0.36), slurred],
+        1.2,
+    );
+    assert!(
+        rms(&vln[at(0.33)..at(0.40)]) > 0.01,
+        "legato bow slur sustains across note change"
+    );
+
+    // Vibraphone modal bar + fan tremolo and CS-80 morphing wavetable lead stay bounded and expressive.
+    let (vibes, _) = render_inst(
+        &bpatch("vibraphone").unwrap(),
+        &[note(0.0, &[64.0], 1.2)],
+        1.8,
+    );
+    let (cs80, _) = render_inst(
+        &bpatch("cs80Lead").unwrap(),
+        &[note(0.0, &[60.0], 0.9)],
+        1.5,
+    );
+    assert!(finite(&vibes) && peak(&vibes) > 0.02 && peak(&vibes) < 1.5);
+    assert!(finite(&cs80) && peak(&cs80) > 0.02 && peak(&cs80) < 1.5);
+}

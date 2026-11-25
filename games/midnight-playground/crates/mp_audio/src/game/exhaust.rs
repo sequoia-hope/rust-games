@@ -17,13 +17,17 @@
 use super::{GATE_TAIL, GameAudio, GateId, clamp};
 use crate::wa::{ExhaustNode, GainNode, Node, Pending};
 
-/// The model's preset for each car (the lab's `gameCar`, one each).
+/// The model's preset for each car (the lab's `gameCar`, plus the expanded
+/// garage's twin-turbo V6, AWE-exhaust V8 and V12).
 pub fn preset_for(car: &str) -> Option<&'static str> {
     Some(match car {
         "sports" => "flatV8",
-        "muscle" => "crossV8",
-        "super" => "v10",
-        "rally" => "i4turbo",
+        "muscle" | "firebird" => "crossV8",
+        "super" | "cgt" => "v10",
+        "rally" | "roadster" => "i4turbo",
+        "vr4" => "v6tt",
+        "audax" => "audiV8awe",
+        "diablo" => "v12",
         _ => return None,
     })
 }
@@ -36,6 +40,9 @@ fn trim(preset: &str) -> f64 {
         "flatV8" => 1.26,
         "crossV8" => 1.02,
         "v10" => 1.30,
+        "v12" => 1.24,
+        "v6tt" => 1.06,
+        "audiV8" | "audiV8awe" => 1.08,
         "i4turbo" => 0.88,
         _ => 0.85,
     }

@@ -90,9 +90,22 @@ impl Chord {
     }
 }
 
-/// Reads a numeral in `mode` (see the module docs); `None` if it is not
-/// one.
+/// Reads a numeral in `mode` (see the module docs), including secondary
+/// dominants / leading-tone chords (`V/V`, `V7/V`, `V/vi`, `vii°7/V`);
+/// `None` if it is not one.
 pub fn numeral(s: &str, mode: &Mode) -> Option<Chord> {
+    if let Some((lhs, rhs)) = s.trim().split_once('/') {
+        let target = numeral(rhs, mode)?;
+        let rel_mode = if target.minor {
+            &HARMONIC_MINOR
+        } else {
+            &IONIAN
+        };
+        let mut chord = numeral(lhs, rel_mode)?;
+        chord.name = s.trim().to_owned();
+        chord.root = (chord.root + target.root).rem_euclid(12);
+        return Some(chord);
+    }
     let mut rest = s.trim();
     let mut acc = 0;
     loop {
@@ -349,6 +362,10 @@ mod tests {
             vec![0, 8, 3, 10]
         );
         assert!(progression("IV–V–vi–I", &IONIAN).unwrap()[2].minor);
+        let sec = numeral("V7/V", &IONIAN).unwrap();
+        assert_eq!((sec.root, sec.tones), (2, vec![0, 4, 7, 10]));
+        let neap = numeral("♭II6", &HARMONIC_MINOR).unwrap();
+        assert_eq!((neap.root, neap.bass, neap.minor), (1, 4, false));
     }
 
     #[test]

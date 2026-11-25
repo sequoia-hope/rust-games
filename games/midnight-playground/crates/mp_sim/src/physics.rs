@@ -67,13 +67,86 @@ const fn spec(
     }
 }
 
-/// `CAR_SPECS`, in the JS order.
-pub const CAR_SPECS: [(&str, CarSpec); 5] = [
+/// Performance class (docs/vision/WORLD.md 8.1, ROADMAP M15): cars of a
+/// similar era and pace race together so every car can keep its true
+/// character without making races trivial or unwinnable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarClass {
+    /// American muscle and V8 classics.
+    Muscle,
+    /// 90s twin-turbo icons, AWD sport saloons and turbo roadsters.
+    Touring,
+    /// Track GTs and AWD rally cars.
+    Sports,
+    /// Mid-engine V10 and V12 supercars.
+    Super,
+    /// Dual-motor electric hyper-GTs.
+    Electric,
+}
+
+impl CarClass {
+    pub const ALL: [CarClass; 5] = [
+        CarClass::Muscle,
+        CarClass::Touring,
+        CarClass::Sports,
+        CarClass::Super,
+        CarClass::Electric,
+    ];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            CarClass::Muscle => "Muscle & Classics",
+            CarClass::Touring => "90s & Street",
+            CarClass::Sports => "Track & Rally",
+            CarClass::Super => "Supercars",
+            CarClass::Electric => "Hyper EV",
+        }
+    }
+
+    pub const fn tier(self) -> &'static str {
+        match self {
+            CarClass::Muscle => "B",
+            CarClass::Touring => "A",
+            CarClass::Sports => "A+",
+            CarClass::Super => "S",
+            CarClass::Electric => "X",
+        }
+    }
+}
+
+impl CarSpec {
+    /// Deterministic Performance Index (PI, ~700..920) computed from power,
+    /// tyre grip, launch traction, forced induction / instant EV torque, and
+    /// chassis weight.
+    pub fn pi(&self) -> u32 {
+        let launch_bonus = self.launch.map_or(0.0, |l| (l - 9.0) * 14.0);
+        let torque_bonus = if self.electric {
+            42.0
+        } else if self.turbo {
+            16.0
+        } else {
+            0.0
+        };
+        let weight_pen = (self.mass - 1350.0) * 0.035;
+        let raw = 220.0
+            + self.power * 0.52
+            + self.grip * 24.0
+            + self.drift_grip * 3.5
+            + launch_bonus
+            + torque_bonus
+            - weight_pen;
+        js::round(clamp(raw, 500.0, 999.0)) as u32
+    }
+}
+
+/// `CAR_SPECS`: the original five in JS order, followed by the expanded M15
+/// stable (WORLD.md 8.1).
+pub const CAR_SPECS: [(&str, CarSpec); 12] = [
     (
         "sports",
         spec(
             "Vento GT",
-            "Balanced all-rounder",
+            "Balanced flat-plane V8 all-rounder",
             480.0,
             13.2,
             8.5,
@@ -85,7 +158,7 @@ pub const CAR_SPECS: [(&str, CarSpec); 5] = [
         "muscle",
         spec(
             "Brawler 69",
-            "Big power, loose tail",
+            "Big cross-plane V8 power, loose tail",
             545.0,
             12.0,
             6.8,
@@ -97,7 +170,7 @@ pub const CAR_SPECS: [(&str, CarSpec); 5] = [
         "super",
         spec(
             "Stiletto R",
-            "Grip and precision",
+            "Mid-engine V10 grip and precision",
             515.0,
             14.4,
             9.6,
@@ -140,7 +213,133 @@ pub const CAR_SPECS: [(&str, CarSpec); 5] = [
             )
         },
     ),
+    (
+        "firebird",
+        CarSpec {
+            gear_scale: Some(0.96),
+            ..spec(
+                "Phoenix GTA",
+                "80s T-top V8 coupe: planted front end, smoky exits",
+                505.0,
+                12.6,
+                7.6,
+                1510.0,
+                0xb5121b,
+            )
+        },
+    ),
+    (
+        "vr4",
+        CarSpec {
+            launch: Some(10.4),
+            turbo: true,
+            gear_scale: Some(0.95),
+            ..spec(
+                "Kaze VR-6",
+                "90s twin-turbo AWD hero with active aero stability",
+                465.0,
+                13.5,
+                9.4,
+                1680.0,
+                0x111111,
+            )
+        },
+    ),
+    (
+        "audax",
+        CarSpec {
+            launch: Some(10.2),
+            gear_scale: Some(0.94),
+            ..spec(
+                "Audax V8",
+                "AWD V8 sport saloon: throatier exhaust, all-weather bite",
+                475.0,
+                13.4,
+                9.1,
+                1660.0,
+                0x46586e,
+            )
+        },
+    ),
+    (
+        "roadster",
+        CarSpec {
+            turbo: true,
+            gear_scale: Some(0.92),
+            ..spec(
+                "Solstice RL",
+                "Featherweight turbo roadster: eager turn-in, lively balance",
+                458.0,
+                13.7,
+                9.2,
+                1340.0,
+                0x1e242b,
+            )
+        },
+    ),
+    (
+        "diablo",
+        spec(
+            "Tormenta XII",
+            "90s screaming V12 wedge: ferocious top-end pull",
+            555.0,
+            14.0,
+            9.0,
+            1460.0,
+            0x8a2be2,
+        ),
+    ),
+    (
+        "cgt",
+        spec(
+            "Mirage V10",
+            "Open-roof V10 track special: razor-sharp apex speed",
+            530.0,
+            14.7,
+            9.8,
+            1380.0,
+            0xb0b0b0,
+        ),
+    ),
+    (
+        "volt",
+        CarSpec {
+            launch: Some(11.2),
+            vmax: Some(72.5),
+            electric: true,
+            ..spec(
+                "Volt RS",
+                "Track-tuned dual-motor EV: higher top end, cornering bite",
+                510.0,
+                14.1,
+                9.3,
+                1790.0,
+                0x00b4d8,
+            )
+        },
+    ),
 ];
+
+pub fn car_class(kind: &str) -> CarClass {
+    match kind {
+        "muscle" | "firebird" => CarClass::Muscle,
+        "vr4" | "audax" | "roadster" => CarClass::Touring,
+        "sports" | "rally" => CarClass::Sports,
+        "super" | "diablo" | "cgt" => CarClass::Super,
+        "electric" | "volt" => CarClass::Electric,
+        _ => CarClass::Sports,
+    }
+}
+
+pub fn cars_in_class(class: CarClass) -> &'static [&'static str] {
+    match class {
+        CarClass::Muscle => &["muscle", "firebird"],
+        CarClass::Touring => &["vr4", "audax", "roadster"],
+        CarClass::Sports => &["sports", "rally"],
+        CarClass::Super => &["super", "diablo", "cgt"],
+        CarClass::Electric => &["electric", "volt"],
+    }
+}
 
 pub fn car_spec(kind: &str) -> Option<CarSpec> {
     CAR_SPECS.iter().find(|(k, _)| *k == kind).map(|(_, s)| *s)

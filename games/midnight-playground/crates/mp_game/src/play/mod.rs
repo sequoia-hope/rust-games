@@ -105,6 +105,9 @@ pub struct Params {
     pub physics: mp_sim::model::Physics,
     /// The address set `physics`: the setting does not.
     pub physics_forced: bool,
+    /// Match AI rivals to the player's car class (on unless parity hooks ask
+    /// for the exact JS field).
+    pub class_match: bool,
 }
 
 impl Params {
@@ -148,6 +151,9 @@ impl Params {
             physics_forced: get("physics")
                 .and_then(mp_sim::model::Physics::parse)
                 .is_some(),
+            class_match: get("parity") != Some("1")
+                && get("kernel") != Some("1")
+                && get("class_match") != Some("0"),
         }
     }
 
@@ -475,6 +481,7 @@ fn start(
     if let Some(m) = play.params.camera {
         race.rig.mode = m;
     }
+    race.set_class_match(play.params.class_match);
     race.set_pursuit_opts(flow::PursuitOpts {
         cops: play.params.cops,
         flash: play.params.flash,

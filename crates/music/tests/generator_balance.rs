@@ -56,7 +56,15 @@ fn loudness(genre: &str, seed: u32, solo: &str) -> Option<f64> {
         .find(|x| {
             matches!(
                 x.name.as_str(),
-                "chorus" | "main" | "drop" | "defence" | "community"
+                "chorus"
+                    | "main"
+                    | "drop"
+                    | "defence"
+                    | "community"
+                    | "ritornello"
+                    | "exposition"
+                    | "crescendo"
+                    | "apotheosis"
             )
         })
         .unwrap()
@@ -183,6 +191,31 @@ fn the_new_edm_profiles_sit_with_the_bass() {
                     "{genre} {seed}: lead {lead:.1} LU"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn the_classical_soloists_and_accompaniment_balance() {
+    // Seeds 0, 1, 2 cover Baroque, Classical/Romantic Chamber, and Minimalist/Neo-classical.
+    for seed in [0, 1, 2] {
+        let bass = loudness("classical", seed, "bass").unwrap();
+        let rel = |name: &str| loudness("classical", seed, name).map(|l| l - bass);
+        let arp = rel("arp").unwrap();
+        assert!(
+            (-12.0..=6.0).contains(&arp),
+            "classical {seed}: arp/accompaniment {arp:.1} LU vs bass"
+        );
+        let lead = rel("lead").unwrap();
+        assert!(
+            (-10.0..=8.0).contains(&lead),
+            "classical {seed}: lead soloist {lead:.1} LU vs bass"
+        );
+        if let Some(chords) = rel("chords") {
+            assert!(
+                (-18.0..=4.0).contains(&chords),
+                "classical {seed}: chamber strings {chords:.1} LU vs bass"
+            );
         }
     }
 }

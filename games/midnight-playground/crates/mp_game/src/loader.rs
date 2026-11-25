@@ -605,7 +605,7 @@ fn spawn_node(
             if !node.receive_shadow {
                 e.insert(NotShadowReceiver);
             }
-            if !node.frustum_culled {
+            if !node.frustum_culled || matches!(draw, Draw::Sprite | Draw::Points) {
                 e.insert(NoFrustumCulling);
             }
             // three sorts its transparent list by `renderOrder` first (D810).

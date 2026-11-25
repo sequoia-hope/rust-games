@@ -196,8 +196,107 @@ pub const ELECTRIC: CarProfile = CarProfile {
     ..NONE
 };
 
-/// `CARS`, in the JS object's key order.
-pub const CARS: [&CarProfile; 5] = [&SPORTS, &MUSCLE, &SUPER, &RALLY, &ELECTRIC];
+pub const FIREBIRD: CarProfile = CarProfile {
+    key: "firebird",
+    ..MUSCLE
+};
+
+pub const VR4: CarProfile = CarProfile {
+    key: "vr4",
+    cyl: 6,
+    banks: &[0, 1, 0, 1, 0, 1],
+    bank_amp: [1.0, 0.92],
+    bank_delay: [0.0, 0.006],
+    jitter: 0.035,
+    amp_var: 0.14,
+    pulse_w: 0.38,
+    sharp: 1.75,
+    low_boost: 1.3,
+    rumble: 0.95,
+    formants: [[160.0, 6.0, 1.3], [520.0, 4.5, 1.7], [1550.0, 4.0, 2.2]],
+    lp_base: 500.0,
+    lp_range: 5000.0,
+    drive: 1.7,
+    trim: 1.05,
+    pops: 1.3,
+    pop_freq: [620.0, 1800.0],
+    intake: 1.15,
+    rasp: 0.85,
+    whine: 0.95,
+    turbo: 1.0,
+    ..NONE
+};
+
+pub const AUDAX: CarProfile = CarProfile {
+    key: "audax",
+    cyl: 8,
+    banks: &[0, 1, 0, 1, 1, 0, 1, 0],
+    bank_amp: [1.0, 0.84],
+    bank_delay: [0.0, 0.009],
+    jitter: 0.045,
+    amp_var: 0.16,
+    pulse_w: 0.4,
+    sharp: 1.65,
+    low_boost: 1.45,
+    rumble: 1.05,
+    formants: [[135.0, 6.5, 1.2], [440.0, 4.5, 1.7], [1320.0, 3.8, 2.3]],
+    lp_base: 460.0,
+    lp_range: 4600.0,
+    drive: 1.85,
+    trim: 1.0,
+    pops: 1.4,
+    pop_freq: [520.0, 1450.0],
+    intake: 1.05,
+    rasp: 0.85,
+    whine: 0.9,
+    ..NONE
+};
+
+pub const ROADSTER: CarProfile = CarProfile {
+    key: "roadster",
+    ..RALLY
+};
+
+pub const DIABLO: CarProfile = CarProfile {
+    key: "diablo",
+    cyl: 12,
+    banks: &[0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+    bank_amp: [1.0, 0.96],
+    bank_delay: [0.0, 0.002],
+    jitter: 0.02,
+    amp_var: 0.08,
+    pulse_w: 0.26,
+    sharp: 2.3,
+    low_boost: 0.9,
+    rumble: 0.85,
+    formants: [[320.0, 4.5, 1.4], [1280.0, 5.5, 2.1], [3400.0, 5.2, 2.7]],
+    lp_base: 980.0,
+    lp_range: 8200.0,
+    drive: 1.45,
+    trim: 1.18,
+    pops: 0.9,
+    pop_freq: [1150.0, 2800.0],
+    intake: 1.25,
+    rasp: 1.3,
+    whine: 0.85,
+    ..NONE
+};
+
+pub const CGT: CarProfile = CarProfile {
+    key: "cgt",
+    ..SUPER
+};
+
+pub const VOLT: CarProfile = CarProfile {
+    key: "volt",
+    ..ELECTRIC
+};
+
+/// `CARS`, in the JS object's key order followed by the expanded garage.
+pub const CARS: [&CarProfile; 12] = [
+    &SPORTS, &MUSCLE, &SUPER, &RALLY, &ELECTRIC, &FIREBIRD, &VR4, &AUDAX, &ROADSTER, &DIABLO, &CGT,
+    &VOLT,
+];
 
 /// `CARS[kind]`.
 pub fn car(kind: &str) -> Option<&'static CarProfile> {

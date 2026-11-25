@@ -193,6 +193,8 @@ pub struct Race {
     /// Hot Pursuit's options the simulation leaves to the page
     /// (`?cops=N`, the flash setting), set on every new field.
     pub pursuit_opts: PursuitOpts,
+    /// Match AI rivals to the player's car class on offline races (M15).
+    pub class_match: bool,
     /// Frames run (not paused): tells a frame's `radio.said` from the
     /// last one's (the HUD shows each line once).
     pub frames: u32,
@@ -302,6 +304,7 @@ impl Race {
             radio: Default::default(),
             stage_say: Vec::new(),
             pursuit_opts: PursuitOpts::default(),
+            class_match: false,
             frames: 0,
             assist: Assist::Off,
             was_nitro: false,
@@ -319,11 +322,27 @@ impl Race {
         apply_pursuit_opts(&mut self.session.prev, o);
     }
 
+    /// Match AI rivals to the player's car class on this field and every
+    /// offline restart (M15).
+    pub fn set_class_match(&mut self, on: bool) {
+        self.class_match = on && !self.online_now();
+        if self.class_match {
+            let class = mp_sim::physics::car_class(self.setup.opts.car);
+            self.session
+                .curr
+                .match_rivals_to_class(&self.session.lr, class);
+            self.session.prev = self.session.curr.clone();
+        }
+    }
+
     /// `startRace` again on the same level: a new field on the grid, keys
     /// pressed before it do not carry in.
     pub fn restart(&mut self, opts: RaceOpts) {
         self.setup.opts = opts;
         let mut curr = SimState::new(&self.session.lr, opts);
+        if self.class_match && !self.online_now() {
+            curr.match_rivals_to_class(&self.session.lr, mp_sim::physics::car_class(opts.car));
+        }
         apply_pursuit_opts(&mut curr, self.pursuit_opts);
         self.session.prev = curr.clone();
         self.session.curr = curr;

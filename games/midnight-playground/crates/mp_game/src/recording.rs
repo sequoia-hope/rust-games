@@ -135,6 +135,7 @@ fn race(
                 "pursuit": o.pursuit,
                 "heat": o.heat,
                 "physics": o.physics.name(),
+                "class_match": race.class_match,
                 "cops": race.pursuit_opts.cops,
                 "flash": race.pursuit_opts.flash,
                 "pursuit_on": st.race.pursuit_on,

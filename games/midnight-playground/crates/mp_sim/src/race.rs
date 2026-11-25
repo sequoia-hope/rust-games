@@ -26,7 +26,9 @@ use crate::field::{Field, RacerAccess};
 use crate::input::{AUTOPILOT, Input, InputFrame, RESET};
 use crate::model::{Physics, VehicleModel, use_physics};
 use crate::park::{PARK_GAP, PARK_ROW, Park};
-use crate::physics::{CarPhysics, CarSpec, PhysEvent, car_spec};
+use crate::physics::{
+    CarClass, CarPhysics, CarSpec, PhysEvent, car_class, car_spec, cars_in_class,
+};
 use crate::police::Mode as PoliceMode;
 use crate::pursuit::{HoldReason, Pursuit, PursuitEvent, PursuitOpts, WRECK_PENALTY, top_speed};
 use crate::rng::RngStreams;
@@ -475,6 +477,70 @@ impl SimState {
         use_physics(&mut st, t, o.physics);
         st
     }
+
+    /// Re-equips the AI rivals on the starting grid to match `class`
+    /// (WORLD.md 8.1, M15: races run within a class so fast cars like Ion Arc
+    /// meet fast peers and street/classic cars get close battles).
+    pub fn match_rivals_to_class(&mut self, lr: &LevelRuntime, class: CarClass) {
+        if self.race.cruise || self.rivals.is_empty() {
+            return;
+        }
+        let pool = cars_in_class(class);
+        if pool.is_empty() {
+            return;
+        }
+        let ref_pi = car_spec("sports").map_or(760.0, |s| f64::from(s.pi()));
+        let class_pi: f64 = pool
+            .iter()
+            .filter_map(|k| car_spec(k))
+            .map(|s| f64::from(s.pi()))
+            .sum::<f64>()
+            / pool.len() as f64;
+        // Scale kinematic AI cornering skill and straight-line power to the
+        // class's performance index relative to the baseline GT field.
+        let pace = clamp(1.0 + (class_pi - ref_pi) / 950.0, 0.90, 1.09);
+        let t = &*lr.track;
+        let physics = if self.race.sim_rivals {
+            Physics::All
+        } else if matches!(
+            self.players.first().map(|p| &p.model),
+            Some(VehicleModel::Sim(_))
+        ) {
+            Physics::Player
+        } else {
+            Physics::Arcade
+        };
+        for (i, ai) in self.rivals.iter_mut().enumerate() {
+            let kind = pool[(i + (t.length as usize)) % pool.len()];
+            let Some(spec) = car_spec(kind) else {
+                continue;
+            };
+            let Some(d) = dims(kind) else {
+                continue;
+            };
+            let base_skill = lr
+                .level
+                .rivals
+                .get(i % lr.level.rivals.len().max(1))
+                .map_or(0.93, |r| r.skill);
+            let name = ai.k.v.name;
+            let color = ai.color;
+            let s = ai.k.s;
+            let lat = ai.k.lat;
+            let prog = ai.prog;
+            let mut rv = Vehicle::new(d, kind, spec.mass, name, color);
+            rv.s = s;
+            rv.lat = lat;
+            rv.prog = prog;
+            ai.k.v = rv;
+            ai.skill = clamp(base_skill * pace, 0.82, 1.04);
+            ai.power = clamp(spec.power * (0.94 + 0.03 * (i % 4) as f64), 340.0, 680.0);
+            ai.write_pos(t);
+        }
+        if physics == Physics::All {
+            use_physics(self, t, Physics::All);
+        }
+    }
 }
 
 /// The level's rivals as Race builds them, drawing from the AI stream.
@@ -679,6 +745,17 @@ impl SimState {
             let mut ai = AiDriver::new(rv, opts, &mut st.rng.ai);
             ai.color = r.color;
             st.rivals.push(ai);
+        }
+        // When a multi-player field (or a new-stable car) shares one car
+        // class, match the AI fill to that class while keeping single-player
+        // parity on the original five cars exact (`tests/multi.rs`).
+        let c0 = car_class(o.humans[0].car);
+        let original_five = matches!(
+            o.humans[0].car,
+            "sports" | "muscle" | "super" | "rally" | "electric"
+        );
+        if (nh > 1 || !original_five) && o.humans.iter().all(|h| car_class(h.car) == c0) {
+            st.match_rivals_to_class(lr, c0);
         }
 
         // The humans.

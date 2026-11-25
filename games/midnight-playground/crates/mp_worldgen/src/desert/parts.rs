@@ -661,7 +661,7 @@ pub fn locomotive_geometry(scheme: u32) -> Car {
     ft.translate(-0.4, 0.95, 0.0);
     p.push(paint(prep(ft), 0x2a2a2c, 0.03, Some(rng)));
     bx(p, l, 0.28, 3.1, 0.0, 1.35, 0.0, 0x2a2a2c, rng, 0.04); // deck
-    bx(p, l - 0.2, 0.18, 3.14, 0.0, 1.3, 0.0, stripe, rng, 0.04); // sill stripe
+    bx(p, l - 0.2, 0.18, 3.18, 0.0, 1.3, 0.0, stripe, rng, 0.04); // sill stripe
     // Long hood, narrower than the deck so the walkways show.
     let hx0 = -l / 2.0 + 0.8;
     let hx1 = l / 2.0 - 6.2;
@@ -681,15 +681,16 @@ pub fn locomotive_geometry(scheme: u32) -> Car {
         p,
         hx1 - hx0,
         0.3,
-        2.34,
+        2.36,
         (hx0 + hx1) / 2.0,
-        4.38,
+        4.39,
         0.0,
         top,
         rng,
         0.04,
     );
-    // Hood doors: shallow panels and louvres along the sides.
+    // Hood doors: shallow panels and louvres along the sides (separated by >= 3 cm
+    // so world-space f32 depth never z-fights at 200-800 m).
     let mut x = hx0 + 0.8;
     while x < hx1 - 0.6 {
         for s in [-1.0, 1.0] {
@@ -700,18 +701,18 @@ pub fn locomotive_geometry(scheme: u32) -> Car {
                 0.04,
                 x,
                 2.0,
-                s * 1.16,
+                s * 1.18,
                 darker(body, 0.88),
                 rng,
                 0.02,
             );
-            bx(p, 0.7, 0.3, 0.05, x, 3.5, s * 1.17, 0x2a2a2a, rng, 0.0);
+            bx(p, 0.7, 0.3, 0.05, x, 3.5, s * 1.21, 0x2a2a2a, rng, 0.0);
         }
         x += 1.3;
     }
     // Radiator wings and fans at the back.
     bx(p, 3.8, 1.3, 3.02, hx0 + 2.1, 3.4, 0.0, body, rng, 0.04);
-    bx(p, 3.8, 0.12, 3.04, hx0 + 2.1, 4.7, 0.0, top, rng, 0.04);
+    bx(p, 3.8, 0.12, 3.06, hx0 + 2.1, 4.71, 0.0, top, rng, 0.04);
     for s in [-1.0, 1.0] {
         bx(
             p,
@@ -720,7 +721,7 @@ pub fn locomotive_geometry(scheme: u32) -> Car {
             0.05,
             hx0 + 2.1,
             3.55,
-            s * 1.52,
+            s * 1.54,
             0x2e2e30,
             rng,
             0.0,
@@ -764,9 +765,9 @@ pub fn locomotive_geometry(scheme: u32) -> Car {
         p,
         cx1 - cx0 + 0.1,
         0.35,
-        3.1,
+        3.14,
         (cx0 + cx1) / 2.0,
-        4.63,
+        4.64,
         0.0,
         top,
         rng,
@@ -774,9 +775,9 @@ pub fn locomotive_geometry(scheme: u32) -> Car {
     ); // roof
     bx(
         p,
-        cx1 - cx0,
+        cx1 - cx0 - 0.04,
         1.05,
-        3.08,
+        3.12,
         (cx0 + cx1) / 2.0,
         3.55,
         0.0,
@@ -786,24 +787,24 @@ pub fn locomotive_geometry(scheme: u32) -> Car {
     ); // window band
     for s in [-1.0, 1.0] {
         for x in [cx0 + 0.8, cx0 + 2.3] {
-            bx(p, 1.1, 0.8, 0.04, x, 3.68, s * 1.55, 0x101418, rng, 0.0);
+            bx(p, 1.1, 0.8, 0.04, x, 3.68, s * 1.59, 0x101418, rng, 0.0);
         }
     }
     // Windshield: two dark panes raked back.
     for z in [-0.72, 0.72] {
         let mut w = boxg(0.06, 0.9, 1.25);
         w.rotate_z(0.12);
-        w.translate(cx1 + 0.03, 4.1, z);
+        w.translate(cx1 + 0.05, 4.1, z);
         p.push(paint(prep(w), 0x0e1216, 0.0, Some(rng)));
     }
     // Short nose with a sloped top.
     bx(p, 2.0, 1.55, 2.7, cx1 + 1.0, 1.63, 0.0, body, rng, 0.04);
-    let mut slope = boxg(2.1, 0.12, 2.72);
+    let mut slope = boxg(2.1, 0.12, 2.74);
     slope.rotate_z(-0.35);
-    slope.translate(cx1 + 0.95, 3.35, 0.0);
+    slope.translate(cx1 + 0.95, 3.36, 0.0);
     p.push(paint(prep(slope), body, 0.03, Some(rng)));
-    bx(p, 0.12, 0.35, 2.4, cx1 + 1.95, 2.55, 0.0, stripe, rng, 0.04); // nose chevron band
-    bx(p, 0.1, 0.4, 1.0, cx1 + 2.02, 2.95, 0.0, 0xf0f0e0, rng, 0.0); // headlight bar
+    bx(p, 0.12, 0.35, 2.4, cx1 + 1.98, 2.55, 0.0, stripe, rng, 0.04); // nose chevron band
+    bx(p, 0.1, 0.4, 1.0, cx1 + 2.04, 2.95, 0.0, 0xf0f0e0, rng, 0.0); // headlight bar
     // Pilot / snowplough, black-and-yellow.
     let mut plow = boxg(0.5, 0.9, 3.0);
     plow.rotate_z(0.35);
@@ -890,7 +891,7 @@ pub fn boxcar_geometry(hex: u32, seed: u32) -> Car {
         p,
         3.4,
         3.0,
-        3.04,
+        3.12,
         0.0,
         1.3,
         0.0,
@@ -898,9 +899,9 @@ pub fn boxcar_geometry(hex: u32, seed: u32) -> Car {
         rng,
         0.04,
     ); // plug door
-    bx(p, 7.5, 0.1, 3.08, 0.0, 4.25, 0.0, 0x2a2826, rng, 0.0); // door track
-    bx(p, 0.5, 0.35, 0.2, 5.5, 3.4, 1.5, 0xe8e2d4, rng, 0.0); // reporting marks
-    bx(p, 0.5, 0.35, 0.2, -5.5, 3.4, -1.5, 0xe8e2d4, rng, 0.0);
+    bx(p, 7.5, 0.1, 3.16, 0.0, 4.25, 0.0, 0x2a2826, rng, 0.0); // door track
+    bx(p, 0.5, 0.35, 0.2, 5.5, 3.4, 1.52, 0xe8e2d4, rng, 0.0); // reporting marks
+    bx(p, 0.5, 0.35, 0.2, -5.5, 3.4, -1.52, 0xe8e2d4, rng, 0.0);
     bx(
         p,
         0.6,
@@ -1013,7 +1014,18 @@ pub fn gondola_geometry(hex: u32, seed: u32, load: Load) -> Car {
     let p = &mut parts;
     let l = 16.0;
     trucks(p, l, rng, 2.4);
-    bx(p, l, 0.25, 3.0, 0.0, 1.25, 0.0, darker(hex, 0.6), rng, 0.04);
+    bx(
+        p,
+        l - 0.16,
+        0.25,
+        2.82,
+        0.0,
+        1.25,
+        0.0,
+        darker(hex, 0.6),
+        rng,
+        0.04,
+    );
     for s in [-1.0, 1.0] {
         bx(p, l, 1.6, 0.1, 0.0, 1.4, s * 1.45, hex, rng, 0.04);
     }
@@ -1022,7 +1034,7 @@ pub fn gondola_geometry(hex: u32, seed: u32, load: Load) -> Car {
             p,
             0.1,
             1.6,
-            3.0,
+            2.8,
             s * (l / 2.0 - 0.05),
             1.4,
             0.0,
@@ -1031,7 +1043,7 @@ pub fn gondola_geometry(hex: u32, seed: u32, load: Load) -> Car {
             0.04,
         );
     }
-    ribs(p, l, 1.6, 1.4, 1.52, darker(hex, 0.8), rng, 1.0, 0.1);
+    ribs(p, l, 1.6, 1.4, 1.53, darker(hex, 0.8), rng, 1.0, 0.1);
     if load == Load::Scrap {
         for i in 0..18 {
             let w = lerp(0.6, 2.2, rng.next_f64());
@@ -1070,7 +1082,7 @@ pub fn autorack_geometry(hex: u32, seed: u32) -> Car {
     let l = 26.0;
     trucks(p, l, rng, 2.4);
     bx(p, l, 5.0, 3.1, 0.0, 1.25, 0.0, hex, rng, 0.04);
-    bx(p, l + 0.05, 0.2, 3.14, 0.0, 6.25, 0.0, 0xd8d6d0, rng, 0.04);
+    bx(p, l + 0.08, 0.2, 3.18, 0.0, 6.26, 0.0, 0xd8d6d0, rng, 0.04);
     let mut x = -l / 2.0 + 0.7;
     while x < l / 2.0 {
         for s in [-1.0, 1.0] {
@@ -1081,7 +1093,7 @@ pub fn autorack_geometry(hex: u32, seed: u32) -> Car {
                 0.04,
                 x,
                 2.2,
-                s * 1.57,
+                s * 1.59,
                 darker(hex, 0.55),
                 rng,
                 0.05,
@@ -1089,13 +1101,24 @@ pub fn autorack_geometry(hex: u32, seed: u32) -> Car {
         }
         x += 1.2;
     }
-    bx(p, l, 0.25, 3.14, 0.0, 1.3, 0.0, darker(hex, 0.8), rng, 0.04);
+    bx(
+        p,
+        l + 0.04,
+        0.25,
+        3.18,
+        0.0,
+        1.3,
+        0.0,
+        darker(hex, 0.8),
+        rng,
+        0.04,
+    );
     bx(
         p,
         0.1,
         4.6,
-        3.1,
-        l / 2.0,
+        3.02,
+        l / 2.0 + 0.06,
         1.4,
         0.0,
         darker(hex, 0.7),
@@ -1106,8 +1129,8 @@ pub fn autorack_geometry(hex: u32, seed: u32) -> Car {
         p,
         0.1,
         4.6,
-        3.1,
-        -l / 2.0,
+        3.02,
+        -l / 2.0 - 0.06,
         1.4,
         0.0,
         darker(hex, 0.7),
@@ -1128,7 +1151,7 @@ pub fn lumber_geometry(seed: u32) -> Car {
     let p = &mut parts;
     let l = 22.0;
     trucks(p, l, rng, 2.4);
-    bx(p, l, 0.35, 3.0, 0.0, 1.25, 0.0, 0x4a4a4c, rng, 0.04);
+    bx(p, l - 0.8, 0.35, 2.94, 0.0, 1.25, 0.0, 0x4a4a4c, rng, 0.04);
     bx(
         p,
         0.4,
@@ -1153,7 +1176,7 @@ pub fn lumber_geometry(seed: u32) -> Car {
         rng,
         0.04,
     );
-    bx(p, l - 0.4, 0.3, 0.3, 0.0, 4.6, 0.0, 0x4a4a4c, rng, 0.04);
+    bx(p, l - 0.9, 0.3, 0.34, 0.0, 4.62, 0.0, 0x4a4a4c, rng, 0.04);
     let mut x = -l / 2.0 + 1.2;
     while x < l / 2.0 - 1.0 {
         bx(p, 0.15, 3.0, 0.2, x, 1.6, 0.0, 0x4a4a4c, rng, 0.0);
@@ -1209,9 +1232,9 @@ pub fn stack_geometry(cols: [u32; 3], seed: u32) -> Car {
             );
             bx(
                 p,
-                len + 0.04,
+                len + 0.06,
                 0.12,
-                2.49,
+                2.54,
                 x,
                 y + 2.5,
                 0.0,
@@ -1222,7 +1245,7 @@ pub fn stack_geometry(cols: [u32; 3], seed: u32) -> Car {
         };
     cont(p, rng, 6.05, -3.15, 1.3, cols[0]);
     cont(p, rng, 6.05, 3.15, 1.3, cols[1]);
-    cont(p, rng, 12.2, 0.0, 3.92, cols[2]);
+    cont(p, rng, 12.2, 0.0, 3.95, cols[2]);
     Car {
         geo: merge(parts),
         l,

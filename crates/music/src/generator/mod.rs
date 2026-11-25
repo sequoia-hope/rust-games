@@ -93,7 +93,7 @@ impl Settings {
 pub fn mode_index(m: &Mode) -> u8 {
     match m.name {
         "Phrygian" => 0,
-        "Aeolian" => 1,
+        "Aeolian" | "Harmonic minor" => 1,
         "Dorian" => 2,
         "Mixolydian" => 3,
         _ => 4,
@@ -155,6 +155,7 @@ fn role_of(key: &str) -> Option<(Role, f64, bool)> {
         "P" => (Role::Perc, 0.45, false),
         "Sn" => (Role::Clap, 0.5, false),
         "X" => (Role::Fx, 0.5, false),
+        "V" => (Role::Vocal, 0.45, false),
         "A" => (Role::Arp, 0.55, true),
         "L" => (Role::Lead, 0.6, false),
         _ => return None,
@@ -185,9 +186,10 @@ fn transpose(p: &Pattern, st: f64) -> Pattern {
 /// making the song (microseconds, where a song takes milliseconds): what
 /// the radio needs to plan a block. `None` for an unknown genre.
 pub fn shape(genre: &str, seed: u32, settings: &Settings) -> Option<(f64, Vec<Section>)> {
-    let p = profile::profile(genre)?;
-    let (bpm, _) = tempo(p, &Dice::new(seed).fork(p.key), settings);
-    Some((bpm, sections(p)))
+    let p_base = profile::profile(genre)?;
+    let p = profile::resolve_profile(p_base, seed);
+    let (bpm, _) = tempo(&p, &Dice::new(seed).fork(p.key), settings);
+    Some((bpm, sections(&p)))
 }
 
 /// Tempo near the typical (a triangle over the range), swing in range.
@@ -232,14 +234,24 @@ fn sections(p: &Profile) -> Vec<Section> {
 }
 
 fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
-    let mut p = *p_orig;
+    let mut p = profile::resolve_profile(p_orig, seed);
     if let Some(b) = settings.bass {
         if b != p.bass {
             match b {
                 BassStyle::Acid303 => p.bass_sounds = &["acid"],
                 BassStyle::DubstepWobble => p.bass_sounds = &["wobble", "reese"],
                 BassStyle::Orchestral => p.bass_sounds = &["contrabass"],
-                _ if p_orig.bass == BassStyle::Acid303 || p_orig.bass == BassStyle::Orchestral => {
+                BassStyle::Baroque | BassStyle::Classical => {
+                    p.bass_sounds = &["soloCello", "contrabass", "bassoon"];
+                }
+                _ if matches!(
+                    p_orig.bass,
+                    BassStyle::Acid303
+                        | BassStyle::Orchestral
+                        | BassStyle::Baroque
+                        | BassStyle::Classical
+                ) =>
+                {
                     p.bass_sounds = &["moogBass", "sawBass", "roundBass", "pluckBass"];
                 }
                 _ => {}
@@ -312,6 +324,22 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                 _ => {}
             }
         }
+        // Widen electronic synth timbres on seeds > 2 with CS-80, wavetable, DX Rhodes, and Prophet brass.
+        if dsub.chance(0.32) {
+            match p_mut.key {
+                "synthwave" | "outrun" | "uplifting" => {
+                    p_mut.lead_sounds = &["cs80Lead", "prophetBrass", "sawLead", "moogLead"];
+                    p_mut.pad_sounds = &["wavetablePad", "superPad", "warmPad"];
+                }
+                "deep" | "chicago" | "french" | "liquid" => {
+                    p_mut.pad_sounds = &["dxRhodes", "wavetablePad", "ep", "dubChord"];
+                }
+                "detroit" => {
+                    p_mut.lead_sounds = &["cs80Lead", "prophetBrass", "moogLead"];
+                }
+                _ => {}
+            }
+        }
     }
     let p = &*p_mut;
     let (bpm, swing) = tempo(p, &dice, settings);
@@ -377,7 +405,19 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
     let chorus = |i: usize| {
         matches!(
             p.form[i].name,
-            "chorus" | "drop" | "main" | "solo" | "defence" | "walker march" | "community"
+            "chorus"
+                | "drop"
+                | "main"
+                | "solo"
+                | "defence"
+                | "walker march"
+                | "community"
+                | "ritornello"
+                | "exposition"
+                | "fugato"
+                | "crescendo"
+                | "recap"
+                | "apotheosis"
         )
     };
 
@@ -417,7 +457,11 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
         )
     };
     let (hook_pat, hook_ic, hook_place) = hook(&mut dl, &mut mel_stm);
-    let (solo_pat, _, _) = hook(&mut dl, &mut mel_stm);
+    let solo_pat = if p.key == "classical" {
+        parts::develop_motif(&hook_pat, &mode, tonic)
+    } else {
+        hook(&mut dl, &mut mel_stm).0
+    };
 
     let mut notes: Vec<String> = p.notes.iter().map(|s| s.to_string()).collect();
     notes.push(format!(
@@ -471,12 +515,18 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
     let mut dd = dice.fork("drums");
     let tweak_key = if p.key == "orchestral" {
         "orchestral"
+    } else if p.key == "classical" {
+        "classical"
     } else {
         p.kit
     };
     // Tune toms / timpani to the song's tonic, dominant fifth, and octave
     // so pitched percussion never clashes with the harmony.
-    let tom_base = if p.key == "orchestral" { 38 } else { 41 };
+    let tom_base = if matches!(p.key, "orchestral" | "classical") {
+        38
+    } else {
+        41
+    };
     let tom_root = tom_base + (pc - tom_base).rem_euclid(12);
     let tom_fifth = if tom_root > tom_base + 7 {
         tom_root - 5
@@ -527,15 +577,23 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                     "B" => p.bass_sounds,
                     "Pd" => p.pad_sounds,
                     "Atm" if p.key == "orchestral" => &["celloPad", "stringSection"],
+                    "Atm" if p.key == "classical" => &["chamberStrings", "celloPad", "soloViola"],
                     "Atm" => &["darkPad"],
                     "A" => p.arp_sounds,
                     _ => p.lead_sounds,
                 };
-                let name = *dice.fork(&format!("sound {rk}")).pick(sounds);
+                let mut d_snd = dice.fork(&format!("sound {rk}"));
+                let mut name = *d_snd.pick(sounds);
+                if *rk == "V" && sounds.len() > 1 {
+                    let lead_name = *dice.fork("sound L").pick(p.lead_sounds);
+                    if name == lead_name {
+                        name = *d_snd.pick(sounds);
+                    }
+                }
                 let Some(mut lab) = profile::sound_patch(p.key, name) else {
                     continue;
                 };
-                if matches!(*rk, "A" | "L")
+                if matches!(*rk, "A" | "L" | "V")
                     && matches!(
                         name,
                         "nylonGuitar"
@@ -547,12 +605,16 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                 {
                     lab.oct = Some(-1.0);
                 }
+                if *rk == "B" && matches!(name, "soloCello" | "bassoon" | "pizzicatoStrings") {
+                    lab.oct = Some(0.0);
+                }
                 Layer::new(
                     match *rk {
                         "B" => "bass",
                         "Pd" => "chords",
                         "A" => "arp",
                         "Atm" => "drone",
+                        "V" => "counter",
                         _ => "lead",
                     },
                     role,
@@ -562,37 +624,49 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
         };
         layer.min_energy = min_energy;
         layer.pump = if pumped { p.pump } else { 0.0 };
+        let is_classical = p.key == "classical";
         layer.ch = match *rk {
             "B" => Ch {
                 level: Some(0.95),
+                rev: is_classical.then_some(0.26),
+                pan: is_classical.then_some(0.10),
                 ..Ch::default()
             },
             "Pd" => Ch {
                 level: Some(0.55),
-                rev: Some(0.32),
-                dly: Some(0.22),
+                rev: Some(if is_classical { 0.45 } else { 0.32 }),
+                dly: Some(if is_classical { 0.06 } else { 0.22 }),
                 pan: Some(0.0),
                 ..Ch::default()
             },
             "Atm" => Ch {
                 level: Some(0.32),
                 rev: Some(0.6),
-                hp: Some(180.0),
+                hp: Some(if is_classical { 110.0 } else { 180.0 }),
                 ..Ch::default()
             },
             "A" => Ch {
                 level: Some(0.45),
-                rev: Some(0.25),
-                dly: Some(0.28),
-                pan: Some(0.12),
-                hp: Some(150.0),
+                rev: Some(if is_classical { 0.38 } else { 0.25 }),
+                dly: Some(if is_classical { 0.08 } else { 0.28 }),
+                pan: Some(if is_classical { -0.06 } else { 0.12 }),
+                hp: Some(if is_classical { 95.0 } else { 150.0 }),
                 ..Ch::default()
             },
             "L" => Ch {
                 level: Some(0.5),
-                rev: Some(0.32),
-                dly: Some(0.25),
-                hp: Some(180.0),
+                rev: Some(if is_classical { 0.42 } else { 0.32 }),
+                dly: Some(if is_classical { 0.08 } else { 0.25 }),
+                pan: is_classical.then_some(-0.14),
+                hp: Some(if is_classical { 140.0 } else { 180.0 }),
+                ..Ch::default()
+            },
+            "V" => Ch {
+                level: Some(0.46),
+                rev: Some(0.44),
+                dly: Some(0.06),
+                pan: Some(0.16),
+                hp: Some(130.0),
                 ..Ch::default()
             },
             _ => Ch::default(),
@@ -665,7 +739,7 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                 let fi = layer.pattern(fl);
                 core_fill = Some((ci, vi, si, fi));
             }
-            "B" | "Pd" | "A" | "Atm" | "L" => {
+            "B" | "Pd" | "A" | "Atm" | "L" | "V" => {
                 let mut dp = dice.fork(&format!("part {rk}"));
                 for prog in 0..2 {
                     for tr in [0.0, 3.0] {
@@ -677,21 +751,44 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                         let core = match *rk {
                             "B" => parts::bass(p.bass, pr, tonic, blo, &mut dp),
                             "Pd" => parts::chords(p.chords, &voiced, &mut dp),
+                            "A" if p.key == "classical" => {
+                                parts::classical_arp((seed % 3) as u8, &voiced, &mut dp)
+                            }
                             "A" => parts::arp(&voiced, &mut dp),
                             "Atm" => parts::drone(pr, tonic),
+                            "V" => parts::counterpoint(
+                                &hook_pat,
+                                pr,
+                                &mode,
+                                tonic,
+                                line.lo - 7,
+                                &mut dp,
+                            ),
                             _ => hook_pat.clone(),
                         };
                         let core = transpose(&core, tr);
                         let var = if *rk == "L" {
                             transpose(&solo_pat, tr)
-                        } else if *rk == "B" && p.key != "orchestral" {
+                        } else if *rk == "V" {
+                            let dev_v = parts::counterpoint(
+                                &solo_pat,
+                                pr,
+                                &mode,
+                                tonic,
+                                line.lo - 5,
+                                &mut dp,
+                            );
+                            transpose(&dev_v, tr)
+                        } else if *rk == "B" && !matches!(p.key, "orchestral" | "classical") {
                             parts::bass_var(&core, &mut dp)
                         } else if *rk == "A" && p.key != "orchestral" {
                             parts::arp_var(&core, &mut dp)
                         } else {
                             core.clone()
                         };
-                        let sp = if *rk == "L" && p.key == "orchestral" {
+                        let sp = if matches!(*rk, "L" | "V")
+                            && matches!(p.key, "orchestral" | "classical")
+                        {
                             parts::sparse_melody(&core)
                         } else {
                             parts::sparse(&core)
@@ -731,8 +828,9 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                             Mark::Sparse => si,
                             _ => ci,
                         };
-                        let fills = (p.tom_fills && *rk == "C")
-                            || (!p.tom_fills && (*rk == "K" || *rk == "C"));
+                        let fills = p.key != "classical"
+                            && ((p.tom_fills && *rk == "C")
+                                || (!p.tom_fills && (*rk == "K" || *rk == "C")));
                         let mut ph = from;
                         while ph < b1 {
                             let len = (b1 - ph).min(8);
@@ -786,7 +884,7 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                         // steps up to its variation in the second half.
                         let total_len = b1 - from;
                         if matches!(*rk, "B" | "A")
-                            && p.key != "orchestral"
+                            && !matches!(p.key, "orchestral" | "classical")
                             && want == Mark::Core
                             && p.form[bi].energy >= 0.9
                             && total_len >= 16
@@ -868,8 +966,11 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
             layer.autos.push(lp);
         }
         // Beds mixed under the drums play up while they are exposed,
-        // before the kick comes in (engine default).
-        if matches!(*rk, "Pd" | "Atm") && kick_in > 0 && layer.clips.iter().any(|c| c.bar < kick_in)
+        // before the kick comes in (engine default; skipped on chamber classical).
+        if p.key != "classical"
+            && matches!(*rk, "Pd" | "Atm")
+            && kick_in > 0
+            && layer.clips.iter().any(|c| c.bar < kick_in)
         {
             layer.autos.push(
                 Automation::new("level")
@@ -877,9 +978,35 @@ fn plan(p_orig: &Profile, seed: u32, settings: &Settings) -> Song {
                     .to(kick_in as f64, 1.0, Curve::Step),
             );
         }
+        // Chamber dynamic swells (crescendo / diminuendo) across classical movements.
+        if p.key == "classical" && matches!(*rk, "Pd" | "Atm" | "A" | "L" | "V") {
+            let mut dyn_lv = Automation::new("level");
+            for (bi, _) in cells.iter().enumerate() {
+                let Some(&b0) = starts.get(bi) else { break };
+                let b1 = b0 + p.form[bi].bars;
+                let e = p.form[bi].energy;
+                if matches!(p.form[bi].name, "crescendo" | "development" | "fugato") {
+                    dyn_lv = dyn_lv.to(b0 as f64, 0.76, Curve::Linear).to(
+                        b1 as f64 - 0.05,
+                        1.08,
+                        Curve::Linear,
+                    );
+                } else if matches!(p.form[bi].name, "coda" | "stillness") {
+                    dyn_lv = dyn_lv.to(b0 as f64, 0.85, Curve::Linear).to(
+                        b1 as f64 - 0.05,
+                        0.58,
+                        Curve::Linear,
+                    );
+                } else {
+                    let g = (0.72 + 0.34 * e).clamp(0.72, 1.06);
+                    dyn_lv = dyn_lv.to(b0 as f64, g, Curve::Step);
+                }
+            }
+            layer.autos.push(dyn_lv);
+        }
         // Synth parameter automation: filter cutoff opens into drops/choruses
         // and unison detune widens on chorus pads (RULES.md G4, G5).
-        if p.key != "orchestral"
+        if !matches!(p.key, "orchestral" | "classical")
             && let Sound::Synth(lab) = &layer.sound
         {
             if matches!(*rk, "B" | "A")

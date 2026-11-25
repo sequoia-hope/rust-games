@@ -6,7 +6,7 @@
 //! Steps are written 1–16 as in RULES.md (1 is the downbeat) and turned
 //! 0-based by the writers.
 
-use super::theory::{AEOLIAN, DORIAN, IONIAN, MIXOLYDIAN, Mode, PHRYGIAN};
+use super::theory::{AEOLIAN, DORIAN, HARMONIC_MINOR, IONIAN, MIXOLYDIAN, Mode, PHRYGIAN};
 use crate::patches::bpatch;
 use crate::track::Lab;
 
@@ -75,6 +75,11 @@ pub enum BassStyle {
     /// after the beat-3 snare with a syncopated tail (RULES.md P24
     /// [ambient#38][ambient#39]).
     DubstepWobble,
+    /// Baroque walking 8th-note basso continuo (cello, bassoon, contrabass,
+    /// harpsichord left hand) stepping through chord tones into cadences.
+    Baroque,
+    /// Classical / Romantic chamber cello & contrabass cantabile foundation.
+    Classical,
 }
 
 impl BassStyle {
@@ -88,6 +93,8 @@ impl BassStyle {
             BassStyle::Offbeat16 => "trance",
             BassStyle::DnbRoller => "dnb",
             BassStyle::DubstepWobble => "wobble",
+            BassStyle::Baroque => "baroque",
+            BassStyle::Classical => "classical",
         }
     }
 
@@ -101,6 +108,8 @@ impl BassStyle {
             "trance" => BassStyle::Offbeat16,
             "dnb" => BassStyle::DnbRoller,
             "wobble" => BassStyle::DubstepWobble,
+            "baroque" => BassStyle::Baroque,
+            "classical" => BassStyle::Classical,
             _ => return None,
         })
     }
@@ -1984,7 +1993,371 @@ pub fn kit_tweak(kit: &str) -> Vec<(String, Vec<(String, f64)>)> {
             ),
             lane("crash", &[("hp", 4200.0), ("decay", 1.3), ("lvl", 0.24)]),
         ],
+        "classical" => vec![
+            // Delicate chamber timpani & concert gran cassa touches on cadences.
+            lane(
+                "kick",
+                &[
+                    ("tune", 46.0),
+                    ("decay", 0.68),
+                    ("pitch", 1.22),
+                    ("pt", 0.022),
+                    ("click", 0.08),
+                    ("drive", 1.05),
+                    ("lvl", 0.52),
+                ],
+            ),
+            lane(
+                "tomL",
+                &[
+                    ("tune", 73.4),
+                    ("decay", 0.72),
+                    ("pitch", 1.01),
+                    ("pt", 0.025),
+                    ("click", 0.14),
+                    ("drive", 1.1),
+                    ("noise", 0.015),
+                    ("lvl", 0.55),
+                ],
+            ),
+            lane(
+                "tomM",
+                &[
+                    ("tune", 98.0),
+                    ("decay", 0.64),
+                    ("pitch", 1.01),
+                    ("pt", 0.022),
+                    ("click", 0.14),
+                    ("drive", 1.1),
+                    ("noise", 0.015),
+                    ("lvl", 0.52),
+                ],
+            ),
+            lane(
+                "tomH",
+                &[
+                    ("tune", 110.0),
+                    ("decay", 0.58),
+                    ("pitch", 1.01),
+                    ("pt", 0.020),
+                    ("click", 0.14),
+                    ("drive", 1.1),
+                    ("noise", 0.015),
+                    ("lvl", 0.48),
+                ],
+            ),
+            lane(
+                "crash",
+                &[
+                    ("noise", 0.96),
+                    ("hp", 5200.0),
+                    ("attack", 0.028),
+                    ("decay", 2.4),
+                    ("lvl", 0.24),
+                ],
+            ),
+        ],
         _ => Vec::new(),
+    }
+}
+
+// ── Classical & Chamber Music (Baroque, Classical/Romantic, Minimalist) ──
+
+const CLASSICAL_BAROQUE_MINOR: &[(&str, f64)] = &[
+    // Circle-of-fifths sequence, tonicized dominant, and authentic V7–i cadences
+    // (Bach / Vivaldi / Corelli; Tymoczko 2011).
+    ("i–iv–VII–III", 0.24),
+    ("i–iv–V7–i", 0.24),
+    ("i–VI–ii°–V7", 0.20),
+    ("i–V/V–V7–i", 0.18),
+    ("i–VII–VI–V7", 0.14),
+];
+const CLASSICAL_BAROQUE_MAJOR: &[(&str, f64)] = &[
+    // Romanesca, circle-of-fifths, and secondary dominant cadences (Gjerdingen 2007).
+    ("I–V–vi–iii", 0.22),
+    ("I–IV–V7–I", 0.22),
+    ("I–vi–ii–V7", 0.22),
+    ("I–V/V–V7–I", 0.20),
+    ("I–IV–ii–V7", 0.14),
+];
+
+const CLASSICAL_CHAMBER_MINOR: &[(&str, f64)] = &[
+    // Classical/Romantic chamber nocturnes & sonatas: Neapolitan / subdominant
+    // pathos, applied dominants, and lyrical minor cadences (Caplin 1998; Rosen 1997).
+    ("i–iv7–V7–i", 0.25),
+    ("i–VI–iv–V7", 0.22),
+    ("i–♭II–V7–i", 0.18),
+    ("i–V7/V–V7–i", 0.18),
+    ("i–III–VI–V7", 0.17),
+];
+const CLASSICAL_CHAMBER_MAJOR: &[(&str, f64)] = &[
+    // Galant & Romantic chamber progressions (Mozart, Schubert, Chopin).
+    ("I–vi–IV–V7", 0.24),
+    ("I–ii7–V7–I", 0.24),
+    ("I–V/vi–vi–V7", 0.18),
+    ("I–IV–V/V–V7", 0.18),
+    ("I–iii–vi–ii7", 0.16),
+];
+
+const CLASSICAL_MINIMAL_MINOR: &[(&str, f64)] = &[
+    // Minimalist & neo-classical cyclical modal-tonal progressions
+    // (Glass, Richter, Frahm, Pärt).
+    ("i–VI–III–VII", 0.28),
+    ("i–iv–VI–V", 0.24),
+    ("vi–IV–I–V", 0.20),
+    ("i–VII–VI–VII", 0.16),
+    ("i–III–iv–i", 0.12),
+];
+const CLASSICAL_MINIMAL_MAJOR: &[(&str, f64)] = &[
+    ("I–V–vi–IV", 0.28),
+    ("vi–IV–I–V", 0.26),
+    ("I–iii–IV–I", 0.24),
+    ("IV–I–V–vi", 0.22),
+];
+
+/// Subtle concert timpani fifths on climax downbeats only (chamber pieces have
+/// no backbeat snare or hi-hats; pulse comes from continuo, Alberti, and ostinato).
+const CLASSICAL_DRUMS: &[DrumLane] = &[
+    DrumLane {
+        steps2: Some(&[1]),
+        p: 0.75,
+        ..lane("tomL", "P", &[1, 9], 0.56)
+    },
+    DrumLane {
+        steps: &[],
+        steps2: Some(&[9, 15]),
+        p: 0.65,
+        ..lane("tomM", "P", &[], 0.48)
+    },
+    DrumLane {
+        steps2: Some(&[1]),
+        p: 0.55,
+        ..lane("kick", "K", &[1], 0.50)
+    },
+];
+
+const CLASSICAL_BAROQUE_FORM: &[Block] = &[
+    block("prelude", 8, 0.45),
+    block("ritornello", 16, 0.85),
+    block("episode", 12, 0.62),
+    block("fugato", 16, 0.92),
+    block("ritornello", 16, 1.0),
+    block("coda", 8, 0.52),
+];
+const CLASSICAL_BAROQUE_TEMPLATE: &[(&str, &str)] = &[
+    ("B", "x x x v x s"),
+    ("A", "x x s x v s"),
+    ("Pd", "- x s x x x"),
+    ("L", "- x s v x s"),
+    ("V", "- +9 x x x -"),
+    ("P", "- x - - x -"),
+    ("K", "- - - - x -"),
+];
+
+const CLASSICAL_CHAMBER_FORM: &[Block] = &[
+    block("prelude", 8, 0.40),
+    block("exposition", 16, 0.82),
+    block("episode", 12, 0.58),
+    block("development", 16, 0.88),
+    block("recap", 16, 1.0),
+    block("coda", 8, 0.45),
+];
+const CLASSICAL_CHAMBER_TEMPLATE: &[(&str, &str)] = &[
+    ("A", "x x x v x s"),
+    ("B", "- x s x x x"),
+    ("Pd", "s x s x x x"),
+    ("Atm", "x - x x x x"),
+    ("L", "- x s v x s"),
+    ("V", "- +9 x v x -"),
+    ("P", "- - - x x -"),
+    ("K", "- - - - x -"),
+];
+
+const CLASSICAL_MINIMAL_FORM: &[Block] = &[
+    block("prelude", 8, 0.38),
+    block("ostinato", 16, 0.68),
+    block("crescendo", 16, 0.88),
+    block("stillness", 8, 0.42),
+    block("apotheosis", 16, 1.0),
+    block("coda", 12, 0.45),
+];
+const CLASSICAL_MINIMAL_TEMPLATE: &[(&str, &str)] = &[
+    ("A", "x x v s v x"),
+    ("Pd", "- s x x x s"),
+    ("B", "- x x - x s"),
+    ("Atm", "x x x x x x"),
+    ("L", "- +9 x s x -"),
+    ("V", "- - x - x s"),
+    ("P", "- - x - x -"),
+    ("K", "- - - - x -"),
+];
+
+const CLASSICAL_NOTES: &[&str] = &[
+    "Classical spans three chamber & concert traditions selected deterministically by seed: Baroque concerto grosso / invention (harpsichord, walking basso continuo, solo violin/oboe/flute), Classical-Romantic chamber sonata / nocturne (concert grand or harp Alberti accompaniment with conversing soloists), and Minimalist / Neo-classical (felt piano, marimba or celesta additive ostinati under soaring strings).",
+    "Two independent melodic voices (`lead` and `counter`) converse in species counterpoint: the second soloist answers in contrary and oblique motion, favouring imperfect consonances (3rds, 6ths and 10ths) and singing through the first soloist's held notes.",
+    "Harmonic grammar uses harmonic minor and Ionian with raised leading tones, secondary dominants (`V/V`, `V7/V`, `V/vi`) and Neapolitan (`♭II`) cadences; development and fugato sections apply diatonic melodic inversion and ascending sequence.",
+    "Acoustic instruments use physical & formant synthesis: velocity-hardened felt piano hammers with allpass dispersion, quill-plucked harpsichord with jack release, 3-formant bowed solo strings with bow-position comb and legato slurs, air-jet flute, double-reed woodwinds, and 5-mode struck mallets.",
+];
+
+pub const CLASSICAL: Profile = Profile {
+    key: "classical",
+    name: "Classical",
+    tempo: (68.0, 132.0, 96.0),
+    swing: (50.0, 52.0),
+    modes: &[
+        (HARMONIC_MINOR, 0.42),
+        (IONIAN, 0.34),
+        (AEOLIAN, 0.14),
+        (DORIAN, 0.10),
+    ],
+    minor_progs: CLASSICAL_CHAMBER_MINOR,
+    major_progs: CLASSICAL_CHAMBER_MAJOR,
+    ext: (0.35, 0.12, 0.0),
+    kit: "tr909",
+    drums: CLASSICAL_DRUMS,
+    bass: BassStyle::Classical,
+    chords: ChordStyle::Sustain,
+    arp: true,
+    lead: (3.2, 15, 1.0),
+    bass_range: (36, 48),
+    bass_sounds: &["soloCello", "contrabass", "bassoon", "pizzicatoStrings"],
+    pad_sounds: &[
+        "chamberStrings",
+        "stringSection",
+        "soloViola",
+        "concertHarp",
+    ],
+    arp_sounds: &[
+        "concertGrand",
+        "feltPiano",
+        "harpsichord",
+        "concertHarp",
+        "celesta",
+        "marimba",
+        "vibraphone",
+    ],
+    lead_sounds: &[
+        "soloViolin",
+        "soloCello",
+        "concertFlute",
+        "oboe",
+        "clarinet",
+        "soloViola",
+        "concertGrand",
+    ],
+    form: CLASSICAL_CHAMBER_FORM,
+    template: CLASSICAL_CHAMBER_TEMPLATE,
+    intros: &[],
+    levels: &[
+        ("L", 4.5),
+        ("V", 2.5),
+        ("A", 3.2),
+        ("Pd", -1.0),
+        ("Atm", -2.5),
+        ("P", -4.5),
+        ("K", -5.5),
+    ],
+    pump: 0.0,
+    tom_fills: false,
+    tape: 0.12,
+    glue: 0.25,
+    reverb: 1.55,
+    gated: (0.0, 0.0),
+    notes: CLASSICAL_NOTES,
+};
+
+/// Resolves deterministic sub-style profiles (used by both [`super::shape`] and
+/// [`super::generate`] so section layout and tempo always match). For
+/// `"classical"`, `seed % 3` selects Baroque (`0`), Classical/Romantic Chamber
+/// (`1`), or Minimalist / Neo-classical (`2`).
+pub fn resolve_profile(p: &Profile, seed: u32) -> Profile {
+    if p.key != "classical" {
+        return *p;
+    }
+    match seed % 3 {
+        0 => Profile {
+            tempo: (84.0, 116.0, 98.0),
+            swing: (50.0, 50.0),
+            modes: &[(HARMONIC_MINOR, 0.50), (IONIAN, 0.38), (DORIAN, 0.12)],
+            minor_progs: CLASSICAL_BAROQUE_MINOR,
+            major_progs: CLASSICAL_BAROQUE_MAJOR,
+            ext: (0.25, 0.0, 0.0),
+            bass: BassStyle::Baroque,
+            lead: (3.8, 14, 1.0),
+            bass_sounds: &["soloCello", "bassoon", "contrabass"],
+            pad_sounds: &["chamberStrings", "spiccatoStrings", "soloViola"],
+            arp_sounds: &["harpsichord", "concertHarp", "pizzicatoStrings"],
+            lead_sounds: &["soloViolin", "oboe", "concertFlute", "soloCello"],
+            form: CLASSICAL_BAROQUE_FORM,
+            template: CLASSICAL_BAROQUE_TEMPLATE,
+            levels: &[
+                ("L", 4.6),
+                ("V", 2.8),
+                ("A", 1.8),
+                ("Pd", -0.8),
+                ("P", -5.0),
+                ("K", -6.0),
+            ],
+            reverb: 1.35,
+            ..CLASSICAL
+        },
+        1 => Profile {
+            tempo: (68.0, 106.0, 84.0),
+            swing: (50.0, 52.0),
+            modes: &[(IONIAN, 0.42), (HARMONIC_MINOR, 0.38), (AEOLIAN, 0.20)],
+            minor_progs: CLASSICAL_CHAMBER_MINOR,
+            major_progs: CLASSICAL_CHAMBER_MAJOR,
+            ext: (0.40, 0.15, 0.0),
+            bass: BassStyle::Classical,
+            lead: (3.0, 16, 1.0),
+            bass_sounds: &["soloCello", "contrabass", "bassoon"],
+            pad_sounds: &["chamberStrings", "stringSection", "soloViola"],
+            arp_sounds: &["concertGrand", "concertHarp", "feltPiano", "celesta"],
+            lead_sounds: &[
+                "soloViolin",
+                "soloCello",
+                "clarinet",
+                "concertFlute",
+                "oboe",
+            ],
+            form: CLASSICAL_CHAMBER_FORM,
+            template: CLASSICAL_CHAMBER_TEMPLATE,
+            reverb: 1.55,
+            ..CLASSICAL
+        },
+        _ => Profile {
+            tempo: (96.0, 132.0, 112.0),
+            swing: (50.0, 50.0),
+            modes: &[(AEOLIAN, 0.48), (DORIAN, 0.26), (IONIAN, 0.26)],
+            minor_progs: CLASSICAL_MINIMAL_MINOR,
+            major_progs: CLASSICAL_MINIMAL_MAJOR,
+            ext: (0.45, 0.28, 0.0),
+            bass: BassStyle::Classical,
+            lead: (2.4, 14, 1.0),
+            bass_sounds: &["soloCello", "contrabass", "pizzicatoStrings"],
+            pad_sounds: &["chamberStrings", "stringSection", "wavetablePad"],
+            arp_sounds: &[
+                "feltPiano",
+                "concertGrand",
+                "marimba",
+                "vibraphone",
+                "celesta",
+            ],
+            lead_sounds: &["soloViolin", "soloCello", "concertFlute", "soloViola"],
+            form: CLASSICAL_MINIMAL_FORM,
+            template: CLASSICAL_MINIMAL_TEMPLATE,
+            levels: &[
+                ("A", 4.0),
+                ("L", 4.2),
+                ("V", 2.2),
+                ("Pd", -0.8),
+                ("Atm", -2.0),
+                ("P", -4.5),
+                ("K", -5.5),
+            ],
+            reverb: 1.70,
+            ..CLASSICAL
+        },
     }
 }
 
@@ -1994,7 +2367,7 @@ pub fn sound_patch(genre: &str, name: &str) -> Option<Lab> {
     let mut lab = bpatch(name)?;
     lab.name = Some(name.to_owned());
     if matches!(name, "acousticGuitar" | "nylonGuitar")
-        && !matches!(genre, "acoustic" | "orchestral")
+        && !matches!(genre, "acoustic" | "orchestral" | "classical")
     {
         lab.gain = lab.gain.map(|g| g * 0.68);
     }
@@ -2014,7 +2387,7 @@ pub fn sound_patch(genre: &str, name: &str) -> Option<Lab> {
 /// The new generator's genres, in the lab's order.
 pub const PROFILES: &[Profile] = &[
     SYNTHWAVE, OUTRUN, CHICAGO, DEEP, FRENCH, ACID, DETROIT, UPLIFTING, LIQUID, DUBSTEP, ACOUSTIC,
-    ORCHESTRAL,
+    ORCHESTRAL, CLASSICAL,
 ];
 
 pub fn profile(key: &str) -> Option<&'static Profile> {

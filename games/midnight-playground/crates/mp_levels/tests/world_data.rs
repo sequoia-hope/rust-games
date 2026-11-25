@@ -22,8 +22,17 @@ fn world_data_matches_the_js_world() {
         let id = level.id;
         let want = &g["levels"][id];
         if want.is_null() {
-            // The open world's levels have no JS world to match.
-            assert!(level.open, "{id}: no golden");
+            // Open-world and post-port Rust levels have no frozen JS world dump.
+            if level.open {
+                continue;
+            }
+            assert!(
+                matches!(id, "redwoods" | "bayfront" | "ring"),
+                "{id}: no golden"
+            );
+            let w = level_world_data(level, t);
+            assert_eq!(world_data(id), w, "{id}: world_data by id");
+            assert!(w.runout.is_finite() && w.runout >= 0.0, "{id}: runout");
             continue;
         }
         let w = level_world_data(level, t);

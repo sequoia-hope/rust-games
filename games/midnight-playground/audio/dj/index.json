@@ -37,17 +37,17 @@
   },
   "dez-banter-4": {
    "takes": 1,
-   "text": "The harbour, the hill, the farm, the bar and the loft. Five stations. The others go to bed. We're on till two. Then I ride home.",
+   "text": "Six frequencies across the bay tonight, from strings on ninety point five to four-on-the-floor right here. Whatever road you're on, somebody's awake with you.",
    "voice": "dez-bright"
   },
   "dez-callers-1": {
    "takes": 1,
-   "text": "This one's for Tomas, who's closing the shop with the door open and the radio on. Lock it this time, baby. Please. Love you.",
+   "text": "Going out to Tomas on the late bench, truing a wheel before tomorrow's alleycat. Put the spoke wrench down at midnight, baby.",
    "voice": "dez-bright"
   },
   "dez-callers-2": {
    "takes": 1,
-   "text": "Somebody called to ask about the heron. The heron's fine. The heron is thriving. Thank you for asking about the heron. Nobody asks about me.",
+   "text": "Two texts in a row asking what track that just was. White label out of Detroit, stamped in blue ink, no artist name. You had to be here.",
    "voice": "dez-bright"
   },
   "dez-callers-3": {
@@ -57,7 +57,7 @@
   },
   "dez-callers-4": {
    "takes": 1,
-   "text": "Shout-out to the kid who fixed my chain at the skate spot and didn't say a word about my bike. That's grace. That's the whole thing. This one's yours.",
+   "text": "For the courier crew sheltering under the Mission overpass until the squall passes: dry socks in your bag, warm bass in your ears.",
    "voice": "dez-bright"
   },
   "dez-callers-5": {
@@ -87,7 +87,7 @@
   },
   "dez-ident-2": {
    "takes": 1,
-   "text": "Ninety-four point nine, The Loft. If you can hear a sewing machine under this, that's not a drum machine, sweetheart, that's a rush order.",
+   "text": "Ninety-four point nine, The Loft. Industrial sewing by day, club records after eight, and yes, the bass carries down the stairwell.",
    "voice": "dez-bright"
   },
   "dez-ident-3": {
@@ -102,7 +102,7 @@
   },
   "dez-ident-5": {
    "takes": 1,
-   "text": "This is Dez. This is The Loft. The dial's got a harbour, a hill, a farm and a bar. We're the city. We're the fast one. Keep up.",
+   "text": "This is Dez on The Loft, ninety-four nine. South of Market, fourth floor, windows open to the freeway. Keep your speed up.",
    "voice": "dez-bright"
   },
   "dez-morning-1": {
@@ -117,7 +117,7 @@
   },
   "dez-morning-3": {
    "takes": 1,
-   "text": "Good morning from Golden Gate Park. The conservatory doesn't open till ten, so I'm outside the glass looking at a water lily like it owes me money.\n\nTonight I'm on from eight. Right now I'm on a bike. Here's something to pedal to.",
+   "text": "Good morning from Golden Gate Park. The conservatory doesn't open till ten, so I'm outside the glass sketching the fern house in my notebook.\n\nTonight I'm on from eight. Right now I'm on a bike. Here's something to pedal to.",
    "voice": "dez-bright"
   },
   "dez-morning-4": {
@@ -157,7 +157,7 @@
   },
   "dez-night-1": {
    "takes": 1,
-   "text": "The city at two in the morning is the most honest thing I know. All the lights are for nobody. Drive like they're for you.",
+   "text": "South of Market at two in the morning smells like rain on warm asphalt and espresso from the all-night bakery. Best hour on the clock.",
    "voice": "dez-bright"
   },
   "dez-night-2": {
@@ -172,17 +172,17 @@
   },
   "dez-night-4": {
    "takes": 1,
-   "text": "Nobody needs a reason to be out this late. You need a working front light and a friend who'll text back. I've got both. Here's a tune.",
+   "text": "When the traffic clears on the upper deck you can hear the bay slap the pilings between records. Roll the glass down on the span.",
    "voice": "dez-bright"
   },
   "dez-night-5": {
    "takes": 1,
-   "text": "Whatever somebody said tonight about you, about your car, about your friends: they're not here. You are. I am. Go home loud.",
+   "text": "Every sodium lamp down the Embarcadero makes its own little pool in the mist. String enough of them together and you're already home.",
    "voice": "dez-bright"
   },
   "dez-night-6": {
    "takes": 1,
-   "text": "It's three in the morning and this is a recording. I'm home, the bike's by the door, the needle's threaded for tomorrow. Night, city. Mind the tram tracks.",
+   "text": "Past two a.m. now \u2014 the decks are running the late tape while I lock up the shop and pedal down Market. Catch the greens, night owls.",
    "voice": "dez-bright"
   },
   "dez-offair-1": {
@@ -232,7 +232,7 @@
   },
   "dez-places-2": {
    "takes": 1,
-   "text": "Stow Lake. There's a great blue heron who stands on the west bank most mornings like he pays rent. He does not pay rent. Bring a long lens and sit still.",
+   "text": "Stow Lake. There's a great blue heron on the west bank most mornings, dead still in the tule reeds. Bring a long lens and don't rattle your bike chain.",
    "voice": "dez-bright"
   },
   "dez-places-3": {
@@ -257,7 +257,7 @@
   },
   "dez-player-2": {
    "takes": 1,
-   "text": "The white Evo is back. Gold wheels. In the city. At this hour. Sweetheart. Icon. This one's yours.",
+   "text": "The white Mirage V ten is back. Gold wheels, cutting through south of Market under the sodium lights. Clean work. This one's yours.",
    "voice": "dez-bright"
   },
   "dez-player-3": {
@@ -607,7 +607,7 @@
   },
   "kit-player-1": {
    "takes": 1,
-   "text": "Who is in the black three thousand G T? Because you just took the Skyline record, and the whole comment section of my brain is screaming.",
+   "text": "Who is in the black three thousand G T? Because you just took the Skyline record, and my whole van is rattling from the wake.",
    "voice": "kit-bright"
   },
   "kit-player-2": {
@@ -652,7 +652,7 @@
   },
   "kit-scene-1": {
    "takes": 1,
-   "text": "Scanner says two Highway Patrol units are parked at the bottom of 92 doing their little stakeout. Love that for them. Take the long way.",
+   "text": "Scanner says two Highway Patrol units are parked at the bottom of 92 with their coffee flasks out. Take the ridge road instead.",
    "voice": "kit-bright"
   },
   "kit-scene-2": {
@@ -987,7 +987,7 @@
   },
   "marisol-player-3": {
    "takes": 1,
-   "text": "Quiet night, and then a silver Audi came through town like it owed somebody money. That one's for you.",
+   "text": "Quiet night, and then a silver Audax came through town on boost and left the street lamps shaking. That one's for you.",
    "voice": "marisol-warm"
   },
   "marisol-player-4": {
@@ -1502,7 +1502,7 @@
   },
   "tess-banter-4": {
    "takes": 1,
-   "text": "The pirate, the harbour, the farm, and the bar. Four stations, one highway. Pick your hour. Mine's the late one.",
+   "text": "A harbour, a ridge van, a packing shed, a city loft, a concert hall, and a bar. Six stations, one county. Pick your hour. Mine's the late one.",
    "voice": "tess-plain"
   },
   "tess-callers-1": {

@@ -244,6 +244,7 @@ impl Previews {
         Previews {
             secs: mp_levels::levels()
                 .iter()
+                .filter(|l| !mp_levels::ATLAS_LEVELS.contains(&l.id))
                 .map(|l| Sec {
                     id: l.id,
                     stage: Stage::Queued,

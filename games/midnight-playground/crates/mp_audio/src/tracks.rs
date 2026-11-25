@@ -932,6 +932,9 @@ pub const LEVEL_TRACK: &[(&str, &str)] = &[
     ("streets", "neon-rush"),   // a flat-out sprint through the neon grid
     ("desert", "mirage"),       // golden hour to moonrise on Route 66
     ("seaside", "afterburner"), // three laps of the raceway
+    ("redwoods", "chrome-heart"), // fog-belt conifers into the port
+    ("bayfront", "seabright"),  // sunset cliffs and seaside promenade
+    ("ring", "neon-rush"),      // midnight expressway loop
     ("cruise", "interstate"),   // endless night freeway
 ];
 

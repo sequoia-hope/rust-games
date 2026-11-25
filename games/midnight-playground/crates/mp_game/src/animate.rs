@@ -65,6 +65,9 @@ pub fn generated(level: &str) -> bool {
             | "desert"
             | "streets"
             | "coast"
+            | "redwoods"
+            | "bayfront"
+            | "ring"
             | "southcoast"
             | "peninsula"
     )
@@ -191,6 +194,9 @@ fn new_build(level: &str, draws: bool) -> Build {
             "coast" | "southcoast" | "peninsula" => {
                 level_jobs_with(level_stages(setup), open_world_scenery, extra_modules)
             }
+            "redwoods" | "bayfront" => {
+                level_jobs_with(level_stages(setup), mixed_scenery, extra_modules)
+            }
             _ => level_jobs_with(level_stages(setup), level1_scenery, extra_modules),
         },
     )
@@ -251,6 +257,10 @@ fn level1_scenery(info: &SceneryInfo) -> Option<Box<dyn Scenery>> {
         "City" => Some(Box::new(mp_worldgen::city::City::new(info))),
         _ => None,
     }
+}
+
+fn mixed_scenery(info: &SceneryInfo) -> Option<Box<dyn Scenery>> {
+    level1_scenery(info).or_else(|| crate::levels::coast::scenery(info))
 }
 
 /// One job, then the `?t=` override on the sky as soon as it exists (the
@@ -740,7 +750,7 @@ impl SceneIndex {
                 instances: n.instances.and_then(|k| {
                     let d = scene.instances.get(k as usize)?;
                     let m = scene.buffers[d.matrices as usize].data.as_f32()?;
-                    let matrices = m
+                    let matrices: Vec<[f32; 16]> = m
                         .as_chunks::<16>()
                         .0
                         .iter()
@@ -759,6 +769,10 @@ impl SceneIndex {
                             })
                             .collect()
                     });
+                    let any_drawn = matrices
+                        .iter()
+                        .take(d.count as usize)
+                        .any(|cols| Mat4::from_cols_slice(cols).determinant().abs() >= 1e-12);
                     Some(InstInfo {
                         matrices,
                         colors,
@@ -766,8 +780,10 @@ impl SceneIndex {
                         receive: n.receive_shadow,
                         extras: crate::loader::instance_extras(scene, d),
                         dirty: false,
-                        // Built with nothing to draw: the loader hid it.
-                        emptied: d.count == 0,
+                        // Built with nothing to draw (count == 0 or all
+                        // zero-scale matrices, like Desert's tumbleweeds): the
+                        // loader hid it, so show it once instances spawn.
+                        emptied: !any_drawn,
                         changed: Vec::new(),
                         packed: None,
                     })
@@ -1743,7 +1759,10 @@ pub fn plugin(app: &mut App) {
     if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
         render_app.add_systems(
             bevy::render::ExtractSchedule,
-            (instancing::write_instance_updates, write_mesh_updates),
+            (
+                instancing::write_instance_updates.after(instancing::extract_instances),
+                write_mesh_updates,
+            ),
         );
     }
 }

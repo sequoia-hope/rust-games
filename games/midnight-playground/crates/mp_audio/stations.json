@@ -8,5 +8,7 @@
   {"key": "roadhouse", "name": "The Roadhouse", "freq": "101.7", "dj": "tess",
    "genres": [["country", 0.55], ["acoustic", 0.3], ["chicha", 0.15]], "seed": 1017},
   {"key": "loft", "name": "The Loft", "freq": "94.9", "dj": "dez",
-   "genres": [["chicago", 0.16], ["deep", 0.14], ["french", 0.14], ["detroit", 0.14], ["acid", 0.1], ["liquid", 0.1], ["dubstep", 0.06], ["house", 0.06], ["techno", 0.05], ["garage", 0.05]], "seed": 949}
+   "genres": [["chicago", 0.16], ["deep", 0.14], ["french", 0.14], ["detroit", 0.14], ["acid", 0.1], ["liquid", 0.1], ["dubstep", 0.06], ["house", 0.06], ["techno", 0.05], ["garage", 0.05]], "seed": 949},
+  {"key": "nocturne", "name": "Nocturne", "freq": "90.5",
+   "genres": [["classical", 0.72], ["orchestral", 0.16], ["acoustic", 0.12]], "seed": 905}
 ]

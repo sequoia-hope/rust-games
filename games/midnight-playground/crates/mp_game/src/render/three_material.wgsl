@@ -667,6 +667,9 @@ fn getShadow(shadow_coord_in: vec4<f32>) -> f32 {
                     f.x),
                 f.y)
         ) * (1.0 / 9.0);
+        let edge_xy = min(min(coord.x, 1.0 - coord.x), min(coord.y, 1.0 - coord.y));
+        let edge = smoothstep(0.0, 0.06, edge_xy);
+        shadow = mix(1.0, shadow, edge);
     }
     return mix(1.0, shadow, params.w);
 }

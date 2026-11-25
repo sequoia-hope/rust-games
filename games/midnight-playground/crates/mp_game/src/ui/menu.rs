@@ -277,14 +277,12 @@ pub fn menu(
         place(&bp, &mut n, (1, 2), (2, 1));
         p.spawn((n, Control::named("level-pick", Value::None)))
             .with_children(|p| {
-                // The open world's levels are the atlas's pins, behind one
-                // tab of its own, last.
-                let atlas_sel = mp_levels::ATLAS_LEVELS.contains(&s.level.as_str());
+                // The Bay Area / Peninsula open-world atlas is parked for now,
+                // keeping the menu focused on the curated playable levels.
                 let tabs = mp_levels::levels()
                     .into_iter()
                     .filter(|l| !mp_levels::ATLAS_LEVELS.contains(&l.id))
-                    .map(|l| (l.id, l.num, l.title, l.id == s.level, Act::Level(l.id)))
-                    .chain([("atlas", "THE PENINSULA", "Atlas", atlas_sel, Act::Atlas)]);
+                    .map(|l| (l.id, l.num, l.title, l.id == s.level, Act::Level(l.id)));
                 for (lid, num, title, sel, act) in tabs {
                     let id = format!("lvl-tab-{lid}");
                     let focused = cx.f(&id);
@@ -625,18 +623,20 @@ pub fn menu(
             .with_children(|p| {
                 for (key, spec) in mp_sim::physics::CAR_SPECS.iter() {
                     let sel = *key == s.car;
+                    let class = mp_sim::physics::car_class(key);
+                    let badge = format!("{} · PI {}", class.tier(), spec.pi());
                     let id = format!("pick-{key}");
                     let focused = cx.f(&id);
                     let mut e = p.spawn((
                         Node {
                             flex_grow: 1.0,
                             flex_shrink: 1.0,
-                            flex_basis: bp.px(if bp.compact { 140.0 } else { 150.0 }),
+                            flex_basis: bp.px(if bp.compact { 136.0 } else { 148.0 }),
                             flex_direction: FlexDirection::Column,
                             padding: if bp.compact {
-                                UiRect::axes(bp.px(10.0), bp.px(6.0))
+                                UiRect::axes(bp.px(9.0), bp.px(5.0))
                             } else {
-                                UiRect::axes(bp.px(12.0), bp.px(10.0))
+                                UiRect::axes(bp.px(11.0), bp.px(8.0))
                             },
                             border: w::border(&bp, 1.0),
                             border_radius: w::radius(&bp, 12.0),
@@ -652,29 +652,48 @@ pub fn menu(
                         e.insert(w::sel_ring(&bp));
                     }
                     w::focus_ring(&mut e, &bp, focused);
-                    let size = if bp.compact { 15.0 } else { 18.0 };
+                    let size = if bp.compact { 14.0 } else { 16.0 };
                     e.with_children(|p| {
                         p.spawn(Node {
+                            justify_content: JustifyContent::SpaceBetween,
                             align_items: AlignItems::Center,
+                            column_gap: bp.px(6.0),
                             ..default()
                         })
                         .with_children(|p| {
+                            p.spawn(Node {
+                                align_items: AlignItems::Center,
+                                ..default()
+                            })
+                            .with_children(|p| {
+                                p.spawn((
+                                    Node {
+                                        width: bp.px(12.0),
+                                        height: bp.px(12.0),
+                                        margin: UiRect::right(bp.px(6.0)),
+                                        border_radius: w::pill(),
+                                        flex_shrink: 0.0,
+                                        ..default()
+                                    },
+                                    BackgroundColor(w::rgb(spec.color)),
+                                ));
+                                p.spawn(w::text(spec.label, T::new(size).bold(), bp.k));
+                            });
                             p.spawn((
-                                Node {
-                                    width: bp.px(14.0),
-                                    height: bp.px(14.0),
-                                    margin: UiRect::right(bp.px(8.0)),
-                                    border_radius: w::pill(),
-                                    flex_shrink: 0.0,
-                                    ..default()
-                                },
-                                BackgroundColor(w::rgb(spec.color)),
+                                w::text(
+                                    badge,
+                                    T::new(if bp.compact { 9.0 } else { 10.0 })
+                                        .bold()
+                                        .ls(0.1)
+                                        .c(w::accent2()),
+                                    bp.k,
+                                ),
+                                TextLayout::no_wrap(),
                             ));
-                            p.spawn(w::text(spec.label, T::new(size).bold(), bp.k));
                         });
                         p.spawn(w::text(
-                            spec.blurb,
-                            T::new(if bp.compact { 11.0 } else { 13.0 }).c(w::dim()),
+                            format!("{} · {}", class.label(), spec.blurb),
+                            T::new(if bp.compact { 10.5 } else { 12.0 }).c(w::dim()),
                             bp.k,
                         ));
                     });

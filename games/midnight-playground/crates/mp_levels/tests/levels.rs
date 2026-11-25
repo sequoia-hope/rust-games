@@ -41,6 +41,9 @@ fn the_menu_lists_the_six_levels_and_the_corridor_with_unique_ids_in_order() {
             "streets",
             "desert",
             "seaside",
+            "redwoods",
+            "bayfront",
+            "ring",
             "cruise",
             "southcoast",
             "peninsula"
@@ -55,6 +58,9 @@ fn the_menu_lists_the_six_levels_and_the_corridor_with_unique_ids_in_order() {
             "LEVEL 3",
             "LEVEL 4",
             "LEVEL 5",
+            "LEVEL 6",
+            "LEVEL 7",
+            "LEVEL 8",
             "ENDLESS",
             "THE PENINSULA",
             "THE PENINSULA"

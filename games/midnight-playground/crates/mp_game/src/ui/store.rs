@@ -183,7 +183,9 @@ impl Settings {
         if !car_kinds().any(|k| k == s.car) {
             s.car = "sports".into();
         }
-        if !mp_levels::levels().iter().any(|l| l.id == s.level) {
+        if mp_levels::ATLAS_LEVELS.contains(&s.level.as_str())
+            || !mp_levels::levels().iter().any(|l| l.id == s.level)
+        {
             s.level = mp_levels::levels()[0].id.into();
         }
         s

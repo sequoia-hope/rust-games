@@ -38,6 +38,13 @@ pub fn spec(kind: &str) -> Option<Spec> {
         "tractor" => tractor,
         "police" => police,
         "policeSuv" => police_suv,
+        "firebird" => firebird,
+        "vr4" => vr4,
+        "audax" => audax,
+        "roadster" => roadster,
+        "diablo" => diablo,
+        "cgt" => cgt,
+        "volt" => volt,
         _ => return None,
     })
 }
@@ -3708,5 +3715,1513 @@ fn police_suv(p: &mut Parts, hi: bool, _v: Variant) -> Layout {
         head: [0.0, 0.92, 2.5],
         exhausts: vec![[0.6, 0.36, -2.4]],
         siren: Some(siren),
+    }
+}
+
+// ── M15 Garage Expansion (WORLD.md 8.1) ──────────────────────────────────
+
+// '88 T-top V8 wedge coupe (Phoenix GTA): long pointed nose with pop-up
+// lamp doors, twin nostril vents, glass T-tops split by a painted targa
+// spine, wraparound spoiler and gold cross-lace spoke wheels.
+fn firebird(p: &mut Parts, hi: bool, v: Variant) -> Layout {
+    let r = 0.35;
+    let wb = 2.72;
+    let w = 1.92;
+    let rr = r + 0.07;
+    let a = wb / 2.0;
+    let (z0, z1) = (-2.35, 2.45);
+    let arches = arches2(a, r, rr);
+    let top: [P2; 9] = [
+        [-2.35, 0.74],
+        [-2.26, 0.9],
+        [-1.95, 0.93],
+        [-1.3, 0.92],
+        [0.45, 0.88],
+        [1.45, 0.79],
+        [2.05, 0.65],
+        [2.34, 0.51],
+        [2.45, 0.4],
+    ];
+    let bot: [P2; 6] = [
+        [-2.35, 0.4],
+        [-2.24, 0.23],
+        [-1.85, 0.2],
+        [1.85, 0.2],
+        [2.32, 0.22],
+        [2.45, 0.31],
+    ];
+    let top_f = spline(&top);
+    let cab = (-1.85, 0.58);
+    let mut body = body_loft(
+        hi,
+        BodyOpts {
+            r_top: 0.09,
+            end_r: 0.22,
+            side: vec![0.54, 0.6, 0.66],
+            mat: Some(Box::new(move |tag, y, z, ax| {
+                if tag == 0 || y < 0.27 {
+                    return "trim";
+                }
+                if hi && tag == 3 && in_range(z, cab.0 + 0.12, cab.1 - 0.12) && ax < 0.62 {
+                    return "trim";
+                }
+                "paint"
+            })),
+            ..BodyOpts::new(
+                z0,
+                z1,
+                &top,
+                &bot,
+                &arches,
+                Shaper {
+                    nose: 0.14,
+                    tail: 0.05,
+                    nose_len: 1.1,
+                    tail_len: 0.65,
+                    end_r: 0.22,
+                    tumble: 0.06,
+                    y0: 0.64,
+                    y1: 0.92,
+                    tuck: 0.05,
+                    hips: 0.04,
+                    hip_z: -a,
+                    hip_w: 0.68,
+                    hip_y: [0.46, 0.84],
+                    crease: Some(Crease {
+                        y: 0.58,
+                        d: 0.018,
+                        h: 0.05,
+                    }),
+                    arches: arches.clone(),
+                    flare: 0.018,
+                    lip: 0.007,
+                    ..Shaper::new(w, z0, z1)
+                }
+                .build(),
+            )
+        },
+    );
+    p.add_all(geo(&mut body));
+    let s = &body.s;
+    // T-top cabin: glass panels on left/right of the roof (`ax > 0.11`),
+    // painted centre targa bar (`ax <= 0.11`).
+    let mut cabin = cabin_loft(
+        hi,
+        CabinOpts {
+            b_pillar: Some([-0.68, -0.56]),
+            mat: Some(Box::new(|tag, _y, z, ax| {
+                if tag == 2 {
+                    return "trim";
+                }
+                if tag == 3 && in_range(z, -0.78, -0.02) {
+                    return if ax > 0.11 { "glass" } else { "paint" };
+                }
+                if tag == 3 && z <= -0.78 {
+                    return "glass";
+                }
+                if tag != 3 && in_range(z, -0.68, -0.56) {
+                    return "trim";
+                }
+                "glass"
+            })),
+            ..CabinOpts::new(
+                cab.0,
+                cab.1,
+                &[
+                    [-1.85, 0.92],
+                    [-1.25, 1.14],
+                    [-0.75, 1.255],
+                    [-0.12, 1.255],
+                    [0.08, 1.21],
+                    [0.58, 0.88],
+                ],
+                top_f.clone(),
+                hw2(|y, z| {
+                    0.75 * (1.0 - 0.19 * smooth(0.9, 1.25, y))
+                        * (1.0 - 0.08 * smooth(-0.9, -1.85, z))
+                }),
+                [-0.82, -0.02],
+            )
+        },
+    );
+    p.add_all(geo(&mut cabin));
+    let c = &cabin.s;
+    wheel_wells(p, &[a, -a], r, rr, w, hi);
+    // Pop-up headlight outlines & recessed lower fog/driving lamps.
+    let popup = [[0.42, 2.24], [0.76, 2.24], [0.78, 1.96], [0.42, 1.98]];
+    if hi {
+        gap(
+            p,
+            s,
+            Top,
+            &popup,
+            GapOpts {
+                closed: true,
+                mirror: true,
+                ..GapOpts::default()
+            },
+        );
+        // Hood heat-extractor louvres.
+        for z in [1.15, 1.32, 1.49] {
+            p.pair(
+                "trim",
+                bx(0.24, 0.015, 0.09),
+                0.36,
+                top_f(z) + 0.006,
+                z,
+                R0,
+                None,
+            );
+        }
+        dlo(p, c, &top_f, 0.48, -1.65, DloOpts::default());
+        interior(
+            p,
+            InteriorOpts {
+                seat: Seat::Rgb([0.9, 0.9, 1.0]),
+                ..InteriorOpts::new(-0.52, 1.15, 0.25, 0.95)
+            },
+        );
+    }
+    let fog = [[0.36, 0.33], [0.68, 0.33], [0.68, 0.42], [0.36, 0.42]];
+    lamp(
+        p,
+        s,
+        Front,
+        &fog,
+        lamp_o("head", 0.25, if hi { 4 } else { 1 }, 1),
+    );
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Front,
+            &[[-0.78, 0.24], [0.78, 0.24], [0.82, 0.32], [-0.82, 0.32]],
+            dd(0.003, 4, 1, false, 0.5),
+        ),
+    );
+    // Smoked grid tail panel across the rear.
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Rear,
+            &[[-0.88, 0.66], [0.88, 0.66], [0.88, 0.84], [-0.88, 0.84]],
+            dd(0.003, 4, 1, false, 0.7),
+        ),
+    );
+    p.add0(
+        "tail",
+        decal(
+            s,
+            Rear,
+            &[[0.18, 0.68], [0.85, 0.68], [0.85, 0.82], [0.18, 0.82]],
+            dd(0.006, if hi { 6 } else { 1 }, 1, true, 0.45),
+        ),
+    );
+    if hi {
+        glow(
+            p,
+            s,
+            Rear,
+            &[[0.2, 0.75], [0.83, 0.75]],
+            0.036,
+            "tail",
+            GlowOpts::default(),
+        );
+    }
+    p.box_("plate", 0.46, 0.12, 0.02, [0.0, 0.5, -2.355], R0, None);
+    if v.spoiler {
+        wing(
+            p,
+            hi,
+            WingOpts {
+                span: 1.72,
+                chord: 0.28,
+                thick: 0.09,
+                y: 1.02,
+                z: -2.14,
+                pitch: -0.06,
+                bucket: "paint",
+                plate_h: 0.1,
+                uprights: vec![0.74],
+                base_y: 0.9,
+            },
+        );
+    }
+    mirrors(
+        p,
+        hi,
+        MirrorOpts {
+            base: 0.76,
+            ..MirrorOpts::at(0.92, 0.96, 0.36)
+        },
+    );
+    tip(p, hi, 0.58, 0.25, -2.28, 0.048, 0.15, true, 1.0);
+    Layout {
+        dims: dims(4.8, w, 1.26, r, wb, 1.62),
+        wheels: WheelLayout {
+            dish: Some(0.055),
+            rim_mat: Some(RimMat::Gold),
+            ..WheelLayout::new(r, 0.28, 1.62, a, 0.66, 9.0, WheelType::Spoke)
+        },
+        head: [0.0, 0.56, 2.42],
+        exhausts: vec![[0.58, 0.25, -2.4], [-0.58, 0.25, -2.4]],
+        siren: None,
+    }
+}
+
+// '91 twin-turbo AWD coupe (Kaze VR-6): wide stance, blistered bonnet
+// domes, side intercooler strakes, white leather cabin and active hoop wing.
+fn vr4(p: &mut Parts, hi: bool, v: Variant) -> Layout {
+    let r = 0.34;
+    let wb = 2.62;
+    let w = 1.9;
+    let rr = r + 0.07;
+    let a = wb / 2.0;
+    let (z0, z1) = (-2.26, 2.3);
+    let arches = arches2(a, r, rr);
+    let top: [P2; 9] = [
+        [-2.26, 0.68],
+        [-2.18, 0.88],
+        [-1.92, 0.91],
+        [-1.25, 0.9],
+        [0.65, 0.86],
+        [1.45, 0.79],
+        [1.95, 0.67],
+        [2.2, 0.54],
+        [2.3, 0.42],
+    ];
+    let bot: [P2; 6] = [
+        [-2.26, 0.4],
+        [-2.15, 0.23],
+        [-1.8, 0.19],
+        [1.8, 0.19],
+        [2.16, 0.21],
+        [2.3, 0.3],
+    ];
+    let top_f = spline(&top);
+    let cab = (-1.82, 0.78);
+    let mut body = body_loft(
+        hi,
+        BodyOpts {
+            r_top: 0.13,
+            end_r: 0.28,
+            side: vec![0.54, 0.6, 0.65],
+            mat: Some(Box::new(move |tag, _y, z, ax| {
+                if tag == 0 {
+                    return "trim";
+                }
+                if hi && tag == 3 && in_range(z, cab.0 + 0.12, cab.1 - 0.12) && ax < 0.6 {
+                    return "trim";
+                }
+                "paint"
+            })),
+            ..BodyOpts::new(
+                z0,
+                z1,
+                &top,
+                &bot,
+                &arches,
+                Shaper {
+                    nose: 0.12,
+                    tail: 0.06,
+                    nose_len: 0.98,
+                    tail_len: 0.7,
+                    end_r: 0.28,
+                    tumble: 0.075,
+                    y0: 0.62,
+                    y1: 0.9,
+                    tuck: 0.055,
+                    hips: 0.05,
+                    hip_z: -a + 0.08,
+                    hip_w: 0.66,
+                    hip_y: [0.44, 0.82],
+                    crease: Some(Crease {
+                        y: 0.57,
+                        d: 0.024,
+                        h: 0.06,
+                    }),
+                    arches: arches.clone(),
+                    flare: 0.022,
+                    lip: 0.008,
+                    ..Shaper::new(w, z0, z1)
+                }
+                .build(),
+            )
+        },
+    );
+    p.add_all(geo(&mut body));
+    let s = &body.s;
+    let mut cabin = cabin_loft(
+        hi,
+        CabinOpts {
+            pillars: "trim",
+            ..CabinOpts::new(
+                cab.0,
+                cab.1,
+                &[
+                    [-1.82, 0.9],
+                    [-1.25, 1.12],
+                    [-0.62, 1.255],
+                    [-0.08, 1.255],
+                    [0.18, 1.2],
+                    [0.78, 0.86],
+                ],
+                top_f.clone(),
+                hw2(|y, z| {
+                    0.74 * (1.0 - 0.21 * smooth(0.88, 1.25, y))
+                        * (1.0 - 0.1 * smooth(-0.7, -1.82, z))
+                }),
+                [-0.68, 0.06],
+            )
+        },
+    );
+    p.add_all(geo(&mut cabin));
+    let c = &cabin.s;
+    wheel_wells(p, &[a, -a], r, rr, w, hi);
+    let head = [[0.46, 2.15], [0.76, 2.08], [0.84, 1.92], [0.5, 1.98]];
+    lamp(
+        p,
+        s,
+        Top,
+        &head,
+        lamp_o("head", 0.12, if hi { 6 } else { 2 }, if hi { 3 } else { 1 }),
+    );
+    if hi {
+        glow(
+            p,
+            s,
+            Top,
+            &[[0.5, 2.1], [0.8, 1.98]],
+            0.016,
+            "head",
+            GlowOpts::default(),
+        );
+        // Side intercooler intake scoops ahead of rear wheels.
+        p.add0(
+            "trim",
+            decal(
+                s,
+                Side,
+                &[[-0.55, 0.44], [-0.88, 0.42], [-0.84, 0.62], [-0.52, 0.58]],
+                dd(0.003, 3, 2, true, 0.4),
+            ),
+        );
+        dlo(p, c, &top_f, 0.6, -1.55, DloOpts::default());
+        // Signature white leather interior on the black VR-4.
+        interior(
+            p,
+            InteriorOpts {
+                seat: Seat::Rgb([6.2, 6.1, 5.9]),
+                ..InteriorOpts::new(-0.46, 1.15, 0.36, 0.94)
+            },
+        );
+    }
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Front,
+            &[[-0.62, 0.22], [0.62, 0.22], [0.68, 0.36], [-0.68, 0.36]],
+            dd(0.003, 6, 1, false, 0.5),
+        ),
+    );
+    p.add0(
+        "tail",
+        decal(
+            s,
+            Rear,
+            &[[-0.86, 0.72], [0.86, 0.72], [0.86, 0.83], [-0.86, 0.83]],
+            dd(0.005, if hi { 8 } else { 2 }, 1, false, 0.5),
+        ),
+    );
+    if hi {
+        glow(
+            p,
+            s,
+            Rear,
+            &[[-0.82, 0.775], [0.82, 0.775]],
+            0.022,
+            "tail",
+            GlowOpts {
+                mirror: false,
+                ..GlowOpts::default()
+            },
+        );
+    }
+    p.box_("plate", 0.46, 0.11, 0.02, [0.0, 0.52, -2.265], R0, None);
+    if v.spoiler {
+        wing(
+            p,
+            hi,
+            WingOpts {
+                span: 1.66,
+                chord: 0.28,
+                thick: 0.1,
+                y: 1.06,
+                z: -2.02,
+                pitch: -0.08,
+                bucket: "paint",
+                plate_h: 0.12,
+                uprights: vec![0.58],
+                base_y: 0.89,
+            },
+        );
+    }
+    mirrors(
+        p,
+        hi,
+        MirrorOpts {
+            base: 0.75,
+            ..MirrorOpts::at(0.92, 0.95, 0.48)
+        },
+    );
+    tip(p, hi, 0.54, 0.27, -2.18, 0.044, 0.14, true, 1.0);
+    tip(p, hi, 0.43, 0.27, -2.18, 0.044, 0.14, true, 1.0);
+    Layout {
+        dims: dims(4.56, w, 1.26, r, wb, 1.62),
+        wheels: WheelLayout::new(r, 0.27, 1.62, a, 0.68, 5.0, WheelType::Spoke),
+        head: [0.0, 0.6, 2.26],
+        exhausts: vec![[0.48, 0.27, -2.3], [-0.48, 0.27, -2.3]],
+        siren: None,
+    }
+}
+
+// '04 AWD V8 sport saloon (Audax V8): taut three-box sedan proportions,
+// brushed aluminium mirror caps, xenon projector headlamps and quad tips.
+fn audax(p: &mut Parts, hi: bool, v: Variant) -> Layout {
+    let r = 0.34;
+    let wb = 2.66;
+    let w = 1.84;
+    let rr = r + 0.065;
+    let a = wb / 2.0;
+    let (z0, z1) = (-2.27, 2.31);
+    let arches = arches2(a, r, rr);
+    let top: [P2; 8] = [
+        [-2.27, 0.84],
+        [-2.18, 0.95],
+        [-1.65, 0.96],
+        [0.75, 0.93],
+        [1.55, 0.86],
+        [2.05, 0.75],
+        [2.24, 0.62],
+        [2.31, 0.48],
+    ];
+    let bot: [P2; 6] = [
+        [-2.27, 0.42],
+        [-2.15, 0.24],
+        [-1.8, 0.2],
+        [1.8, 0.2],
+        [2.18, 0.23],
+        [2.31, 0.34],
+    ];
+    let top_f = spline(&top);
+    let cab = (-1.62, 0.82);
+    let mut body = body_loft(
+        hi,
+        BodyOpts {
+            r_top: 0.1,
+            end_r: 0.2,
+            side: vec![0.64, 0.72, 0.78],
+            mat: Some(Box::new(move |tag, _y, z, ax| {
+                if tag == 0 {
+                    return "trim";
+                }
+                if hi && tag == 3 && in_range(z, cab.0 + 0.12, cab.1 - 0.12) && ax < 0.62 {
+                    return "trim";
+                }
+                "paint"
+            })),
+            ..BodyOpts::new(
+                z0,
+                z1,
+                &top,
+                &bot,
+                &arches,
+                Shaper {
+                    nose: 0.08,
+                    tail: 0.05,
+                    end_r: 0.2,
+                    tumble: 0.055,
+                    y0: 0.7,
+                    y1: 0.96,
+                    tuck: 0.045,
+                    crease: Some(Crease {
+                        y: 0.74,
+                        d: 0.015,
+                        h: 0.05,
+                    }),
+                    arches: arches.clone(),
+                    flare: 0.018,
+                    lip: 0.007,
+                    ..Shaper::new(w, z0, z1)
+                }
+                .build(),
+            )
+        },
+    );
+    p.add_all(geo(&mut body));
+    let s = &body.s;
+    let mut cabin = cabin_loft(
+        hi,
+        CabinOpts {
+            b_pillar: Some([-0.28, -0.18]),
+            c_pillar: Some(-1.18),
+            ..CabinOpts::new(
+                cab.0,
+                cab.1,
+                &[
+                    [-1.62, 0.96],
+                    [-1.18, 1.31],
+                    [-0.75, 1.375],
+                    [-0.05, 1.375],
+                    [0.2, 1.31],
+                    [0.82, 0.93],
+                ],
+                top_f.clone(),
+                hw2(|y, _| 0.73 * (1.0 - 0.16 * smooth(0.95, 1.37, y))),
+                [-1.18, 0.12],
+            )
+        },
+    );
+    p.add_all(geo(&mut cabin));
+    let c = &cabin.s;
+    wheel_wells(p, &[a, -a], r, rr, w, hi);
+    let head = [[0.42, 0.62], [0.78, 0.6], [0.8, 0.72], [0.42, 0.73]];
+    lamp(
+        p,
+        s,
+        Front,
+        &head,
+        lamp_o("head", 0.15, if hi { 6 } else { 2 }, if hi { 3 } else { 1 }),
+    );
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Front,
+            &[[-0.38, 0.58], [0.38, 0.58], [0.36, 0.74], [-0.36, 0.74]],
+            dd(0.003, 4, 1, false, 0.5),
+        ),
+    );
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Front,
+            &[[-0.72, 0.24], [0.72, 0.24], [0.74, 0.36], [-0.74, 0.36]],
+            dd(0.003, 4, 1, false, 0.45),
+        ),
+    );
+    if hi {
+        dot(p, s, Front, 0.58, 0.66, 0.032, "head", dot_c(0.95));
+        dlo(
+            p,
+            c,
+            &top_f,
+            0.7,
+            -1.48,
+            DloOpts {
+                bucket: "chrome",
+                w: 0.016,
+                rear: true,
+            },
+        );
+        interior(p, InteriorOpts::new(-0.35, 1.24, 0.42, 1.0));
+    }
+    let tl = [[0.48, 0.74], [0.82, 0.72], [0.82, 0.88], [0.52, 0.88]];
+    lamp(
+        p,
+        s,
+        Rear,
+        &tl,
+        lamp_o("tail", 0.25, if hi { 4 } else { 1 }, 2),
+    );
+    if hi {
+        glow(
+            p,
+            s,
+            Rear,
+            &[[0.52, 0.8], [0.8, 0.8]],
+            0.024,
+            "tail",
+            GlowOpts::default(),
+        );
+    }
+    p.box_("plate", 0.48, 0.11, 0.02, [0.0, 0.76, -2.275], R0, None);
+    if v.spoiler {
+        p.add0(
+            "paint",
+            sweep(
+                &[[-2.24, 0.95], [-2.08, 0.965], [-2.1, 0.99], [-2.26, 0.995]],
+                Axis::X,
+                -0.74,
+                0.74,
+                1,
+            ),
+        );
+    }
+    mirrors(
+        p,
+        hi,
+        MirrorOpts {
+            shell: "chrome",
+            base: 0.82,
+            ..MirrorOpts::at(0.89, 1.02, 0.54)
+        },
+    );
+    tip(p, hi, 0.52, 0.27, -2.2, 0.042, 0.13, true, 1.0);
+    tip(p, hi, 0.41, 0.27, -2.2, 0.042, 0.13, true, 1.0);
+    Layout {
+        dims: dims(4.58, w, 1.38, r, wb, 1.58),
+        wheels: WheelLayout::new(r, 0.26, 1.58, a, 0.68, 6.0, WheelType::Split),
+        head: [0.0, 0.66, 2.28],
+        exhausts: vec![[0.46, 0.27, -2.3], [-0.46, 0.27, -2.3]],
+        siren: None,
+    }
+}
+
+// '08 turbo open roadster (Solstice RL): short overhangs, muscular fenders,
+// raked frameless windscreen, twin tonneau humps with chrome roll hoops, and
+// red-and-black two-tone leather seats.
+fn roadster(p: &mut Parts, hi: bool, _v: Variant) -> Layout {
+    let r = 0.33;
+    let wb = 2.48;
+    let w = 1.86;
+    let rr = r + 0.065;
+    let a = wb / 2.0;
+    let (z0, z1) = (-2.1, 2.14);
+    let arches = arches2(a, r, rr);
+    let top: [P2; 8] = [
+        [-2.1, 0.72],
+        [-1.98, 0.88],
+        [-1.2, 0.89],
+        [0.55, 0.86],
+        [1.35, 0.8],
+        [1.82, 0.69],
+        [2.04, 0.56],
+        [2.14, 0.43],
+    ];
+    let bot: [P2; 6] = [
+        [-2.1, 0.38],
+        [-1.98, 0.22],
+        [-1.65, 0.18],
+        [1.65, 0.18],
+        [2.0, 0.2],
+        [2.14, 0.29],
+    ];
+    let top_f = spline(&top);
+    let mut body = body_loft(
+        hi,
+        BodyOpts {
+            r_top: 0.14,
+            end_r: 0.26,
+            side: vec![0.54, 0.6, 0.66],
+            mat: Some(Box::new(move |tag, _y, z, ax| {
+                if tag == 0 {
+                    return "trim";
+                }
+                if tag == 3 && in_range(z, -0.82, 0.38) && ax < 0.62 {
+                    return "trim"; // open cockpit well
+                }
+                "paint"
+            })),
+            ..BodyOpts::new(
+                z0,
+                z1,
+                &top,
+                &bot,
+                &arches,
+                Shaper {
+                    nose: 0.11,
+                    tail: 0.07,
+                    end_r: 0.26,
+                    tumble: 0.08,
+                    y0: 0.58,
+                    y1: 0.88,
+                    tuck: 0.05,
+                    hips: 0.055,
+                    hip_z: -a,
+                    hip_w: 0.6,
+                    hip_y: [0.42, 0.82],
+                    crease: Some(Crease {
+                        y: 0.62,
+                        d: 0.022,
+                        h: 0.06,
+                    }),
+                    arches: arches.clone(),
+                    flare: 0.024,
+                    lip: 0.008,
+                    ..Shaper::new(w, z0, z1)
+                }
+                .build(),
+            )
+        },
+    );
+    p.add_all(geo(&mut body));
+    let s = &body.s;
+    // Raked open-top windscreen + twin speedster tonneau humps & chrome hoops.
+    let mut screen = cabin_loft(
+        hi,
+        CabinOpts {
+            pillars: "trim",
+            mat: Some(Box::new(
+                |tag, _y, _z, _ax| {
+                    if tag == 2 { "trim" } else { "glass" }
+                },
+            )),
+            ..CabinOpts::new(
+                0.05,
+                0.76,
+                &[[0.05, 1.215], [0.22, 1.19], [0.76, 0.86]],
+                top_f.clone(),
+                hw2(|y, _| 0.72 * (1.0 - 0.18 * smooth(0.86, 1.215, y))),
+                [0.08, 0.2],
+            )
+        },
+    );
+    p.add_all(geo(&mut screen));
+    // Twin tonneau humps behind the seats and polished roll hoops.
+    p.pair(
+        "paint",
+        || {
+            sweep(
+                &[[-1.55, 0.88], [-0.82, 0.88], [-0.88, 1.03], [-1.45, 0.93]],
+                Axis::X,
+                -0.19,
+                0.19,
+                1,
+            )
+        },
+        0.38,
+        0.0,
+        0.0,
+        R0,
+        None,
+    );
+    p.pair("chrome", bx(0.32, 0.18, 0.04), 0.38, 0.98, -0.78, R0, None);
+    wheel_wells(p, &[a, -a], r, rr, w, hi);
+    let head = [[0.52, 1.98], [0.78, 1.9], [0.82, 1.72], [0.56, 1.8]];
+    lamp(
+        p,
+        s,
+        Top,
+        &head,
+        lamp_o("head", 0.14, if hi { 6 } else { 2 }, if hi { 3 } else { 1 }),
+    );
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Front,
+            &[[-0.58, 0.22], [0.58, 0.22], [0.64, 0.38], [-0.64, 0.38]],
+            dd(0.003, 5, 1, false, 0.5),
+        ),
+    );
+    if hi {
+        dot(p, s, Top, 0.68, 1.86, 0.03, "head", dot_c(0.95));
+        // Red-and-black leather cockpit seats exposed to the air.
+        interior(
+            p,
+            InteriorOpts {
+                seat: Seat::Rgb([4.8, 0.9, 1.0]),
+                ..InteriorOpts::new(-0.52, 1.12, 0.24, 0.92)
+            },
+        );
+    }
+    let tl = [[0.48, 0.72], [0.8, 0.7], [0.82, 0.82], [0.5, 0.83]];
+    lamp(
+        p,
+        s,
+        Rear,
+        &tl,
+        lamp_o("tail", 0.25, if hi { 5 } else { 2 }, 2),
+    );
+    if hi {
+        glow(
+            p,
+            s,
+            Rear,
+            &[[0.52, 0.77], [0.79, 0.76]],
+            0.024,
+            "tail",
+            GlowOpts::default(),
+        );
+    }
+    p.box_("plate", 0.44, 0.11, 0.02, [0.0, 0.52, -2.105], R0, None);
+    mirrors(
+        p,
+        hi,
+        MirrorOpts {
+            base: 0.76,
+            ..MirrorOpts::at(0.9, 0.94, 0.38)
+        },
+    );
+    tip(p, hi, 0.5, 0.26, -2.02, 0.048, 0.14, true, 1.0);
+    Layout {
+        dims: dims(4.24, w, 1.22, r, wb, 1.58),
+        wheels: WheelLayout {
+            rim_mat: Some(RimMat::Chrome),
+            ..WheelLayout::new(r, 0.26, 1.58, a, 0.7, 5.0, WheelType::Split)
+        },
+        head: [0.0, 0.58, 2.1],
+        exhausts: vec![[0.5, 0.26, -2.12], [-0.5, 0.26, -2.12]],
+        siren: None,
+    }
+}
+
+// 90s V12 wedge supercar (Tormenta XII): ultra-wide rear haunches, scissor-door
+// NACA/strake intakes, quad round tail lamps, slatted engine deck and high wing.
+fn diablo(p: &mut Parts, hi: bool, v: Variant) -> Layout {
+    let r = 0.35;
+    let wb = 2.68;
+    let w = 2.08;
+    let rr = r + 0.07;
+    let a = wb / 2.0;
+    let (z0, z1) = (-2.28, 2.32);
+    let arches = arches2(a, r, rr);
+    let top: [P2; 8] = [
+        [-2.28, 0.76],
+        [-2.18, 0.92],
+        [-1.95, 0.95],
+        [-0.85, 0.96],
+        [0.95, 0.78],
+        [1.68, 0.61],
+        [2.15, 0.44],
+        [2.32, 0.34],
+    ];
+    let bot: [P2; 6] = [
+        [-2.28, 0.42],
+        [-2.16, 0.19],
+        [-1.8, 0.15],
+        [1.8, 0.15],
+        [2.2, 0.18],
+        [2.32, 0.24],
+    ];
+    let top_f = spline(&top);
+    let cab = (-0.95, 1.08);
+    let mut body = body_loft(
+        hi,
+        BodyOpts {
+            r_top: 0.08,
+            end_r: 0.26,
+            side: vec![0.48, 0.56, 0.64],
+            mat: Some(Box::new(move |tag, _y, z, ax| {
+                if tag == 0 {
+                    return "trim";
+                }
+                if hi && tag == 3 && in_range(z, cab.0 + 0.1, cab.1 - 0.18) && ax < 0.56 {
+                    return "trim";
+                }
+                if tag == 3 && in_range(z, -2.0, -1.05) && ax < 0.52 {
+                    return "trim";
+                }
+                "paint"
+            })),
+            ..BodyOpts::new(
+                z0,
+                z1,
+                &top,
+                &bot,
+                &arches,
+                Shaper {
+                    nose: 0.17,
+                    tail: 0.03,
+                    nose_len: 1.15,
+                    tail_len: 0.45,
+                    end_r: 0.26,
+                    tumble: 0.11,
+                    y0: 0.5,
+                    y1: 0.95,
+                    tuck: 0.055,
+                    hips: 0.065,
+                    hip_z: -a + 0.05,
+                    hip_w: 0.72,
+                    hip_y: [0.38, 0.86],
+                    crease: Some(Crease {
+                        y: 0.56,
+                        d: 0.028,
+                        h: 0.06,
+                    }),
+                    arches: arches.clone(),
+                    flare: 0.028,
+                    lip: 0.01,
+                    ..Shaper::new(w, z0, z1)
+                }
+                .build(),
+            )
+        },
+    );
+    p.add_all(geo(&mut body));
+    let s = &body.s;
+    let mut cabin = cabin_loft(
+        hi,
+        CabinOpts {
+            c_pillar: Some(-0.58),
+            pillars: "trim",
+            ..CabinOpts::new(
+                cab.0,
+                cab.1,
+                &[
+                    [-0.95, 0.95],
+                    [-0.42, 1.135],
+                    [0.0, 1.145],
+                    [0.28, 1.1],
+                    [1.08, 0.77],
+                ],
+                top_f.clone(),
+                hw2(|y, z| {
+                    0.76 * (1.0 - 0.26 * smooth(0.78, 1.145, y))
+                        * (1.0 - 0.08 * smooth(-0.35, -0.95, z))
+                }),
+                [-0.48, 0.08],
+            )
+        },
+    );
+    p.add_all(geo(&mut cabin));
+    let c = &cabin.s;
+    wheel_wells(p, &[a, -a], r, rr, w, hi);
+    let head = [[0.48, 2.08], [0.82, 2.04], [0.86, 1.78], [0.5, 1.84]];
+    lamp(
+        p,
+        s,
+        Top,
+        &head,
+        lamp_o("head", 0.12, if hi { 6 } else { 2 }, if hi { 3 } else { 1 }),
+    );
+    if hi {
+        dot(p, s, Top, 0.6, 1.94, 0.028, "head", dot_c(0.95));
+        dot(p, s, Top, 0.74, 1.91, 0.028, "head", dot_c(0.95));
+        // Deep lower and upper side radiator intakes behind the doors.
+        p.add0(
+            "trim",
+            decal(
+                s,
+                Side,
+                &[[-0.35, 0.34], [-0.92, 0.32], [-0.88, 0.74], [-0.3, 0.68]],
+                dd(0.003, 4, 2, true, 0.35),
+            ),
+        );
+        dlo(p, c, &top_f, 0.78, -0.85, DloOpts::default());
+        interior(
+            p,
+            InteriorOpts {
+                seat: Seat::Rgb([5.2, 4.8, 4.2]),
+                ..InteriorOpts::new(-0.38, 1.06, 0.45, 0.88)
+            },
+        );
+    }
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Front,
+            &[[-0.84, 0.18], [0.84, 0.18], [0.88, 0.31], [-0.88, 0.31]],
+            dd(0.003, 6, 1, false, 0.45),
+        ),
+    );
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Rear,
+            &[[-0.94, 0.62], [0.94, 0.62], [0.94, 0.86], [-0.94, 0.86]],
+            dd(0.003, 6, 1, false, 0.7),
+        ),
+    );
+    for x in [0.6, 0.8] {
+        p.add0(
+            "tail",
+            decal(
+                s,
+                Rear,
+                &ellipse(x, 0.75, 0.075, 0.075, if hi { 14 } else { 8 }),
+                dd(0.006, 2, 2, true, 0.6),
+            ),
+        );
+    }
+    p.box_("plate", 0.5, 0.12, 0.02, [0.0, 0.5, -2.285], R0, None);
+    if v.spoiler {
+        wing(
+            p,
+            hi,
+            WingOpts {
+                span: 1.92,
+                chord: 0.34,
+                thick: 0.1,
+                y: 1.14,
+                z: -2.04,
+                pitch: -0.1,
+                bucket: "paint",
+                plate_h: 0.2,
+                uprights: vec![0.72],
+                base_y: 0.92,
+            },
+        );
+    }
+    mirrors(
+        p,
+        hi,
+        MirrorOpts {
+            w: 0.16,
+            h: 0.08,
+            d: 0.14,
+            base: 0.82,
+            ..MirrorOpts::at(1.01, 0.9, 0.74)
+        },
+    );
+    tip(p, hi, 0.24, 0.3, -2.24, 0.05, 0.14, true, 0.9);
+    tip(p, hi, 0.12, 0.3, -2.24, 0.05, 0.14, true, 0.9);
+    Layout {
+        dims: dims(4.6, w, 1.15, r, wb, 1.74),
+        wheels: WheelLayout {
+            dish: Some(0.06),
+            rim_mat: Some(RimMat::Chrome),
+            caliper: Some(1),
+            ..WheelLayout::new(r, 0.32, 1.74, a, 0.7, 5.0, WheelType::Spoke)
+        },
+        head: [0.0, 0.5, 2.26],
+        exhausts: vec![[0.18, 0.3, -2.35], [-0.18, 0.3, -2.35]],
+        siren: None,
+    }
+}
+
+// Open-roof mid-engine V10 analog supercar (Mirage V10, Carrera GT inspired):
+// low sculpted nose, open targa cockpit, twin perforated mesh engine-cover
+// humps, high twin exhaust pipes in the rear grille, and deployed rear wing.
+fn cgt(p: &mut Parts, hi: bool, v: Variant) -> Layout {
+    let r = 0.35;
+    let wb = 2.72;
+    let w = 1.98;
+    let rr = r + 0.07;
+    let a = wb / 2.0;
+    let (z0, z1) = (-2.29, 2.33);
+    let arches = arches2(a, r, rr);
+    let top: [P2; 8] = [
+        [-2.29, 0.72],
+        [-2.18, 0.88],
+        [-1.9, 0.91],
+        [-0.8, 0.91],
+        [0.9, 0.8],
+        [1.65, 0.65],
+        [2.12, 0.48],
+        [2.33, 0.36],
+    ];
+    let bot: [P2; 6] = [
+        [-2.29, 0.42],
+        [-2.18, 0.2],
+        [-1.82, 0.16],
+        [1.82, 0.16],
+        [2.2, 0.19],
+        [2.33, 0.26],
+    ];
+    let top_f = spline(&top);
+    let mut body = body_loft(
+        hi,
+        BodyOpts {
+            r_top: 0.12,
+            end_r: 0.3,
+            side: vec![0.5, 0.58, 0.66],
+            mat: Some(Box::new(move |tag, _y, z, ax| {
+                if tag == 0 {
+                    return "trim";
+                }
+                if tag == 3 && in_range(z, -0.58, 0.48) && ax < 0.6 {
+                    return "trim"; // open targa cockpit
+                }
+                "paint"
+            })),
+            ..BodyOpts::new(
+                z0,
+                z1,
+                &top,
+                &bot,
+                &arches,
+                Shaper {
+                    nose: 0.14,
+                    tail: 0.05,
+                    nose_len: 1.0,
+                    tail_len: 0.55,
+                    end_r: 0.3,
+                    tumble: 0.09,
+                    y0: 0.52,
+                    y1: 0.91,
+                    tuck: 0.06,
+                    hips: 0.055,
+                    hip_z: -a + 0.08,
+                    hip_w: 0.65,
+                    hip_y: [0.4, 0.84],
+                    crease: Some(Crease {
+                        y: 0.56,
+                        d: 0.025,
+                        h: 0.06,
+                    }),
+                    arches: arches.clone(),
+                    flare: 0.025,
+                    lip: 0.009,
+                    ..Shaper::new(w, z0, z1)
+                }
+                .build(),
+            )
+        },
+    );
+    p.add_all(geo(&mut body));
+    let s = &body.s;
+    let mut screen = cabin_loft(
+        hi,
+        CabinOpts {
+            pillars: "trim",
+            mat: Some(Box::new(
+                |tag, _y, _z, _ax| {
+                    if tag == 2 { "trim" } else { "glass" }
+                },
+            )),
+            ..CabinOpts::new(
+                0.2,
+                1.04,
+                &[[0.2, 1.165], [0.38, 1.13], [1.04, 0.79]],
+                top_f.clone(),
+                hw2(|y, _| 0.74 * (1.0 - 0.22 * smooth(0.8, 1.165, y))),
+                [0.22, 0.36],
+            )
+        },
+    );
+    p.add_all(geo(&mut screen));
+    // Twin sculpted engine-cover humps with dark stainless mesh inserts.
+    p.pair(
+        "paint",
+        || {
+            sweep(
+                &[[-1.85, 0.9], [-0.58, 0.9], [-0.66, 1.12], [-1.72, 0.94]],
+                Axis::X,
+                -0.22,
+                0.22,
+                1,
+            )
+        },
+        0.36,
+        0.0,
+        0.0,
+        R0,
+        None,
+    );
+    p.pair(
+        "trim",
+        || {
+            sweep(
+                &[[-1.68, 0.95], [-0.74, 0.95], [-0.8, 1.09], [-1.58, 0.96]],
+                Axis::X,
+                -0.14,
+                0.14,
+                1,
+            )
+        },
+        0.36,
+        0.0,
+        0.0,
+        R0,
+        None,
+    );
+    wheel_wells(p, &[a, -a], r, rr, w, hi);
+    let head = [[0.52, 2.12], [0.78, 2.0], [0.84, 1.76], [0.58, 1.88]];
+    lamp(
+        p,
+        s,
+        Top,
+        &head,
+        lamp_o("head", 0.14, if hi { 7 } else { 2 }, if hi { 4 } else { 1 }),
+    );
+    if hi {
+        dot(p, s, Top, 0.66, 1.96, 0.032, "head", dot_c(0.95));
+        dot(p, s, Top, 0.74, 1.86, 0.026, "head", dot_c(0.9));
+        p.add0(
+            "trim",
+            decal(
+                s,
+                Side,
+                &[[-0.32, 0.36], [-0.82, 0.34], [-0.76, 0.76], [-0.28, 0.7]],
+                dd(0.003, 4, 2, true, 0.4),
+            ),
+        );
+        interior(
+            p,
+            InteriorOpts {
+                seat: Seat::Rgb([2.8, 1.6, 0.9]),
+                ..InteriorOpts::new(-0.34, 1.08, 0.44, 0.88)
+            },
+        );
+    }
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Front,
+            &[[-0.76, 0.18], [0.76, 0.18], [0.8, 0.32], [-0.8, 0.32]],
+            dd(0.003, 6, 1, false, 0.45),
+        ),
+    );
+    let tl = [[0.52, 0.7], [0.86, 0.68], [0.86, 0.82], [0.56, 0.82]];
+    lamp(
+        p,
+        s,
+        Rear,
+        &tl,
+        lamp_o("tail", 0.2, if hi { 5 } else { 2 }, 2),
+    );
+    p.add0(
+        "trim",
+        decal(
+            s,
+            Rear,
+            &[[-0.5, 0.64], [0.5, 0.64], [0.5, 0.82], [-0.5, 0.82]],
+            dd(0.003, 4, 1, false, 0.55),
+        ),
+    );
+    p.box_("plate", 0.48, 0.11, 0.02, [0.0, 0.48, -2.295], R0, None);
+    if v.spoiler {
+        wing(
+            p,
+            hi,
+            WingOpts {
+                span: 1.56,
+                chord: 0.28,
+                thick: 0.09,
+                y: 1.05,
+                z: -2.06,
+                pitch: -0.1,
+                bucket: "carbon",
+                plate_h: 0.1,
+                uprights: vec![0.44],
+                base_y: 0.89,
+            },
+        );
+    }
+    mirrors(
+        p,
+        hi,
+        MirrorOpts {
+            shell: "carbon",
+            base: 0.78,
+            ..MirrorOpts::at(0.96, 0.91, 0.68)
+        },
+    );
+    // High twin exhaust cannons set in the rear mesh between the lamps.
+    tip(p, hi, 0.26, 0.72, -2.24, 0.056, 0.12, true, 1.0);
+    Layout {
+        dims: dims(4.62, w, 1.17, r, wb, 1.68),
+        wheels: WheelLayout {
+            caliper: Some(2),
+            ..WheelLayout::new(r, 0.3, 1.68, a, 0.72, 5.0, WheelType::Split)
+        },
+        head: [0.0, 0.54, 2.26],
+        exhausts: vec![[0.26, 0.72, -2.35], [-0.26, 0.72, -2.35]],
+        siren: None,
+    }
+}
+
+// Track-tuned dual-motor Hyper EV (Volt RS): low fastback teardrop canopy,
+// cyan boost-flaring light blades ("accent"), active carbon aero and aero rims.
+fn volt(p: &mut Parts, hi: bool, v: Variant) -> Layout {
+    let r = 0.36;
+    let wb = 2.86;
+    let w = 2.0;
+    let rr = r + 0.065;
+    let a = wb / 2.0;
+    let arches = arches2(a, r, rr);
+    let (z0, z1) = (-2.33, 2.35);
+    let top: [P2; 9] = [
+        [-2.33, 0.66],
+        [-2.24, 0.87],
+        [-2.05, 0.91],
+        [-1.35, 0.92],
+        [0.9, 0.86],
+        [1.55, 0.76],
+        [2.05, 0.62],
+        [2.26, 0.5],
+        [2.35, 0.38],
+    ];
+    let bot: [P2; 6] = [
+        [-2.33, 0.4],
+        [-2.22, 0.22],
+        [-1.9, 0.16],
+        [1.9, 0.16],
+        [2.24, 0.19],
+        [2.35, 0.28],
+    ];
+    let top_f = spline(&top);
+    let cab = (-1.88, 1.04);
+    let mut body = body_loft(
+        hi,
+        BodyOpts {
+            r_top: 0.13,
+            crown: 0.03,
+            end_r: 0.3,
+            side: vec![0.5, 0.58, 0.64],
+            mat: Some(Box::new(move |tag, _y, z, ax| {
+                if tag == 0 {
+                    return "trim";
+                }
+                if hi && tag == 3 && in_range(z, cab.0 + 0.14, cab.1 - 0.14) && ax < 0.62 {
+                    return "trim";
+                }
+                "paint"
+            })),
+            ..BodyOpts::new(
+                z0,
+                z1,
+                &top,
+                &bot,
+                &arches,
+                Shaper {
+                    nose: 0.15,
+                    tail: 0.06,
+                    nose_len: 1.0,
+                    tail_len: 0.75,
+                    end_r: 0.3,
+                    tumble: 0.085,
+                    y0: 0.58,
+                    y1: 0.9,
+                    tuck: 0.06,
+                    hips: 0.05,
+                    hip_z: -a,
+                    hip_w: 0.66,
+                    hip_y: [0.44, 0.8],
+                    crease: Some(Crease {
+                        y: 0.58,
+                        d: 0.02,
+                        h: 0.06,
+                    }),
+                    arches: arches.clone(),
+                    flare: 0.022,
+                    lip: 0.008,
+                    ..Shaper::new(w, z0, z1)
+                }
+                .build(),
+            )
+        },
+    );
+    p.add_all(geo(&mut body));
+    let s = &body.s;
+    let mut cabin = cabin_loft(
+        hi,
+        CabinOpts {
+            b_pillar: Some([-0.46, -0.38]),
+            mat: Some(Box::new(|tag, _y, z, _ax| {
+                if tag == 2 || (tag != 3 && in_range(z, -0.46, -0.38)) {
+                    "trim"
+                } else {
+                    "glass"
+                }
+            })),
+            ..CabinOpts::new(
+                cab.0,
+                cab.1,
+                &[
+                    [-1.88, 0.91],
+                    [-1.25, 1.12],
+                    [-0.6, 1.23],
+                    [-0.08, 1.235],
+                    [0.32, 1.19],
+                    [1.04, 0.85],
+                ],
+                top_f.clone(),
+                hw2(|y, z| {
+                    0.75 * (1.0 - 0.23 * smooth(0.88, 1.235, y))
+                        * (1.0 - 0.1 * smooth(-0.85, -1.88, z))
+                }),
+                [-1.25, 0.28],
+            )
+        },
+    );
+    p.add_all(geo(&mut cabin));
+    let c = &cabin.s;
+    wheel_wells(p, &[a, -a], r, rr, w, hi);
+    let head = [[0.48, 2.18], [0.8, 2.06], [0.86, 1.9], [0.52, 2.04]];
+    lamp(
+        p,
+        s,
+        Top,
+        &head,
+        lamp_o("head", 0.08, if hi { 7 } else { 2 }, if hi { 3 } else { 1 }),
+    );
+    p.pair("accent", bx(0.28, 0.022, 0.04), 0.52, 0.34, 2.31, R0, None);
+    p.pair("accent", bx(0.014, 0.02, 1.95), 0.975, 0.28, 0.0, R0, None);
+    p.box_("accent", 1.44, 0.024, 0.04, [0.0, 0.29, -2.3], R0, None);
+    if hi {
+        glow(
+            p,
+            s,
+            Top,
+            &[[0.5, 2.14], [0.83, 1.94]],
+            0.014,
+            "head",
+            GlowOpts::default(),
+        );
+        dlo(
+            p,
+            c,
+            &top_f,
+            0.86,
+            -1.72,
+            DloOpts {
+                rear: false,
+                ..DloOpts::default()
+            },
+        );
+        interior(
+            p,
+            InteriorOpts {
+                seat: Seat::Rgb([1.4, 2.2, 2.8]),
+                ..InteriorOpts::new(-0.38, 1.12, 0.44, 0.92)
+            },
+        );
+    }
+    p.add0(
+        "tail",
+        decal(
+            s,
+            Rear,
+            &[[-0.9, 0.72], [0.9, 0.72], [0.9, 0.81], [-0.9, 0.81]],
+            dd(0.005, if hi { 8 } else { 2 }, 1, false, 0.85),
+        ),
+    );
+    p.box_("plate", 0.46, 0.11, 0.02, [0.0, 0.5, -2.335], R0, None);
+    if v.spoiler {
+        wing(
+            p,
+            hi,
+            WingOpts {
+                span: 1.74,
+                chord: 0.26,
+                thick: 0.08,
+                y: 1.07,
+                z: -2.08,
+                pitch: -0.09,
+                bucket: "carbon",
+                plate_h: 0.12,
+                uprights: vec![0.52],
+                base_y: 0.9,
+            },
+        );
+    }
+    mirrors(
+        p,
+        hi,
+        MirrorOpts {
+            shell: "carbon",
+            base: 0.76,
+            ..MirrorOpts::at(0.95, 0.94, 0.72)
+        },
+    );
+    Layout {
+        dims: dims(4.68, w, 1.24, r, wb, 1.7),
+        wheels: WheelLayout {
+            rim_mat: Some(RimMat::Aero),
+            caliper: Some(2),
+            ..WheelLayout::new(r, 0.3, 1.7, a, 0.74, 0.0, WheelType::Aero)
+        },
+        head: [0.0, 0.56, 2.28],
+        exhausts: Vec::new(),
+        siren: None,
     }
 }

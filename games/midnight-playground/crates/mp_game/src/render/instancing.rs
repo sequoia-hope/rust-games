@@ -244,7 +244,7 @@ pub fn sphere_to_world(m: &DMat4, centre: DVec3, radius: f64) -> (DVec3, f64) {
 #[derive(Resource, Default)]
 pub struct InstanceStreams(MainEntityHashMap<(Buffer, u32)>);
 
-fn extract_instances(
+pub(crate) fn extract_instances(
     mut streams: ResMut<InstanceStreams>,
     device: Res<RenderDevice>,
     q: Extract<Query<(Entity, &Instances)>>,

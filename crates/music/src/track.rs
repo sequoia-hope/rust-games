@@ -202,6 +202,9 @@ lab_nums! {
     strings: "strings", spread: "spread", dry: "dry",
     chorus_ms: "chorusMs", chorus_lp: "chorusLp", chorus_hp: "chorusHp",
     slope: "slope", sync: "sync", fm_mod: "fmMod", lfo_cut: "lfoCut",
+    hammer: "hammer", inharm: "inharm", decay_key: "decayKey", jack: "jack",
+    body3: "body3", body3_q: "body3Q", body3_mix: "body3Mix",
+    reed: "reed", breath: "breath", morph: "morph",
 }
 
 /// A part's mixer channel (`part.ch`, `engine.js` `Channel`).

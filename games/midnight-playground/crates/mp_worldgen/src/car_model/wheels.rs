@@ -42,6 +42,7 @@ pub enum RimMat {
     Aero,
     Tractor,
     Dark,
+    Gold,
 }
 
 /// The front wheels, where they differ (`front: { r, w, track }`).
